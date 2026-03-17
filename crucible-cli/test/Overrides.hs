@@ -15,6 +15,7 @@ import Control.Lens hiding ((:>), Empty)
 import Control.Monad.Except (runExceptT)
 import Control.Monad.IO.Class
 import qualified Control.Monad.State.Strict as State
+import Data.Monoid (All(..))
 import System.IO
 
 import qualified Prettyprinter as PP
@@ -23,13 +24,18 @@ import qualified Prettyprinter.Render.Text as PP
 import Data.Parameterized.Context hiding (view)
 import qualified Data.Parameterized.Map as MapF
 
+import qualified Prettyprinter as PP
+import qualified Prettyprinter.Render.Text as PP
+
 import qualified What4.Concretize as WC
 import What4.Expr.Builder
 import What4.Interface
 import What4.ProgramLoc
 import qualified What4.Protocol.Online as WPO
+import qualified What4.ProblemFeatures as WPF
 import What4.Solver (LogData(..), defaultLogData)
 import What4.Solver.Z3 (z3Adapter)
+import qualified What4.Solver.Z3 as Z3
 
 import Lang.Crucible.Backend
 import qualified Lang.Crucible.Backend as CB
@@ -69,7 +75,11 @@ setupOverrides bak ha =
                      <*> pure (UseOverride (mkOverride "proveObligations" (proveObligations (Just sym))))
      f6 <- FnBinding <$> mkHandle ha "crucible-print-assumption-state"
                      <*> pure (UseOverride (mkOverride "crucible-print-assumption-state" (printAssumptionState (Just sym))))
-     return [(f1, InternalPos),(f2,InternalPos),(f3,InternalPos),(f4,InternalPos),(f5,InternalPos),(f6,InternalPos)]
+     f7 <- FnBinding <$> mkHandle ha "prove-offline"
+                     <*> pure (UseOverride (mkOverride "prove-offline" (proveOffline (Just sym))))
+     f8 <- FnBinding <$> mkHandle ha "prove-online"
+                     <*> pure (UseOverride (mkOverride "prove-online" (proveOnline bak (Just sym))))
+     return [(f1, InternalPos),(f2,InternalPos),(f3,InternalPos),(f4,InternalPos),(f5,InternalPos),(f6,InternalPos),(f7,InternalPos),(f8,InternalPos)]
 
 
 -- Test the @symbolicBranch@ override operation.
@@ -165,6 +175,25 @@ nondetBranchesTest _proxy =
        , (fallbackPred, fallback, Just (OtherPos "default branch"))
        ]
 
+-- | Common helper for proving obligations with an offline prover
+proveObligationsOfflineWith ::
+  (IsSymBackend sym bak, sym ~ (ExprBuilder t st fs), Monoid a) =>
+  sym ->
+  bak ->
+  LogData ->
+  CB.ProofConsumer sym t a ->
+  (CTO.TimedOut -> IO a) ->
+  IO a
+proveObligationsOfflineWith sym bak logData consumer onTimeout = do
+  let timeout = CTO.Timeout (Sec.secondsFromInt 5)
+  let prover = CB.offlineProver timeout sym logData z3Adapter
+  let strat = CB.ProofStrategy prover CB.keepGoing
+  result <- runExceptT (CB.proveCurrentObligations bak strat consumer)
+  clearProofObligations bak
+  case result of
+    Left CTO.TimedOut -> onTimeout CTO.TimedOut
+    Right a -> pure a
+
 -- | Prove all outstanding proof obligations
 proveObligations :: (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
   proxy sym ->
@@ -175,24 +204,16 @@ proveObligations _proxy =
      h <- printHandle <$> getContext
      liftIO $ do
        hPutStrLn h "Attempting to prove all outstanding obligations!\n"
-
        let logData = defaultLogData { logCallbackVerbose = \_ -> hPutStrLn h
                                     , logReason = "assertion proof" }
-       let timeout = CTO.Timeout (Sec.secondsFromInt 5)
-       let prover = CB.offlineProver timeout sym logData z3Adapter
-       let strat = CB.ProofStrategy prover CB.keepGoing
        let ppResult o =
              \case
                CB.Proved {}  -> unlines ["Proof Succeeded!", show $ ppSimError (proofGoal o ^. labeledPredMsg)]
                CB.Disproved {} -> unlines ["Proof failed!", show $ ppSimError (proofGoal o ^. labeledPredMsg)]
                CB.Unknown {} -> unlines ["Proof inconclusive!", show $ ppSimError (proofGoal o ^. labeledPredMsg)]
        let printer = CB.ProofConsumer $ \o r -> hPutStrLn h (ppResult o r)
-       runExceptT (CB.proveCurrentObligations bak strat printer) >>=
-         \case
-           Left CTO.TimedOut -> hPutStrLn h "Proof timed out!"
-           Right () -> pure ()
-
-       clearProofObligations bak
+       let onTimeout _ = hPutStrLn h "Proof timed out!"
+       proveObligationsOfflineWith sym bak logData printer onTimeout
 
 -- | Print the current assumption state
 printAssumptionState ::
@@ -207,3 +228,53 @@ printAssumptionState _proxy = do
     let sym = CB.backendGetSym bak
     state <- getBackendState bak
     render (ppAssumptionState (Just sym) state)
+
+-- | Prove all outstanding proof obligations using an offline prover and return Bool
+proveOffline :: (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
+  proxy sym ->
+  OverrideSim p sym ext r EmptyCtx BoolType (RegValue sym BoolType)
+proveOffline _proxy =
+  ovrWithBackend $ \bak -> do
+    let sym = backendGetSym bak
+    allProvedAll <- liftIO $ do
+      let logData = defaultLogData { logCallbackVerbose = \_ _ -> return ()
+                                   , logReason = "assertion proof" }
+      let checker = CB.ProofConsumer $ \_ r ->
+            case r of
+              CB.Proved {} -> pure (All True)
+              CB.Disproved {} -> pure (All False)
+              CB.Unknown {} -> pure (All False)
+      let onTimeout _ = pure (All False)
+      proveObligationsOfflineWith sym bak logData checker onTimeout
+    let allProved = getAll allProvedAll
+    if allProved
+      then return (truePred sym)
+      else return (falsePred sym)
+
+-- | Prove all outstanding proof obligations using an online prover and return Bool
+proveOnline ::
+  ( IsSymInterface sym
+  , sym ~ (ExprBuilder t st fs)
+  , bak ~ CBO.OnlineBackend solver t st fs
+  , WPO.OnlineSolver solver
+  ) =>
+  bak ->
+  proxy sym ->
+  OverrideSim p sym ext r EmptyCtx BoolType (RegValue sym BoolType)
+proveOnline bak _proxy = do
+  let sym = backendGetSym bak
+  allProvedAll <- liftIO $ do
+    CBO.withSolverProcess bak (pure (All False)) $ \sp -> do
+      let prover = CB.onlineProver sym sp
+      let strat = CB.ProofStrategy prover CB.keepGoing
+      let checker = CB.ProofConsumer $ \_ r ->
+            case r of
+              CB.Proved {} -> pure (All True)
+              CB.Disproved {} -> pure (All False)
+              CB.Unknown {} -> pure (All False)
+      CB.proveCurrentObligations bak strat checker
+  liftIO $ clearProofObligations bak
+  let allProved = getAll allProvedAll
+  if allProved
+    then return (truePred sym)
+    else return (falsePred sym)
