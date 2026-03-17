@@ -24,7 +24,6 @@ import Lang.Crucible.Simulator.ExecutionTree
 import Lang.Crucible.Simulator.GlobalState (SymGlobalState, insertGlobal)
 import Lang.Crucible.Simulator.OverrideSim
 import Lang.Crucible.Syntax.Atoms (GlobalName(..))
-import Lang.Crucible.Syntax.Overrides as SyntaxOvrs
 import Lang.Crucible.Types
 import Lang.Crucible.CFG.Common (GlobalVar(..))
 
@@ -39,7 +38,7 @@ import What4.Solver.Z3 (z3Options)
 
 import Lang.Crucible.CLI
 
-import Overrides as TestOvrs
+import Overrides
 
 main :: IO ()
 main = do
@@ -74,12 +73,9 @@ testSimulator :: FilePath -> FilePath -> IO ()
 testSimulator inFile outFile =
   do contents <- T.readFile inFile
      IO.withFile outFile IO.WriteMode $ \outh -> do
-       let hooks = 
+       let hooks =
              defaultSimulateProgramHooks
-               { setupOverridesHook =  \bak ha ->
-                   do os1 <- SyntaxOvrs.setupOverrides bak ha
-                      os2 <- TestOvrs.setupOverrides bak ha
-                      return $ concat [os1,os2]
+               { setupOverridesHook = Overrides.setupOverrides
                }
        simulateProgram inFile contents outh Nothing testOptions hooks False []
 

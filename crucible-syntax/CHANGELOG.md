@@ -1,5 +1,10 @@
 # next
 
+* The `Lang.Crucible.Syntax.Overrides` module has been removed from this library,
+  as the overrides it provided (`proveObligations` and `crucible-print-assumption-state`)
+  were only used in the `crucible-cli` test suite. These overrides have been moved to
+  the `crucible-cli` test suite to avoid compiling test-specific code in the library.
+
 # 0.5 -- 2025-11-09
 
 * Add `parsedProgramFnBindings` to a new module,
