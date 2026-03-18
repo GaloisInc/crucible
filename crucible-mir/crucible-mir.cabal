@@ -144,6 +144,7 @@ library
                    Mir.FancyMuxTree
                    Mir.Intrinsics
                    Mir.Intrinsics.Aggregate
+                   Mir.Intrinsics.Enum
                    Mir.Intrinsics.Size
                    Mir.TransTy
                    Mir.Trans
