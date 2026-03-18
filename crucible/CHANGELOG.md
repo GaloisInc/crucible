@@ -1,7 +1,8 @@
 # next
 
-* Add `withStateBackend` and additional infrastructure for including stack 
+* Add `withStateBackend` and additional infrastructure for including stack
   traces in `SimError` and `IsSymBackend`
+* Fix `onlineProve` to properly negate goals before checking satisfiability
 
 # 0.9 -- 2026-01-29
 

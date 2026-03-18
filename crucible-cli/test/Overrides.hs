@@ -3,6 +3,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -15,6 +16,7 @@ import Control.Lens hiding ((:>), Empty)
 import Control.Monad.Except (runExceptT)
 import Control.Monad.IO.Class
 import qualified Control.Monad.State.Strict as State
+import Data.Monoid (All(..))
 import System.IO
 
 import qualified Prettyprinter as PP
@@ -25,6 +27,7 @@ import qualified Data.Parameterized.Map as MapF
 
 import qualified What4.Concretize as WC
 import What4.Expr.Builder
+import What4.FunctionName (FunctionName)
 import What4.Interface
 import What4.ProgramLoc
 import qualified What4.Protocol.Online as WPO
@@ -44,6 +47,20 @@ import qualified Lang.Crucible.Utils.Seconds as Sec
 import qualified Lang.Crucible.Utils.Timeout as CTO
 
 
+-- | Helper to create a function binding with InternalPos
+mkOverrideBinding ::
+  ( KnownCtx TypeRepr args
+  , KnownRepr TypeRepr ret
+  ) =>
+  HandleAllocator ->
+  FunctionName ->
+  (forall r. OverrideSim p sym ext r args ret (RegValue sym ret)) ->
+  IO (FnBinding p sym ext, Position)
+mkOverrideBinding ha name override = do
+  fnBinding <- FnBinding <$> mkHandle ha name
+                         <*> pure (UseOverride (mkOverride name override))
+  return (fnBinding, InternalPos)
+
 -- | Set up all test overrides
 setupOverrides ::
   ( IsSymBackend sym bak
@@ -57,19 +74,16 @@ setupOverrides ::
   IO [(FnBinding p sym ext, Position)]
 setupOverrides bak ha =
   do let sym = backendGetSym bak
-     f1 <- FnBinding <$> mkHandle ha "symbolicBranchTest"
-                     <*> pure (UseOverride (mkOverride "symbolicBranchTest" symbolicBranchTest))
-     f2 <- FnBinding <$> mkHandle ha "symbolicBranchesTest"
-                     <*> pure (UseOverride (mkOverride "symbolicBranchesTest" symbolicBranchesTest))
-     f3 <- FnBinding <$> mkHandle ha "nondetBranchesTest"
-                     <*> pure (UseOverride (mkOverride "nondetBranchesTest" (nondetBranchesTest (Just sym))))
-     f4 <- FnBinding <$> mkHandle ha "concBool"
-                     <*> pure (UseOverride (mkOverride "concBool" (concBool bak)))
-     f5 <- FnBinding <$> mkHandle ha "proveObligations"
-                     <*> pure (UseOverride (mkOverride "proveObligations" (proveObligations (Just sym))))
-     f6 <- FnBinding <$> mkHandle ha "crucible-print-assumption-state"
-                     <*> pure (UseOverride (mkOverride "crucible-print-assumption-state" (printAssumptionState (Just sym))))
-     return [(f1, InternalPos),(f2,InternalPos),(f3,InternalPos),(f4,InternalPos),(f5,InternalPos),(f6,InternalPos)]
+     sequence
+       [ mkOverrideBinding ha "symbolicBranchTest" symbolicBranchTest
+       , mkOverrideBinding ha "symbolicBranchesTest" symbolicBranchesTest
+       , mkOverrideBinding ha "nondetBranchesTest" (nondetBranchesTest (Just sym))
+       , mkOverrideBinding ha "concBool" (concBool bak)
+       , mkOverrideBinding ha "proveObligations" (proveObligations (Just sym))
+       , mkOverrideBinding ha "crucible-print-assumption-state" (printAssumptionState (Just sym))
+       , mkOverrideBinding ha "prove-offline" (proveOffline (Just sym))
+       , mkOverrideBinding ha "prove-online" (proveOnline bak (Just sym))
+       ]
 
 
 -- Test the @symbolicBranch@ override operation.
@@ -165,6 +179,28 @@ nondetBranchesTest _proxy =
        , (fallbackPred, fallback, Just (OtherPos "default branch"))
        ]
 
+-- | Common helper for proving obligations with an offline prover
+proveObligationsOfflineWith ::
+  ( IsSymBackend sym bak
+  , sym ~ ExprBuilder t st fs
+  , Monoid a
+  ) =>
+  sym ->
+  bak ->
+  LogData ->
+  CB.ProofConsumer sym t a ->
+  (CTO.TimedOut -> IO a) ->
+  IO a
+proveObligationsOfflineWith sym bak logData consumer onTimeout = do
+  let timeout = CTO.Timeout (Sec.secondsFromInt 5)
+  let prover = CB.offlineProver timeout sym logData z3Adapter
+  let strat = CB.ProofStrategy prover CB.keepGoing
+  result <- runExceptT (CB.proveCurrentObligations bak strat consumer)
+  clearProofObligations bak
+  case result of
+    Left CTO.TimedOut -> onTimeout CTO.TimedOut
+    Right a -> pure a
+
 -- | Prove all outstanding proof obligations
 proveObligations :: (IsSymInterface sym, sym ~ (ExprBuilder t st fs)) =>
   proxy sym ->
@@ -175,24 +211,16 @@ proveObligations _proxy =
      h <- printHandle <$> getContext
      liftIO $ do
        hPutStrLn h "Attempting to prove all outstanding obligations!\n"
-
        let logData = defaultLogData { logCallbackVerbose = \_ -> hPutStrLn h
                                     , logReason = "assertion proof" }
-       let timeout = CTO.Timeout (Sec.secondsFromInt 5)
-       let prover = CB.offlineProver timeout sym logData z3Adapter
-       let strat = CB.ProofStrategy prover CB.keepGoing
        let ppResult o =
              \case
                CB.Proved {}  -> unlines ["Proof Succeeded!", show $ ppSimError (proofGoal o ^. labeledPredMsg)]
                CB.Disproved {} -> unlines ["Proof failed!", show $ ppSimError (proofGoal o ^. labeledPredMsg)]
                CB.Unknown {} -> unlines ["Proof inconclusive!", show $ ppSimError (proofGoal o ^. labeledPredMsg)]
        let printer = CB.ProofConsumer $ \o r -> hPutStrLn h (ppResult o r)
-       runExceptT (CB.proveCurrentObligations bak strat printer) >>=
-         \case
-           Left CTO.TimedOut -> hPutStrLn h "Proof timed out!"
-           Right () -> pure ()
-
-       clearProofObligations bak
+       let onTimeout _ = hPutStrLn h "Proof timed out!"
+       proveObligationsOfflineWith sym bak logData printer onTimeout
 
 -- | Print the current assumption state
 printAssumptionState ::
@@ -207,3 +235,60 @@ printAssumptionState _proxy = do
     let sym = CB.backendGetSym bak
     state <- getBackendState bak
     render (ppAssumptionState (Just sym) state)
+
+-- | Helper, not exported
+proveChecker :: CB.ProofConsumer sym t All
+proveChecker = CB.ProofConsumer $ \_ r ->
+  case r of
+    CB.Proved {} -> pure (All True)
+    CB.Disproved {} -> pure (All False)
+    CB.Unknown {} -> pure (All False)
+
+-- | Helper, not exported
+proveObligationsAndReturnBool ::
+  IsSymBackend sym bak =>
+  bak ->
+  IO All ->
+  OverrideSim p sym ext r EmptyCtx BoolType (RegValue sym BoolType)
+proveObligationsAndReturnBool bak proveAction = do
+  let sym = backendGetSym bak
+  allProvedAll <- liftIO proveAction
+  liftIO $ clearProofObligations bak
+  let allProved = getAll allProvedAll
+  if allProved
+    then return (truePred sym)
+    else return (falsePred sym)
+
+-- | Prove all outstanding proof obligations using an offline prover and return Bool
+proveOffline ::
+  ( IsSymInterface sym
+  , sym ~ ExprBuilder t st fs
+  ) =>
+  proxy sym ->
+  OverrideSim p sym ext r EmptyCtx BoolType (RegValue sym BoolType)
+proveOffline _proxy =
+  ovrWithBackend $ \bak ->
+    proveObligationsAndReturnBool bak $ do
+      let sym = backendGetSym bak
+      let logData = defaultLogData { logCallbackVerbose = \_ _ -> return ()
+                                   , logReason = "assertion proof" }
+      let onTimeout _ = pure (All False)
+      proveObligationsOfflineWith sym bak logData proveChecker onTimeout
+
+-- | Prove all outstanding proof obligations using an online prover and return Bool
+proveOnline ::
+  ( IsSymInterface sym
+  , sym ~ ExprBuilder t st fs
+  , bak ~ CBO.OnlineBackend solver t st fs
+  , WPO.OnlineSolver solver
+  ) =>
+  bak ->
+  proxy sym ->
+  OverrideSim p sym ext r EmptyCtx BoolType (RegValue sym BoolType)
+proveOnline bak _proxy =
+  proveObligationsAndReturnBool bak $
+    CBO.withSolverProcess bak (pure (All False)) $ \sp -> do
+      let sym = backendGetSym bak
+      let prover = CB.onlineProver sym sp
+      let strat = CB.ProofStrategy prover CB.keepGoing
+      CB.proveCurrentObligations bak strat proveChecker
