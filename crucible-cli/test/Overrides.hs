@@ -3,6 +3,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
@@ -26,6 +27,7 @@ import qualified Data.Parameterized.Map as MapF
 
 import qualified What4.Concretize as WC
 import What4.Expr.Builder
+import What4.FunctionName (FunctionName)
 import What4.Interface
 import What4.ProgramLoc
 import qualified What4.Protocol.Online as WPO
@@ -45,6 +47,20 @@ import qualified Lang.Crucible.Utils.Seconds as Sec
 import qualified Lang.Crucible.Utils.Timeout as CTO
 
 
+-- | Helper to create a function binding with InternalPos
+mkOverrideBinding ::
+  ( KnownCtx TypeRepr args
+  , KnownRepr TypeRepr ret
+  ) =>
+  HandleAllocator ->
+  FunctionName ->
+  (forall r. OverrideSim p sym ext r args ret (RegValue sym ret)) ->
+  IO (FnBinding p sym ext, Position)
+mkOverrideBinding ha name override = do
+  fnBinding <- FnBinding <$> mkHandle ha name
+                         <*> pure (UseOverride (mkOverride name override))
+  return (fnBinding, InternalPos)
+
 -- | Set up all test overrides
 setupOverrides ::
   ( IsSymBackend sym bak
@@ -58,23 +74,16 @@ setupOverrides ::
   IO [(FnBinding p sym ext, Position)]
 setupOverrides bak ha =
   do let sym = backendGetSym bak
-     f1 <- FnBinding <$> mkHandle ha "symbolicBranchTest"
-                     <*> pure (UseOverride (mkOverride "symbolicBranchTest" symbolicBranchTest))
-     f2 <- FnBinding <$> mkHandle ha "symbolicBranchesTest"
-                     <*> pure (UseOverride (mkOverride "symbolicBranchesTest" symbolicBranchesTest))
-     f3 <- FnBinding <$> mkHandle ha "nondetBranchesTest"
-                     <*> pure (UseOverride (mkOverride "nondetBranchesTest" (nondetBranchesTest (Just sym))))
-     f4 <- FnBinding <$> mkHandle ha "concBool"
-                     <*> pure (UseOverride (mkOverride "concBool" (concBool bak)))
-     f5 <- FnBinding <$> mkHandle ha "proveObligations"
-                     <*> pure (UseOverride (mkOverride "proveObligations" (proveObligations (Just sym))))
-     f6 <- FnBinding <$> mkHandle ha "crucible-print-assumption-state"
-                     <*> pure (UseOverride (mkOverride "crucible-print-assumption-state" (printAssumptionState (Just sym))))
-     f7 <- FnBinding <$> mkHandle ha "prove-offline"
-                     <*> pure (UseOverride (mkOverride "prove-offline" (proveOffline (Just sym))))
-     f8 <- FnBinding <$> mkHandle ha "prove-online"
-                     <*> pure (UseOverride (mkOverride "prove-online" (proveOnline bak (Just sym))))
-     return [(f1, InternalPos),(f2,InternalPos),(f3,InternalPos),(f4,InternalPos),(f5,InternalPos),(f6,InternalPos),(f7,InternalPos),(f8,InternalPos)]
+     sequence
+       [ mkOverrideBinding ha "symbolicBranchTest" symbolicBranchTest
+       , mkOverrideBinding ha "symbolicBranchesTest" symbolicBranchesTest
+       , mkOverrideBinding ha "nondetBranchesTest" (nondetBranchesTest (Just sym))
+       , mkOverrideBinding ha "concBool" (concBool bak)
+       , mkOverrideBinding ha "proveObligations" (proveObligations (Just sym))
+       , mkOverrideBinding ha "crucible-print-assumption-state" (printAssumptionState (Just sym))
+       , mkOverrideBinding ha "prove-offline" (proveOffline (Just sym))
+       , mkOverrideBinding ha "prove-online" (proveOnline bak (Just sym))
+       ]
 
 
 -- Test the @symbolicBranch@ override operation.

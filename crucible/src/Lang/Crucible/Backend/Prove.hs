@@ -111,7 +111,7 @@ consumeGoals onAssumption onGoal onConj = go
 consumeGoalsWithAssumptions ::
   forall asmp goal a.
   Monoid asmp =>
-  -- | What to do at 'Assuming' nodes (e.g., call proverAssume)
+  -- | What to do at 'Assuming' nodes (e.g., call 'proverAssume')
   (asmp -> a -> a) ->
   -- | Consume a 'Prove' with accumulated assumptions
   (asmp -> goal -> a) ->
