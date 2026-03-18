@@ -147,3 +147,4 @@ library
                    Mir.TransTy
                    Mir.Trans
                    Mir.TransCustom
+  other-modules:   Mir.Intrinsics.Syntax

@@ -31,6 +31,7 @@
 module Mir.Intrinsics
   ( module Mir.Intrinsics,
     module Mir.Intrinsics.Size,
+    module Mir.Intrinsics.Syntax,
   )
 where
 
@@ -81,6 +82,7 @@ import           What4.Partial
 
 import           Mir.FancyMuxTree
 import           Mir.Intrinsics.Size
+import           Mir.Intrinsics.Syntax (MIR)
 
 
 
@@ -1247,10 +1249,6 @@ leafAdjustVectorWithSymIndex bak iteFn v i adj
             Nothing -> return x
 
 
-
--- | Sigil type indicating the MIR syntax extension
-data MIR
-type instance ExprExtension MIR = EmptyExprExtension
 type instance StmtExtension MIR = MirStmt
 
 -- | The 'MirReferenceType' is the data pointer - either an immutable or mutable
