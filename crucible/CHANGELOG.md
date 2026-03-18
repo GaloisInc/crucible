@@ -3,6 +3,7 @@
 * Add `withStateBackend` and additional infrastructure for including stack
   traces in `SimError` and `IsSymBackend`
 * Fix `onlineProve` to properly negate goals before checking satisfiability
+* Avoid sending trivially-true goals to the solver in `Backend.Prove`.
 
 # 0.9 -- 2026-01-29
 

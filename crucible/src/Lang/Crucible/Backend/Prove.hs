@@ -257,6 +257,44 @@ data Prover sym m t r
 ---------------------------------------------------------------------
 -- *** Offline
 
+-- | Check if a goal is trivially true without calling the solver.
+--
+-- Returns a @Right@ with proof result if the goal is trivially true, or
+-- @Left (asmps and not goal)@ if consulting the solver is needed. See the
+-- module-level Haddock for intepreting @asmps and not goal@.
+--
+-- We don't optimize trivially false goals because we need the solver to provide
+-- concrete counterexample values ('WE.GroundEvalFn') for debugging and error
+-- reporting.
+--
+-- You might wonder if this is redundant with e.g., the check in @Backend@'s
+-- @addProofObligation@ or with 'Crucible.Backend.Assumption.trivialAssumption'.
+-- It is not. Consider a situation with fresh booleans @p@ and @q@ and
+-- assumptions @p@ and @not p@ and goal @q@. What4's simplifications allow us
+-- to conclude that the conjunction of the assumptions and the negation of the
+-- goal is trivially unsatisfiable, even though each assumption and the goal are
+-- individually nontrivial.
+checkTrivialGoal ::
+  W4.IsSymExprBuilder sym =>
+  sym ->
+  Assumptions sym ->
+  CB.Assertion sym ->
+  ProofConsumer sym t r ->
+  IO (Either (W4.Pred sym) (SubgoalResult r))
+checkTrivialGoal sym asmps goal (ProofConsumer k) = do
+  -- See module Haddock for intepreting (asmps and not goal)
+  asmpsPred <- CB.assumptionsPred sym asmps
+  notGoal <- W4.notPred sym (goal ^. CB.labeledPred)
+  asmpsAndNotGoal <- W4.andPred sym asmpsPred notGoal
+
+  case W4.asConstantPred asmpsAndNotGoal of
+    Just False ->  -- false = definitely unsat = proved
+      let r' = Proved in
+      Right <$> (SubgoalResult (isProved r') <$> k (CB.ProofGoal asmps goal) r')
+    _ ->
+      -- return this so that offlineProve doesn't need to re-compute it
+      pure (Left asmpsAndNotGoal)
+
 -- Not exported
 offlineProveIO ::
   (sym ~ WE.ExprBuilder t st fs) =>
@@ -268,17 +306,18 @@ offlineProveIO ::
   CB.Assertion sym ->
   ProofConsumer sym t r ->
   IO (SubgoalResult r)
-offlineProveIO sym ld adapter asmps goal (ProofConsumer k) = do
-  let goalPred = goal ^. CB.labeledPred
-  asmsPred <- CB.assumptionsPred sym asmps
-  notGoal <- W4.notPred sym goalPred
-  WSA.solver_adapter_check_sat adapter sym ld [asmsPred, notGoal] $ \r ->
-    let r' =
-          case r of
-            W4R.Sat (gfn, binds) -> Disproved gfn binds
-            W4R.Unsat () -> Proved
-            W4R.Unknown -> Unknown
-    in SubgoalResult (isProved r') <$> k (CB.ProofGoal asmps goal) r'
+offlineProveIO sym ld adapter asmps goal k@(ProofConsumer kFn) =
+  checkTrivialGoal sym asmps goal k >>=
+    \case
+      Right result -> pure result
+      Left asmpsAndNotGoal ->
+        WSA.solver_adapter_check_sat adapter sym ld [asmpsAndNotGoal] $ \r ->
+          let r' =
+                case r of
+                  W4R.Sat (gfn, binds) -> Disproved gfn binds
+                  W4R.Unsat () -> Proved
+                  W4R.Unknown -> Unknown
+          in SubgoalResult (isProved r') <$> kFn (CB.ProofGoal asmps goal) r'
 
 -- | Prove a goal using an \"offline\" solver (i.e., one process per goal).
 --
@@ -361,17 +400,21 @@ onlineProve ::
   CB.Assertion sym ->
   ProofConsumer sym t r ->
   m (SubgoalResult r)
-onlineProve sym sProc asmps goal (ProofConsumer k) = liftIO $ do
-  let goalPred = goal ^. CB.labeledPred
-  notGoal <- W4.notPred sym goalPred
-  -- Note: assumptions are established via proverAssume before this is called
-  WPO.checkSatisfiableWithModel sProc "prove" notGoal $ \r ->
-    let r' =
-          case r of
-            W4R.Sat gfn -> Disproved gfn Nothing
-            W4R.Unsat () -> Proved
-            W4R.Unknown -> Unknown
-    in SubgoalResult (isProved r') <$> k (CB.ProofGoal asmps goal) r'
+onlineProve sym sProc asmps goal k@(ProofConsumer kFn) =
+  liftIO (checkTrivialGoal sym asmps goal k) >>=
+    \case
+      Right result -> pure result
+      Left _ -> liftIO $ do
+        -- Note: assumptions are established via proverAssume before this is called
+        let goalPred = goal ^. CB.labeledPred
+        notGoal <- W4.notPred sym goalPred
+        WPO.checkSatisfiableWithModel sProc "prove" notGoal $ \r ->
+          let r' =
+                case r of
+                  W4R.Sat gfn -> Disproved gfn Nothing
+                  W4R.Unsat () -> Proved
+                  W4R.Unknown -> Unknown
+          in SubgoalResult (isProved r') <$> kFn (CB.ProofGoal asmps goal) r'
 
 -- | Add an assumption by @push@ing a new frame ('WPO.inNewFrame').
 onlineAssume :: 
