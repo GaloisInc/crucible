@@ -28,24 +28,7 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module Mir.Intrinsics
-  {-
-( -- * Internal implementation types
-  MirReferenceSymbol
-, MirReferenceType
-, pattern MirReferenceRepr
-, MirReference(..)
-, MirReferencePath(..)
-, muxRefPath
-, muxRef
-, MirSlice
-, pattern MirSliceRepr
-
-  -- * MIR Syntax extension
-, MIR
-, MirStmt(..)
-, mirExtImpl
-) -} where
+module Mir.Intrinsics where
 
 import           GHC.Stack
 import           GHC.TypeLits
