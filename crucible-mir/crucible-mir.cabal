@@ -143,6 +143,7 @@ library
                    Mir.DefId
                    Mir.FancyMuxTree
                    Mir.Intrinsics
+                   Mir.Intrinsics.Aggregate
                    Mir.Intrinsics.Size
                    Mir.TransTy
                    Mir.Trans
