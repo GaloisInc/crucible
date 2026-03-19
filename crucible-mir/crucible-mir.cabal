@@ -146,6 +146,7 @@ library
                    Mir.Intrinsics.Aggregate
                    Mir.Intrinsics.Array
                    Mir.Intrinsics.Enum
+                   Mir.Intrinsics.Reference
                    Mir.Intrinsics.Size
                    Mir.Intrinsics.Vector
                    Mir.TransTy
