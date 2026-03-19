@@ -314,132 +314,6 @@ refRootType (RefCell_RefRoot r) = refType r
 refRootType (GlobalVar_RefRoot r) = globalType r
 refRootType (Const_RefRoot tpr _) = tpr
 
-muxRefRoot ::
-  IsSymInterface sym =>
-  sym ->
-  IntrinsicTypes sym ->
-  Pred sym ->
-  MirReferenceRoot sym tp ->
-  MirReferenceRoot sym tp ->
-  MaybeT IO (MirReferenceRoot sym tp)
-muxRefRoot sym iTypes c root1 root2 = case (root1, root2) of
-  (RefCell_RefRoot rc1, RefCell_RefRoot rc2)
-    | Just Refl <- testEquality rc1 rc2 -> return root1
-  (GlobalVar_RefRoot gv1, GlobalVar_RefRoot gv2)
-    | Just Refl <- testEquality gv1 gv2 -> return root1
-  (Const_RefRoot tpr v1, Const_RefRoot _tpr v2) -> do
-    v' <- lift $ muxRegForType sym iTypes tpr c v1 v2
-    return $ Const_RefRoot tpr v'
-
-  (RefCell_RefRoot {}, _) -> mzero
-  (GlobalVar_RefRoot {}, _) -> mzero
-  (Const_RefRoot {}, _) -> mzero
-
-muxRefPath ::
-  IsSymInterface sym =>
-  sym ->
-  Pred sym ->
-  MirReferencePath sym tp_base tp ->
-  MirReferencePath sym tp_base tp ->
-  MaybeT IO (MirReferencePath sym tp_base tp)
-muxRefPath sym c path1 path2 = case (path1,path2) of
-  (Empty_RefPath, Empty_RefPath) -> return Empty_RefPath
-  (Field_RefPath ctx1 p1 f1, Field_RefPath ctx2 p2 f2)
-    | Just Refl <- testEquality ctx1 ctx2
-    , Just Refl <- testEquality f1 f2 ->
-         do p' <- muxRefPath sym c p1 p2
-            return (Field_RefPath ctx1 p' f1)
-  (Variant_RefPath tp1 ctx1 p1 f1, Variant_RefPath tp2 ctx2 p2 f2)
-    | Just Refl <- testEquality tp1 tp2
-    , Just Refl <- testEquality ctx1 ctx2
-    , Just Refl <- testEquality f1 f2 ->
-         do p' <- muxRefPath sym c p1 p2
-            return (Variant_RefPath tp1 ctx1 p' f1)
-  -- TODO: I think this is only called in cases where `compareSkel` returns
-  -- `EQ`, so the cases below can assume all the non-symbolic parts are equal.
-  -- But it seems like the cases above don't assume this and instead check
-  -- those parts for equality.
-  (Just_RefPath tp p1, Just_RefPath _ p2) ->
-         do p' <- muxRefPath sym c p1 p2
-            return (Just_RefPath tp p')
-  (VectorIndex_RefPath tp p1 i1, VectorIndex_RefPath _ p2 i2) ->
-         do p' <- muxRefPath sym c p1 p2
-            i' <- lift $ bvIte sym c i1 i2
-            return (VectorIndex_RefPath tp p' i')
-  (ArrayIndex_RefPath btp p1 i1, ArrayIndex_RefPath _ p2 i2) ->
-         do p' <- muxRefPath sym c p1 p2
-            i' <- lift $ bvIte sym c i1 i2
-            return (ArrayIndex_RefPath btp p' i')
-  (AgElem_RefPath off1 sz tpr p1, AgElem_RefPath off2 _ _ p2) ->
-         do off' <- lift $ bvIte sym c off1 off2
-            p' <- muxRefPath sym c p1 p2
-            return (AgElem_RefPath off' sz tpr p')
-  (AggregateAsChunks_RefPath off chunkSize numChunks p1, AggregateAsChunks_RefPath _ _ _ p2) ->
-         do p' <- muxRefPath sym c p1 p2
-            return (AggregateAsChunks_RefPath off chunkSize numChunks p')
-
-  (Empty_RefPath {}, _) -> mzero
-  (Field_RefPath {}, _) -> mzero
-  (Variant_RefPath {}, _) -> mzero
-  (Just_RefPath {}, _) -> mzero
-  (VectorIndex_RefPath {}, _) -> mzero
-  (ArrayIndex_RefPath {}, _) -> mzero
-  (AgElem_RefPath {}, _) -> mzero
-  (AggregateAsChunks_RefPath {}, _) -> mzero
-
-muxRef' :: forall sym.
-  IsSymInterface sym =>
-  sym ->
-  IntrinsicTypes sym ->
-  Pred sym ->
-  MirReference sym ->
-  MirReference sym ->
-  IO (MirReference sym)
-muxRef' sym iTypes c (MirReference tpr1 r1 p1) (MirReference tpr2 r2 p2) =
-   runMaybeT action >>= \case
-     -- Currently, this error occurs when the root types or the leaf/target
-     -- types of the two references are unequal.
-     Nothing -> fail "Incompatible MIR reference merge"
-     Just x  -> return x
-  where
-  action :: MaybeT IO (MirReference sym)
-  action =
-    do Refl <- MaybeT (return $ testEquality (refRootType r1) (refRootType r2))
-       Refl <- MaybeT (return $ testEquality tpr1 tpr2)
-       r' <- muxRefRoot sym iTypes c r1 r2
-       p' <- muxRefPath sym c p1 p2
-       return (MirReference tpr1 r' p')
-muxRef' sym _iTypes c (MirReference_Integer i1) (MirReference_Integer i2) = do
-    i' <- bvIte sym c i1 i2
-    return $ MirReference_Integer i'
-muxRef' _ _ _ _ _ = do
-    fail "incompatible MIR reference merge"
-
-muxRef :: forall sym.
-  IsSymInterface sym =>
-  sym ->
-  IntrinsicTypes sym ->
-  Pred sym ->
-  MirReferenceMux sym ->
-  MirReferenceMux sym ->
-  IO (MirReferenceMux sym)
-muxRef sym iTypes c (MirReferenceMux mt1) (MirReferenceMux mt2) =
-    MirReferenceMux <$> mergeFancyMuxTree sym mux c mt1 mt2
-  where mux p a b = liftIO $ muxRef' sym iTypes p a b
-
-readBeforeWriteMsg :: SimErrorReason
-readBeforeWriteMsg = ReadBeforeWriteSimError
-    "Attempted to read uninitialized reference cell"
-
-
-newConstMirRef :: IsSymInterface sym =>
-    sym ->
-    TypeRepr tp ->
-    RegValue sym tp ->
-    MirReferenceMux sym
-newConstMirRef sym tpr v = MirReferenceMux $ toFancyMuxTree sym $
-    MirReference tpr (Const_RefRoot tpr v) Empty_RefPath
-
 readRefRoot :: (MonadAssert sym bak m) =>
     bak ->
     SymGlobalState sym ->
@@ -501,6 +375,332 @@ dropRefRoot _bak _gs (Const_RefRoot tpr _) =
     leafAbort $ GenericSimError $
         "Cannot drop Const_RefRoot (of type " ++ show tpr ++ ")"
 
+muxRefRoot ::
+  IsSymInterface sym =>
+  sym ->
+  IntrinsicTypes sym ->
+  Pred sym ->
+  MirReferenceRoot sym tp ->
+  MirReferenceRoot sym tp ->
+  MaybeT IO (MirReferenceRoot sym tp)
+muxRefRoot sym iTypes c root1 root2 = case (root1, root2) of
+  (RefCell_RefRoot rc1, RefCell_RefRoot rc2)
+    | Just Refl <- testEquality rc1 rc2 -> return root1
+  (GlobalVar_RefRoot gv1, GlobalVar_RefRoot gv2)
+    | Just Refl <- testEquality gv1 gv2 -> return root1
+  (Const_RefRoot tpr v1, Const_RefRoot _tpr v2) -> do
+    v' <- lift $ muxRegForType sym iTypes tpr c v1 v2
+    return $ Const_RefRoot tpr v'
+
+  (RefCell_RefRoot {}, _) -> mzero
+  (GlobalVar_RefRoot {}, _) -> mzero
+  (Const_RefRoot {}, _) -> mzero
+
+
+readRefPath ::
+  (MonadAssert sym bak m) =>
+  bak ->
+  IntrinsicTypes sym ->
+  RegValue sym tp ->
+  MirReferencePath sym tp tp' ->
+  MuxLeafT sym m (RegValue sym tp')
+readRefPath bak iTypes v = \case
+  Empty_RefPath -> return v
+  Field_RefPath _ctx path fld ->
+    do flds <- readRefPath bak iTypes v path
+       return $ unRV $ flds ! fld
+  Variant_RefPath _ ctx path fld ->
+    do (Empty :> _discr :> RV variant) <- readRefPath bak iTypes v path
+       let msg = GenericSimError $
+               "attempted to read from wrong variant (" ++ show fld ++ " of " ++ show ctx ++ ")"
+       leafReadPartExpr bak (unVB $ variant ! fld) msg
+  Just_RefPath tp path ->
+    do v' <- readRefPath bak iTypes v path
+       let msg = ReadBeforeWriteSimError $
+               "attempted to read from uninitialized Maybe of type " ++ show tp
+       leafReadPartExpr bak v' msg
+  VectorIndex_RefPath tp path idx ->
+    do v' <- readRefPath bak iTypes v path
+       leafIndexVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) v' idx
+  ArrayIndex_RefPath _btp path idx ->
+    do arr <- readRefPath bak iTypes v path
+       liftIO $ arrayLookup (backendGetSym bak) arr (Empty :> idx)
+  AgElem_RefPath off _sz tpr path -> do
+    ag <- readRefPath bak iTypes v path
+    readMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr) off tpr ag
+  AggregateAsChunks_RefPath off chunkSize numChunks path -> do
+    let sym = backendGetSym bak
+    ag <- readRefPath bak iTypes v path
+    chunkedAg <- case mirAggregate_toChunks sym off chunkSize numChunks ag of
+      Left err -> die $ "mirAggregate_toChunks: " ++ err
+      Right x -> return x
+    return chunkedAg
+  where
+    die msg = leafAbort $ Unsupported callStack $ "readRefPath: " ++ msg
+
+writeRefPath ::
+  (IsSymBackend sym bak) =>
+  bak ->
+  IntrinsicTypes sym ->
+  RegValue sym tp ->
+  MirReferencePath sym tp tp' ->
+  RegValue sym tp' ->
+  MuxLeafT sym IO (RegValue sym tp)
+-- Special case: when the final path segment is `Just_RefPath`, we can write to
+-- it by replacing `Nothing` with `Just`.  This is useful for writing to
+-- uninitialized struct fields.  Using `adjust` here would fail, since it can't
+-- read the old value out of the `Nothing`.
+--
+-- There is a similar special case above for MirWriteRef with Empty_RefPath,
+-- which allows writing to an uninitialized MirReferenceRoot.
+writeRefPath bak iTypes v (Just_RefPath _tp path) x =
+  adjustRefPath bak iTypes v path (\_ -> return $ justPartExpr (backendGetSym bak) x)
+-- TODO remove these cases?  should be equivalent to the `adjustRefPath` cases below
+writeRefPath bak iTypes v (VectorIndex_RefPath tp path idx) x = do
+  adjustRefPath bak iTypes v path (\vec ->
+    leafAdjustVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) vec idx (\_ ->
+      return x))
+writeRefPath bak iTypes v (ArrayIndex_RefPath _btp path idx) x = do
+  adjustRefPath bak iTypes v path (\arr ->
+    liftIO $ arrayUpdate (backendGetSym bak) arr (Empty :> idx) x)
+-- For `MirAggregate`, `writeRefPath` with a concrete index can insert a new
+-- entry into the aggregate.
+writeRefPath bak iTypes v (AgElem_RefPath idx sz tpr path) x = do
+  adjustRefPath bak iTypes v path (\v' -> do
+    writeMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr)
+      idx sz tpr x v')
+writeRefPath bak iTypes v path x =
+  adjustRefPath bak iTypes v path (\_ -> return x)
+
+adjustRefPath ::
+  (IsSymBackend sym bak) =>
+  bak ->
+  IntrinsicTypes sym ->
+  RegValue sym tp ->
+  MirReferencePath sym tp tp' ->
+  (RegValue sym tp' -> MuxLeafT sym IO (RegValue sym tp')) ->
+  MuxLeafT sym IO (RegValue sym tp)
+adjustRefPath bak iTypes v path0 adj = case path0 of
+  Empty_RefPath -> adj v
+  Field_RefPath _ctx path fld ->
+      adjustRefPath bak iTypes v path
+        (\x -> adjustM (\x' -> RV <$> adj (unRV x')) fld x)
+  Variant_RefPath _ _ctx path fld ->
+      -- TODO: report an error if variant `fld` is not selected
+      adjustRefPath bak iTypes v path (field @1 (\(RV x) ->
+        RV <$> adjustM (\x' -> VB <$> mapM adj (unVB x')) fld x))
+  Just_RefPath tp path ->
+      adjustRefPath bak iTypes v path $ \v' -> do
+          let msg = ReadBeforeWriteSimError $
+                  "attempted to modify uninitialized Maybe of type " ++ show tp
+          v'' <- leafReadPartExpr bak v' msg
+          mv <- adj v''
+          return $ justPartExpr (backendGetSym bak) mv
+  VectorIndex_RefPath tp path idx ->
+      adjustRefPath bak iTypes v path (\v' ->
+        leafAdjustVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) v' idx adj)
+  ArrayIndex_RefPath _btp path idx ->
+      adjustRefPath bak iTypes v path (\arr -> do
+        let sym = backendGetSym bak
+        let arrIdx = Empty :> idx
+        x <- liftIO $ arrayLookup sym arr arrIdx
+        x' <- adj x
+        liftIO $ arrayUpdate sym arr arrIdx x')
+  AgElem_RefPath idx _sz tpr path ->
+      adjustRefPath bak iTypes v path (\v' -> do
+        adjustMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr)
+          idx tpr adj v')
+  AggregateAsChunks_RefPath off chunkSize numChunks path ->
+      adjustRefPath bak iTypes v path $ \ag -> do
+        let sym = backendGetSym bak
+        (beforeAg, midAg, afterAg) <-
+          case mirAggregate_split3 off (off + chunkSize * numChunks) ag of
+            Left err -> die $ "mirAggregate_split3: " ++ err
+            Right x -> return x
+        chunkedAg <- case mirAggregate_toChunks sym 0 chunkSize numChunks midAg of
+          Left err -> die $ "mirAggregate_toChunks: " ++ err
+          Right x -> return x
+        chunkedAg' <- adj chunkedAg
+        midAg' <- liftIO (mirAggregate_fromChunks sym chunkedAg') >>= \case
+          Left err -> die $ "mirAggregate_fromChunks: " ++ err
+          Right x -> return x
+        let ag' = (beforeAg `mirAggregate_concat` midAg') `mirAggregate_concat` afterAg
+        return ag'
+  where
+    die msg = leafAbort $ Unsupported callStack $ "adjustRefPath: " ++ msg
+
+muxRefPath ::
+  IsSymInterface sym =>
+  sym ->
+  Pred sym ->
+  MirReferencePath sym tp_base tp ->
+  MirReferencePath sym tp_base tp ->
+  MaybeT IO (MirReferencePath sym tp_base tp)
+muxRefPath sym c path1 path2 = case (path1,path2) of
+  (Empty_RefPath, Empty_RefPath) -> return Empty_RefPath
+  (Field_RefPath ctx1 p1 f1, Field_RefPath ctx2 p2 f2)
+    | Just Refl <- testEquality ctx1 ctx2
+    , Just Refl <- testEquality f1 f2 ->
+         do p' <- muxRefPath sym c p1 p2
+            return (Field_RefPath ctx1 p' f1)
+  (Variant_RefPath tp1 ctx1 p1 f1, Variant_RefPath tp2 ctx2 p2 f2)
+    | Just Refl <- testEquality tp1 tp2
+    , Just Refl <- testEquality ctx1 ctx2
+    , Just Refl <- testEquality f1 f2 ->
+         do p' <- muxRefPath sym c p1 p2
+            return (Variant_RefPath tp1 ctx1 p' f1)
+  -- TODO: I think this is only called in cases where `compareSkel` returns
+  -- `EQ`, so the cases below can assume all the non-symbolic parts are equal.
+  -- But it seems like the cases above don't assume this and instead check
+  -- those parts for equality.
+  (Just_RefPath tp p1, Just_RefPath _ p2) ->
+         do p' <- muxRefPath sym c p1 p2
+            return (Just_RefPath tp p')
+  (VectorIndex_RefPath tp p1 i1, VectorIndex_RefPath _ p2 i2) ->
+         do p' <- muxRefPath sym c p1 p2
+            i' <- lift $ bvIte sym c i1 i2
+            return (VectorIndex_RefPath tp p' i')
+  (ArrayIndex_RefPath btp p1 i1, ArrayIndex_RefPath _ p2 i2) ->
+         do p' <- muxRefPath sym c p1 p2
+            i' <- lift $ bvIte sym c i1 i2
+            return (ArrayIndex_RefPath btp p' i')
+  (AgElem_RefPath off1 sz tpr p1, AgElem_RefPath off2 _ _ p2) ->
+         do off' <- lift $ bvIte sym c off1 off2
+            p' <- muxRefPath sym c p1 p2
+            return (AgElem_RefPath off' sz tpr p')
+  (AggregateAsChunks_RefPath off chunkSize numChunks p1, AggregateAsChunks_RefPath _ _ _ p2) ->
+         do p' <- muxRefPath sym c p1 p2
+            return (AggregateAsChunks_RefPath off chunkSize numChunks p')
+
+  (Empty_RefPath {}, _) -> mzero
+  (Field_RefPath {}, _) -> mzero
+  (Variant_RefPath {}, _) -> mzero
+  (Just_RefPath {}, _) -> mzero
+  (VectorIndex_RefPath {}, _) -> mzero
+  (ArrayIndex_RefPath {}, _) -> mzero
+  (AgElem_RefPath {}, _) -> mzero
+  (AggregateAsChunks_RefPath {}, _) -> mzero
+
+
+muxRef' :: forall sym.
+  IsSymInterface sym =>
+  sym ->
+  IntrinsicTypes sym ->
+  Pred sym ->
+  MirReference sym ->
+  MirReference sym ->
+  IO (MirReference sym)
+muxRef' sym iTypes c (MirReference tpr1 r1 p1) (MirReference tpr2 r2 p2) =
+   runMaybeT action >>= \case
+     -- Currently, this error occurs when the root types or the leaf/target
+     -- types of the two references are unequal.
+     Nothing -> fail "Incompatible MIR reference merge"
+     Just x  -> return x
+  where
+  action :: MaybeT IO (MirReference sym)
+  action =
+    do Refl <- MaybeT (return $ testEquality (refRootType r1) (refRootType r2))
+       Refl <- MaybeT (return $ testEquality tpr1 tpr2)
+       r' <- muxRefRoot sym iTypes c r1 r2
+       p' <- muxRefPath sym c p1 p2
+       return (MirReference tpr1 r' p')
+muxRef' sym _iTypes c (MirReference_Integer i1) (MirReference_Integer i2) = do
+    i' <- bvIte sym c i1 i2
+    return $ MirReference_Integer i'
+muxRef' _ _ _ _ _ = do
+    fail "incompatible MIR reference merge"
+
+muxRef :: forall sym.
+  IsSymInterface sym =>
+  sym ->
+  IntrinsicTypes sym ->
+  Pred sym ->
+  MirReferenceMux sym ->
+  MirReferenceMux sym ->
+  IO (MirReferenceMux sym)
+muxRef sym iTypes c (MirReferenceMux mt1) (MirReferenceMux mt2) =
+    MirReferenceMux <$> mergeFancyMuxTree sym mux c mt1 mt2
+  where mux p a b = liftIO $ muxRef' sym iTypes p a b
+
+
+readRefMuxSim :: IsSymInterface sym =>
+    TypeRepr tp' ->
+    (MirReference sym -> MuxLeafT sym IO (RegValue sym tp')) ->
+    MirReferenceMux sym ->
+    OverrideSim m sym MIR rtp args ret (RegValue sym tp')
+readRefMuxSim tpr' f ref =
+  ovrWithBackend $ \bak -> do
+    ctx <- getContext
+    let iTypes = ctxIntrinsicTypes ctx
+    liftIO $ readRefMuxMA bak iTypes tpr' f ref
+
+readRefMuxMA ::
+    MonadAssert sym bak m =>
+    bak ->
+    IntrinsicTypes sym ->
+    TypeRepr tp' ->
+    (MirReference sym -> MuxLeafT sym m (RegValue sym tp')) ->
+    MirReferenceMux sym ->
+    m (RegValue sym tp')
+readRefMuxMA bak iTypes tpr' f (MirReferenceMux ref) =
+    readFancyMuxTree' bak f (muxRegForType (backendGetSym bak) iTypes tpr') ref
+
+
+modifyRefMuxSim :: IsSymInterface sym =>
+    (MirReference sym -> MuxLeafT sym IO (MirReference sym)) ->
+    MirReferenceMux sym ->
+    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
+modifyRefMuxSim f ref =
+  ovrWithBackend $ \bak -> do
+    ctx <- getContext
+    let iTypes = ctxIntrinsicTypes ctx
+    liftIO $ modifyRefMuxMA bak iTypes f ref
+
+modifyRefMuxMA ::
+    MonadAssert sym bak m =>
+    bak ->
+    IntrinsicTypes sym ->
+    (MirReference sym -> MuxLeafT sym m (MirReference sym)) ->
+    MirReferenceMux sym ->
+    m (MirReferenceMux sym)
+modifyRefMuxMA bak iTypes f (MirReferenceMux ref) = do
+    let sym = backendGetSym bak
+    MirReferenceMux <$> mapFancyMuxTree bak (muxRef' sym iTypes) f ref
+
+
+readBeforeWriteMsg :: SimErrorReason
+readBeforeWriteMsg = ReadBeforeWriteSimError
+    "Attempted to read uninitialized reference cell"
+
+newMirRefSim :: IsSymInterface sym =>
+    TypeRepr tp ->
+    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
+newMirRefSim tpr = do
+    sym <- getSymInterface
+    s <- get
+    let halloc = simHandleAllocator $ s ^. stateContext
+    liftIO $ newMirRefIO sym halloc tpr
+
+newMirRefIO ::
+    IsSymInterface sym =>
+    sym ->
+    HandleAllocator ->
+    TypeRepr tp ->
+    IO (MirReferenceMux sym)
+newMirRefIO sym halloc tpr = do
+    rc <- freshRefCell halloc tpr
+    let ref = MirReference tpr (RefCell_RefRoot rc) Empty_RefPath
+    return $ MirReferenceMux $ toFancyMuxTree sym ref
+
+newConstMirRef :: IsSymInterface sym =>
+    sym ->
+    TypeRepr tp ->
+    RegValue sym tp ->
+    MirReferenceMux sym
+newConstMirRef sym tpr v = MirReferenceMux $ toFancyMuxTree sym $
+    MirReference tpr (Const_RefRoot tpr v) Empty_RefPath
+
+
 -- | Helper for defining a `MuxLeafT` operation that works only for
 -- `MirReference`s with a specific pointee type `tp`.  If the `MirReference`
 -- argument is a valid reference (not `MirReference_Integer`) with pointee type
@@ -523,6 +723,28 @@ typedLeafOp desc _ (MirReference_Integer _) _ =
     leafAbort $ GenericSimError $
         "attempted " ++ desc ++ " on the result of an integer-to-pointer cast"
 
+
+readMirRefSim :: IsSymInterface sym =>
+    TypeRepr tp -> MirReferenceMux sym ->
+    OverrideSim m sym MIR rtp args ret (RegValue sym tp)
+readMirRefSim tpr ref =
+  ovrWithBackend $ \bak ->
+   do s <- get
+      let gs = s ^. stateTree.actFrame.gpGlobals
+      let iTypes = ctxIntrinsicTypes $ s ^. stateContext
+      liftIO $ readMirRefMA bak gs iTypes tpr ref
+
+readMirRefMA ::
+    MonadAssert sym bak m =>
+    bak ->
+    SymGlobalState sym ->
+    IntrinsicTypes sym ->
+    TypeRepr tp ->
+    MirReferenceMux sym ->
+    m (RegValue sym tp)
+readMirRefMA bak gs iTypes tpr ref =
+    readRefMuxMA bak iTypes tpr (readMirRefLeaf bak gs iTypes tpr) ref
+
 readMirRefLeaf ::
     (MonadAssert sym bak m) =>
     bak ->
@@ -536,6 +758,37 @@ readMirRefLeaf bak gs iTypes tpr ref =
     v <- readRefRoot bak gs root
     v' <- readRefPath bak iTypes v path
     return v'
+
+
+writeMirRefSim ::
+    IsSymInterface sym =>
+    TypeRepr tp ->
+    MirReferenceMux sym ->
+    RegValue sym tp ->
+    OverrideSim m sym MIR rtp args ret ()
+writeMirRefSim tpr ref x = do
+    s <- get
+    let gs0 = s ^. stateTree.actFrame.gpGlobals
+    let iTypes = ctxIntrinsicTypes $ s ^. stateContext
+    ovrWithBackend $ \bak -> do
+      gs1 <- liftIO $ writeMirRefIO bak gs0 iTypes tpr ref x
+      put $ s & stateTree.actFrame.gpGlobals .~ gs1
+
+writeMirRefIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    SymGlobalState sym ->
+    IntrinsicTypes sym ->
+    TypeRepr tp ->
+    MirReferenceMux sym ->
+    RegValue sym tp ->
+    IO (SymGlobalState sym)
+writeMirRefIO bak gs iTypes tpr (MirReferenceMux ref) x =
+    foldFancyMuxTree
+        bak
+        (\gs' ref' -> writeMirRefLeaf bak gs' iTypes tpr ref' x)
+        gs
+        ref
 
 writeMirRefLeaf ::
     (IsSymBackend sym bak) =>
@@ -554,6 +807,7 @@ writeMirRefLeaf bak gs iTypes tpr ref val =
         x <- readRefRoot bak gs root
         x' <- writeRefPath bak iTypes x path val
         writeRefRoot bak gs iTypes root x'
+
 
 dropMirRefLeaf ::
     (IsSymBackend sym bak) =>
@@ -577,6 +831,7 @@ dropMirRefIO ::
     IO (SymGlobalState sym)
 dropMirRefIO bak gs (MirReferenceMux ref) =
     foldFancyMuxTree bak (dropMirRefLeaf bak) gs ref
+
 
 subfieldMirRefLeaf ::
     CtxRepr ctx ->
@@ -652,6 +907,7 @@ subfieldMirRef_UntypedIO ::
 subfieldMirRef_UntypedIO bak iTypes ref fieldNum expectedTy =
     modifyRefMuxMA bak iTypes (\ref' -> subfieldMirRef_UntypedLeaf ref' fieldNum expectedTy) ref
 
+
 subvariantMirRefLeaf ::
     TypeRepr discrTp ->
     CtxRepr variantsCtx ->
@@ -674,6 +930,32 @@ subvariantMirRefIO ::
     IO (MirReferenceMux sym)
 subvariantMirRefIO bak iTypes tp ctx ref idx =
     modifyRefMuxMA bak iTypes (\ref' -> subvariantMirRefLeaf tp ctx ref' idx) ref
+
+
+subindexMirRefSim ::
+    IsSymInterface sym =>
+    sym ->
+    TypeRepr tp ->
+    MirReferenceMux sym ->
+    RegValue sym UsizeType ->
+    -- | Size of the element, in bytes
+    Word ->
+    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
+subindexMirRefSim sym tpr ref idx elemSize = do
+    modifyRefMuxSim (\ref' -> subindexMirRefLeaf sym tpr ref' idx elemSize) ref
+
+subindexMirRefIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    TypeRepr tp ->
+    MirReferenceMux sym ->
+    RegValue sym UsizeType ->
+    -- | Size of the element, in bytes
+    Word ->
+    IO (MirReferenceMux sym)
+subindexMirRefIO bak iTypes tpr ref x elemSize =
+    modifyRefMuxMA bak iTypes (\ref' -> subindexMirRefLeaf (backendGetSym bak) tpr ref' x elemSize) ref
 
 subindexMirRefLeaf ::
     IsSymInterface sym =>
@@ -701,6 +983,7 @@ subindexMirRefLeaf _sym _elemTpr (MirReference_Integer {}) _idx _elemSize =
     leafAbort $ GenericSimError $
         "attempted subindex on the result of an integer-to-pointer cast"
 
+
 subjustMirRefLeaf ::
     TypeRepr tp ->
     MirReference sym ->
@@ -718,6 +1001,7 @@ subjustMirRefIO ::
     IO (MirReferenceMux sym)
 subjustMirRefIO bak iTypes tpr ref =
     modifyRefMuxMA bak iTypes (subjustMirRefLeaf tpr) ref
+
 
 mirRef_agElemLeaf ::
     RegValue sym UsizeType ->
@@ -890,7 +1174,6 @@ popIndex (ArrayIndex_RefPath _ p _) = Some p
 popIndex (AgElem_RefPath _ _ _ p) = Some p
 popIndex p = Some p
 
-
 refRootOverlaps :: IsSymInterface sym => sym ->
     MirReferenceRoot sym tp1 -> MirReferenceRoot sym tp2 ->
     MuxLeafT sym IO (RegValue sym BoolType)
@@ -1059,6 +1342,31 @@ mirRef_overlapsIO bak (MirReferenceMux r1) (MirReferenceMux r2) =
     zipFancyMuxTrees' bak (mirRef_overlapsLeaf sym) (itePred sym) r1 r2
 
 
+mirRef_offsetSim ::
+    IsSymInterface sym =>
+    MirReferenceMux sym ->
+    -- | The number of elements by which to offset
+    RegValue sym IsizeType ->
+    -- | The size of each element, in bytes
+    Word ->
+    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
+mirRef_offsetSim ref off elemSize =
+    ovrWithBackend $ \bak ->
+      modifyRefMuxSim (\ref' -> mirRef_offsetLeaf bak ref' off elemSize) ref
+
+mirRef_offsetMA ::
+    MonadAssert sym bak m =>
+    bak ->
+    IntrinsicTypes sym ->
+    MirReferenceMux sym ->
+    -- | The number of elements by which to offset
+    RegValue sym IsizeType ->
+    -- | The size of each element, in bytes
+    Word ->
+    m (MirReferenceMux sym)
+mirRef_offsetMA bak iTypes ref off elemSize =
+    modifyRefMuxMA bak iTypes (\ref' -> mirRef_offsetLeaf bak ref' off elemSize) ref
+
 mirRef_offsetLeaf ::
     (MonadAssert sym bak m) =>
     bak ->
@@ -1073,6 +1381,32 @@ mirRef_offsetLeaf ::
 -- * resulting pointer must be in-bounds for the allocation
 -- * total offset in bytes must not exceed isize::MAX
 mirRef_offsetLeaf = mirRef_offsetWrapLeaf
+
+
+mirRef_offsetWrapSim ::
+    IsSymInterface sym =>
+    MirReferenceMux sym ->
+    -- | The number of elements by which to offset
+    RegValue sym IsizeType ->
+    -- | The size of each element, in bytes
+    Word ->
+    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
+mirRef_offsetWrapSim ref off elemSize = do
+    ovrWithBackend $ \bak ->
+      modifyRefMuxSim (\ref' -> mirRef_offsetWrapLeaf bak ref' off elemSize) ref
+
+mirRef_offsetWrapIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    MirReferenceMux sym ->
+    -- | The number of elements by which to offset
+    RegValue sym IsizeType ->
+    -- | The size of each element, in bytes
+    Word ->
+    IO (MirReferenceMux sym)
+mirRef_offsetWrapIO bak iTypes ref off elemSize =
+    modifyRefMuxMA bak iTypes (\ref' -> mirRef_offsetWrapLeaf bak ref' off elemSize) ref
 
 mirRef_offsetWrapLeaf ::
     (MonadAssert sym bak m) =>
@@ -1120,6 +1454,7 @@ mirRef_offsetWrapLeaf bak ref@(MirReference_Integer _) offset _elemSize = do
     leafAssert bak isZero $ Unsupported callStack $
         "cannot perform pointer arithmetic on invalid pointer"
     return ref
+
 
 mirRef_tryOffsetFromLeaf ::
     IsSymBackend sym bak =>
@@ -1196,6 +1531,7 @@ mirRef_tryOffsetFromIO bak iTypes elemSize (MirReferenceMux r1) (MirReferenceMux
     zipFancyMuxTrees' bak (mirRef_tryOffsetFromLeaf bak elemSize)
             (muxRegForType sym iTypes (MaybeRepr IsizeRepr)) r1 r2
 
+
 mirRef_peelIndexLeaf ::
     MonadAssert sym bak m =>
     bak ->
@@ -1244,6 +1580,7 @@ mirRef_peelIndexMA bak iTypes (MirReferenceMux ref) elemSize =
         tpr' = StructRepr (Empty :> MirReferenceRepr :> IsizeRepr) in
     readFancyMuxTree' bak (mirRef_peelIndexLeaf bak elemSize)
         (muxRegForType sym iTypes tpr') ref
+
 
 -- | Peel off an outermost 'Field_RefPath'. Given a pointer to a field of a
 -- struct, this produces a pointer to the containing struct.
@@ -1295,6 +1632,7 @@ mirRef_peelFieldMA bak iTypes fieldReprs idx (MirReferenceMux ref) =
     readFancyMuxTree' bak (mirRef_peelFieldLeaf sym fieldReprs idx)
         (muxRegForType sym iTypes MirReferenceRepr) ref
 
+
 -- | Peel off an outermost 'Just_RefPath'. Given a pointer to a @tp@, this
 -- produces a pointer to the containing @MaybeType tp@.
 --
@@ -1327,6 +1665,7 @@ mirRef_peelJustMA bak iTypes tpr (MirReferenceMux ref) =
     let sym = backendGetSym bak in
     readFancyMuxTree' bak (mirRef_peelJustLeaf sym tpr)
         (muxRegForType sym iTypes MirReferenceRepr) ref
+
 
 -- | Compute the index of `ref` within its containing allocation, along with
 -- the length of that allocation.  This is useful for determining the amount of
@@ -1429,6 +1768,7 @@ mirRef_indexAndLenSim ref elemSize = do
        let iTypes = ctxIntrinsicTypes $ s ^. stateContext
        liftIO $ mirRef_indexAndLenIO bak gs iTypes ref elemSize
 
+
 mirRef_aggregateAsChunksLeaf ::
     IsSymInterface sym =>
     RegValue sym UsizeType ->
@@ -1465,330 +1805,3 @@ mirRef_aggregateAsChunksIO ::
     IO (MirReferenceMux sym)
 mirRef_aggregateAsChunksIO bak iTypes chunkSizeSym numChunksSym ref =
     modifyRefMuxMA bak iTypes (mirRef_aggregateAsChunksLeaf chunkSizeSym numChunksSym) ref
-
-
-
--- MirReferenceType manipulation within the OverrideSim and IO monads. These are
--- useful for implementing overrides that work with MirReferences.
-
-newMirRefSim :: IsSymInterface sym =>
-    TypeRepr tp ->
-    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
-newMirRefSim tpr = do
-    sym <- getSymInterface
-    s <- get
-    let halloc = simHandleAllocator $ s ^. stateContext
-    liftIO $ newMirRefIO sym halloc tpr
-
-newMirRefIO ::
-    IsSymInterface sym =>
-    sym ->
-    HandleAllocator ->
-    TypeRepr tp ->
-    IO (MirReferenceMux sym)
-newMirRefIO sym halloc tpr = do
-    rc <- freshRefCell halloc tpr
-    let ref = MirReference tpr (RefCell_RefRoot rc) Empty_RefPath
-    return $ MirReferenceMux $ toFancyMuxTree sym ref
-
-readRefMuxSim :: IsSymInterface sym =>
-    TypeRepr tp' ->
-    (MirReference sym -> MuxLeafT sym IO (RegValue sym tp')) ->
-    MirReferenceMux sym ->
-    OverrideSim m sym MIR rtp args ret (RegValue sym tp')
-readRefMuxSim tpr' f ref =
-  ovrWithBackend $ \bak -> do
-    ctx <- getContext
-    let iTypes = ctxIntrinsicTypes ctx
-    liftIO $ readRefMuxMA bak iTypes tpr' f ref
-
-readRefMuxMA ::
-    MonadAssert sym bak m =>
-    bak ->
-    IntrinsicTypes sym ->
-    TypeRepr tp' ->
-    (MirReference sym -> MuxLeafT sym m (RegValue sym tp')) ->
-    MirReferenceMux sym ->
-    m (RegValue sym tp')
-readRefMuxMA bak iTypes tpr' f (MirReferenceMux ref) =
-    readFancyMuxTree' bak f (muxRegForType (backendGetSym bak) iTypes tpr') ref
-
-modifyRefMuxSim :: IsSymInterface sym =>
-    (MirReference sym -> MuxLeafT sym IO (MirReference sym)) ->
-    MirReferenceMux sym ->
-    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
-modifyRefMuxSim f ref =
-  ovrWithBackend $ \bak -> do
-    ctx <- getContext
-    let iTypes = ctxIntrinsicTypes ctx
-    liftIO $ modifyRefMuxMA bak iTypes f ref
-
-modifyRefMuxMA ::
-    MonadAssert sym bak m =>
-    bak ->
-    IntrinsicTypes sym ->
-    (MirReference sym -> MuxLeafT sym m (MirReference sym)) ->
-    MirReferenceMux sym ->
-    m (MirReferenceMux sym)
-modifyRefMuxMA bak iTypes f (MirReferenceMux ref) = do
-    let sym = backendGetSym bak
-    MirReferenceMux <$> mapFancyMuxTree bak (muxRef' sym iTypes) f ref
-
-readMirRefSim :: IsSymInterface sym =>
-    TypeRepr tp -> MirReferenceMux sym ->
-    OverrideSim m sym MIR rtp args ret (RegValue sym tp)
-readMirRefSim tpr ref =
-  ovrWithBackend $ \bak ->
-   do s <- get
-      let gs = s ^. stateTree.actFrame.gpGlobals
-      let iTypes = ctxIntrinsicTypes $ s ^. stateContext
-      liftIO $ readMirRefMA bak gs iTypes tpr ref
-
-readMirRefMA ::
-    MonadAssert sym bak m =>
-    bak ->
-    SymGlobalState sym ->
-    IntrinsicTypes sym ->
-    TypeRepr tp ->
-    MirReferenceMux sym ->
-    m (RegValue sym tp)
-readMirRefMA bak gs iTypes tpr ref =
-    readRefMuxMA bak iTypes tpr (readMirRefLeaf bak gs iTypes tpr) ref
-
-writeMirRefSim ::
-    IsSymInterface sym =>
-    TypeRepr tp ->
-    MirReferenceMux sym ->
-    RegValue sym tp ->
-    OverrideSim m sym MIR rtp args ret ()
-writeMirRefSim tpr ref x = do
-    s <- get
-    let gs0 = s ^. stateTree.actFrame.gpGlobals
-    let iTypes = ctxIntrinsicTypes $ s ^. stateContext
-    ovrWithBackend $ \bak -> do
-      gs1 <- liftIO $ writeMirRefIO bak gs0 iTypes tpr ref x
-      put $ s & stateTree.actFrame.gpGlobals .~ gs1
-
-writeMirRefIO ::
-    IsSymBackend sym bak =>
-    bak ->
-    SymGlobalState sym ->
-    IntrinsicTypes sym ->
-    TypeRepr tp ->
-    MirReferenceMux sym ->
-    RegValue sym tp ->
-    IO (SymGlobalState sym)
-writeMirRefIO bak gs iTypes tpr (MirReferenceMux ref) x =
-    foldFancyMuxTree
-        bak
-        (\gs' ref' -> writeMirRefLeaf bak gs' iTypes tpr ref' x)
-        gs
-        ref
-
-subindexMirRefSim ::
-    IsSymInterface sym =>
-    sym ->
-    TypeRepr tp ->
-    MirReferenceMux sym ->
-    RegValue sym UsizeType ->
-    -- | Size of the element, in bytes
-    Word ->
-    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
-subindexMirRefSim sym tpr ref idx elemSize = do
-    modifyRefMuxSim (\ref' -> subindexMirRefLeaf sym tpr ref' idx elemSize) ref
-
-subindexMirRefIO ::
-    IsSymBackend sym bak =>
-    bak ->
-    IntrinsicTypes sym ->
-    TypeRepr tp ->
-    MirReferenceMux sym ->
-    RegValue sym UsizeType ->
-    -- | Size of the element, in bytes
-    Word ->
-    IO (MirReferenceMux sym)
-subindexMirRefIO bak iTypes tpr ref x elemSize =
-    modifyRefMuxMA bak iTypes (\ref' -> subindexMirRefLeaf (backendGetSym bak) tpr ref' x elemSize) ref
-
-mirRef_offsetSim ::
-    IsSymInterface sym =>
-    MirReferenceMux sym ->
-    -- | The number of elements by which to offset
-    RegValue sym IsizeType ->
-    -- | The size of each element, in bytes
-    Word ->
-    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
-mirRef_offsetSim ref off elemSize =
-    ovrWithBackend $ \bak ->
-      modifyRefMuxSim (\ref' -> mirRef_offsetLeaf bak ref' off elemSize) ref
-
-mirRef_offsetMA ::
-    MonadAssert sym bak m =>
-    bak ->
-    IntrinsicTypes sym ->
-    MirReferenceMux sym ->
-    -- | The number of elements by which to offset
-    RegValue sym IsizeType ->
-    -- | The size of each element, in bytes
-    Word ->
-    m (MirReferenceMux sym)
-mirRef_offsetMA bak iTypes ref off elemSize =
-    modifyRefMuxMA bak iTypes (\ref' -> mirRef_offsetLeaf bak ref' off elemSize) ref
-
-mirRef_offsetWrapSim ::
-    IsSymInterface sym =>
-    MirReferenceMux sym ->
-    -- | The number of elements by which to offset
-    RegValue sym IsizeType ->
-    -- | The size of each element, in bytes
-    Word ->
-    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
-mirRef_offsetWrapSim ref off elemSize = do
-    ovrWithBackend $ \bak ->
-      modifyRefMuxSim (\ref' -> mirRef_offsetWrapLeaf bak ref' off elemSize) ref
-
-mirRef_offsetWrapIO ::
-    IsSymBackend sym bak =>
-    bak ->
-    IntrinsicTypes sym ->
-    MirReferenceMux sym ->
-    -- | The number of elements by which to offset
-    RegValue sym IsizeType ->
-    -- | The size of each element, in bytes
-    Word ->
-    IO (MirReferenceMux sym)
-mirRef_offsetWrapIO bak iTypes ref off elemSize =
-    modifyRefMuxMA bak iTypes (\ref' -> mirRef_offsetWrapLeaf bak ref' off elemSize) ref
-
-
-writeRefPath ::
-  (IsSymBackend sym bak) =>
-  bak ->
-  IntrinsicTypes sym ->
-  RegValue sym tp ->
-  MirReferencePath sym tp tp' ->
-  RegValue sym tp' ->
-  MuxLeafT sym IO (RegValue sym tp)
--- Special case: when the final path segment is `Just_RefPath`, we can write to
--- it by replacing `Nothing` with `Just`.  This is useful for writing to
--- uninitialized struct fields.  Using `adjust` here would fail, since it can't
--- read the old value out of the `Nothing`.
---
--- There is a similar special case above for MirWriteRef with Empty_RefPath,
--- which allows writing to an uninitialized MirReferenceRoot.
-writeRefPath bak iTypes v (Just_RefPath _tp path) x =
-  adjustRefPath bak iTypes v path (\_ -> return $ justPartExpr (backendGetSym bak) x)
--- TODO remove these cases?  should be equivalent to the `adjustRefPath` cases below
-writeRefPath bak iTypes v (VectorIndex_RefPath tp path idx) x = do
-  adjustRefPath bak iTypes v path (\vec ->
-    leafAdjustVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) vec idx (\_ ->
-      return x))
-writeRefPath bak iTypes v (ArrayIndex_RefPath _btp path idx) x = do
-  adjustRefPath bak iTypes v path (\arr ->
-    liftIO $ arrayUpdate (backendGetSym bak) arr (Empty :> idx) x)
--- For `MirAggregate`, `writeRefPath` with a concrete index can insert a new
--- entry into the aggregate.
-writeRefPath bak iTypes v (AgElem_RefPath idx sz tpr path) x = do
-  adjustRefPath bak iTypes v path (\v' -> do
-    writeMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr)
-      idx sz tpr x v')
-writeRefPath bak iTypes v path x =
-  adjustRefPath bak iTypes v path (\_ -> return x)
-
-adjustRefPath ::
-  (IsSymBackend sym bak) =>
-  bak ->
-  IntrinsicTypes sym ->
-  RegValue sym tp ->
-  MirReferencePath sym tp tp' ->
-  (RegValue sym tp' -> MuxLeafT sym IO (RegValue sym tp')) ->
-  MuxLeafT sym IO (RegValue sym tp)
-adjustRefPath bak iTypes v path0 adj = case path0 of
-  Empty_RefPath -> adj v
-  Field_RefPath _ctx path fld ->
-      adjustRefPath bak iTypes v path
-        (\x -> adjustM (\x' -> RV <$> adj (unRV x')) fld x)
-  Variant_RefPath _ _ctx path fld ->
-      -- TODO: report an error if variant `fld` is not selected
-      adjustRefPath bak iTypes v path (field @1 (\(RV x) ->
-        RV <$> adjustM (\x' -> VB <$> mapM adj (unVB x')) fld x))
-  Just_RefPath tp path ->
-      adjustRefPath bak iTypes v path $ \v' -> do
-          let msg = ReadBeforeWriteSimError $
-                  "attempted to modify uninitialized Maybe of type " ++ show tp
-          v'' <- leafReadPartExpr bak v' msg
-          mv <- adj v''
-          return $ justPartExpr (backendGetSym bak) mv
-  VectorIndex_RefPath tp path idx ->
-      adjustRefPath bak iTypes v path (\v' ->
-        leafAdjustVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) v' idx adj)
-  ArrayIndex_RefPath _btp path idx ->
-      adjustRefPath bak iTypes v path (\arr -> do
-        let sym = backendGetSym bak
-        let arrIdx = Empty :> idx
-        x <- liftIO $ arrayLookup sym arr arrIdx
-        x' <- adj x
-        liftIO $ arrayUpdate sym arr arrIdx x')
-  AgElem_RefPath idx _sz tpr path ->
-      adjustRefPath bak iTypes v path (\v' -> do
-        adjustMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr)
-          idx tpr adj v')
-  AggregateAsChunks_RefPath off chunkSize numChunks path ->
-      adjustRefPath bak iTypes v path $ \ag -> do
-        let sym = backendGetSym bak
-        (beforeAg, midAg, afterAg) <-
-          case mirAggregate_split3 off (off + chunkSize * numChunks) ag of
-            Left err -> die $ "mirAggregate_split3: " ++ err
-            Right x -> return x
-        chunkedAg <- case mirAggregate_toChunks sym 0 chunkSize numChunks midAg of
-          Left err -> die $ "mirAggregate_toChunks: " ++ err
-          Right x -> return x
-        chunkedAg' <- adj chunkedAg
-        midAg' <- liftIO (mirAggregate_fromChunks sym chunkedAg') >>= \case
-          Left err -> die $ "mirAggregate_fromChunks: " ++ err
-          Right x -> return x
-        let ag' = (beforeAg `mirAggregate_concat` midAg') `mirAggregate_concat` afterAg
-        return ag'
-  where
-    die msg = leafAbort $ Unsupported callStack $ "adjustRefPath: " ++ msg
-
-readRefPath ::
-  (MonadAssert sym bak m) =>
-  bak ->
-  IntrinsicTypes sym ->
-  RegValue sym tp ->
-  MirReferencePath sym tp tp' ->
-  MuxLeafT sym m (RegValue sym tp')
-readRefPath bak iTypes v = \case
-  Empty_RefPath -> return v
-  Field_RefPath _ctx path fld ->
-    do flds <- readRefPath bak iTypes v path
-       return $ unRV $ flds ! fld
-  Variant_RefPath _ ctx path fld ->
-    do (Empty :> _discr :> RV variant) <- readRefPath bak iTypes v path
-       let msg = GenericSimError $
-               "attempted to read from wrong variant (" ++ show fld ++ " of " ++ show ctx ++ ")"
-       leafReadPartExpr bak (unVB $ variant ! fld) msg
-  Just_RefPath tp path ->
-    do v' <- readRefPath bak iTypes v path
-       let msg = ReadBeforeWriteSimError $
-               "attempted to read from uninitialized Maybe of type " ++ show tp
-       leafReadPartExpr bak v' msg
-  VectorIndex_RefPath tp path idx ->
-    do v' <- readRefPath bak iTypes v path
-       leafIndexVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) v' idx
-  ArrayIndex_RefPath _btp path idx ->
-    do arr <- readRefPath bak iTypes v path
-       liftIO $ arrayLookup (backendGetSym bak) arr (Empty :> idx)
-  AgElem_RefPath off _sz tpr path -> do
-    ag <- readRefPath bak iTypes v path
-    readMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr) off tpr ag
-  AggregateAsChunks_RefPath off chunkSize numChunks path -> do
-    let sym = backendGetSym bak
-    ag <- readRefPath bak iTypes v path
-    chunkedAg <- case mirAggregate_toChunks sym off chunkSize numChunks ag of
-      Left err -> die $ "mirAggregate_toChunks: " ++ err
-      Right x -> return x
-    return chunkedAg
-  where
-    die msg = leafAbort $ Unsupported callStack $ "readRefPath: " ++ msg
