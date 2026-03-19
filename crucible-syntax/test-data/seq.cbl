@@ -11,4 +11,5 @@
     (let h  (seq-head s3))
     (let t  (seq-tail s3))
     (let u  (seq-uncons s3))
+    (let r  (seq-reverse s3))
     (return s3)))

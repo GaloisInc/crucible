@@ -9,6 +9,7 @@
       (let h (seq-head s3))
       (let t (seq-tail s3))
       (let u (seq-uncons s3))
+      (let r (seq-reverse s3))
       (return s3)))
 
 seq-test
@@ -31,6 +32,8 @@ seq-test
   $8 = sequenceTail(IntegerRepr, $4)
   % 13:13
   $9 = sequenceUncons(IntegerRepr, $4)
-  % 14:5
+  % 14:13
+  $10 = sequenceReverse(IntegerRepr, $4)
+  % 15:5
   return $4
   % no postdom

@@ -71,6 +71,7 @@ data Keyword = Defun | DefBlock | DefGlobal | Declare | Extern
              | SequenceNil_ | SequenceCons_ | SequenceAppend_
              | SequenceIsNil_ | SequenceLength_
              | SequenceHead_ | SequenceTail_ | SequenceUncons_
+             | SequenceReverse_
              | Deref | Ref | EmptyRef
              | Jump_ | Return_ | Branch_ | MaybeBranch_ | TailCall_ | Error_ | Output_ | Case
              | Print_ | PrintLn_
@@ -223,6 +224,7 @@ keywords =
   , ("seq-head", SequenceHead_)
   , ("seq-tail", SequenceTail_)
   , ("seq-uncons", SequenceUncons_)
+  , ("seq-reverse", SequenceReverse_)
 
     -- strings
   , ("show", Show)
