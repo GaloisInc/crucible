@@ -121,6 +121,7 @@ data Op a t where
   -- Operations
   OUncons :: Op a (List a) -> Op a (Maybe (Elem a), (List a))
   OLength :: Op a (List a) -> Op a Integer
+  OReverse :: Op a (List a) -> Op a (List a)
   -- TODO: isNil, head, tail
 
 sexp :: [String] -> String
@@ -158,6 +159,7 @@ instance Show a => Show (Op a t) where
       -- Operations
       OUncons l -> fun1 "uncons" l
       OLength l -> fun1 "length" l
+      OReverse l -> fun1 "reverse" l
 
 ---------------------------------------------------------------------
 -- Generating Op
@@ -196,6 +198,7 @@ genList sz genA =
     [ genCons
     , genAppend
     , genMux
+    , genReverse
     ]
   where
     sub1 = genList (sz - 1) genA
@@ -214,6 +217,8 @@ genList sz genA =
     genMux = do
       b <- genBool
       uncurry (OMux b) <$> sub2
+
+    genReverse = OReverse <$> sub1
 
 ---------------------------------------------------------------------
 -- Interpreting Op
@@ -242,6 +247,7 @@ opList =
         Just (hd, tl) -> (Just hd, tl)
         Nothing -> (Nothing, l')
     OLength l -> fromIntegral @Int @Integer (length (opList l))  -- safe
+    OReverse l -> reverse (opList l)
 
 opSeq ::
   WI.IsExprBuilder sym =>
@@ -299,3 +305,4 @@ opSeq sym =
       case WI.asInteger (WI.natToIntegerPure l) of
         Just l' -> pure l'
         Nothing -> panic "opSeq" ["SymSequence: symbolic length"]
+    OReverse l -> S.reverseSymSequence sym =<< opSeq sym l

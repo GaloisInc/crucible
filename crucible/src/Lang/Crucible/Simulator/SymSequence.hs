@@ -25,6 +25,7 @@ module Lang.Crucible.Simulator.SymSequence
 , traverseSymSequence
 , concreteizeSymSequence
 , concretizeSymSequence
+, reverseSymSequence
 , prettySymSequence
 
   -- * Low-level evaluation primitives
@@ -34,6 +35,7 @@ module Lang.Crucible.Simulator.SymSequence
 ) where
 
 import           Control.Monad.State
+import           Data.Coerce (coerce)
 import           Data.Functor.Const
 import           Data.Kind (Type)
 import           Data.IORef
@@ -194,6 +196,26 @@ appendSymSequence _sym xs ys =
   do n <- freshNonce globalNonceGenerator
      pure (SymSequenceAppend n xs ys)
 
+
+-- | Reverse a 'SymSequence'
+reverseSymSequence :: forall sym a. sym -> SymSequence sym a -> IO (SymSequence sym a)
+reverseSymSequence sym = \s -> coerce (evalWithFreshCache f s)
+  where
+    f :: (SymSequence sym a -> IO (Const (SymSequence sym a) a))
+      -> SymSequence sym a -> IO (Const (SymSequence sym a) a)
+    f loop = \case
+      SymSequenceNil -> pure (coerce SymSequenceNil)
+      SymSequenceCons _ v tl ->
+        do tl' <- coerce (loop tl)
+           coerce (appendSymSequence sym tl' =<< consSymSequence sym v SymSequenceNil)
+      SymSequenceAppend _ xs ys ->
+        do xs' <- coerce (loop xs)
+           ys' <- coerce (loop ys)
+           coerce (appendSymSequence sym ys' xs')
+      SymSequenceMerge _ p xs ys ->
+        do xs' <- coerce (loop xs)
+           ys' <- coerce (loop ys)
+           coerce (muxSymSequence sym p xs' ys')
 
 -- | Test if a sequence is nil (is empty)
 isNilSymSequence :: forall sym a.
