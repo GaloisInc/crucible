@@ -31,6 +31,7 @@
 module Mir.Intrinsics
   ( module Mir.Intrinsics,
     module Mir.Intrinsics.Aggregate,
+    module Mir.Intrinsics.Array,
     module Mir.Intrinsics.Enum,
     module Mir.Intrinsics.Size,
     module Mir.Intrinsics.Syntax,
@@ -78,6 +79,7 @@ import           What4.Partial
 
 import           Mir.FancyMuxTree
 import           Mir.Intrinsics.Aggregate
+import           Mir.Intrinsics.Array
 import           Mir.Intrinsics.Enum
 import           Mir.Intrinsics.Size
 import           Mir.Intrinsics.Syntax (MIR)
@@ -389,14 +391,6 @@ muxRef sym iTypes c (MirReferenceMux mt1) (MirReferenceMux mt2) =
 
 
 --------------------------------------------------------------
-
--- Aliases for working with the custom Array type, which is backed by an SMT
--- array at the Crucible level.
-type UsizeArrayType btp = SymbolicArrayType (EmptyCtx ::> BaseUsizeType) btp
-pattern UsizeArrayRepr :: () => tp' ~ UsizeArrayType btp => BaseTypeRepr btp -> TypeRepr tp'
-pattern UsizeArrayRepr btp <-
-    SymbolicArrayRepr (testEquality (Empty :> BaseUsizeRepr) -> Just Refl) btp
-  where UsizeArrayRepr btp = SymbolicArrayRepr (Empty :> BaseUsizeRepr) btp
 
 
 leafIndexVectorWithSymIndex ::
@@ -1272,17 +1266,6 @@ vectorDropIO bak _tpr v idx = case asNat idx of
     Just idx' -> return $ V.drop (fromIntegral idx') v
     Nothing -> addFailedAssertion bak $
         GenericSimError "VectorDrop index must be concrete"
-
-arrayZeroedIO ::
-    (IsSymInterface sym, 1 <= w) =>
-    sym ->
-    Assignment BaseTypeRepr (idxs ::> idx) ->
-    NatRepr w ->
-    IO (RegValue sym (SymbolicArrayType (idxs ::> idx) (BaseBVType w)))
-arrayZeroedIO sym idxs w = do
-    zero <- bvZero sym w
-    constantArray sym idxs zero
-
 
 -- | An ordinary `MirReferencePath sym tp tp''` is represented "inside-out": to
 -- turn `tp` into `tp''`, we first use a subsidiary `MirReferencePath` to turn
