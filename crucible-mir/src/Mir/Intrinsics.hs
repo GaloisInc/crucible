@@ -35,6 +35,7 @@ module Mir.Intrinsics
     module Mir.Intrinsics.Enum,
     module Mir.Intrinsics.Reference,
     module Mir.Intrinsics.Size,
+    module Mir.Intrinsics.Slice,
     module Mir.Intrinsics.Syntax,
     module Mir.Intrinsics.Vector,
   )
@@ -58,7 +59,6 @@ import qualified Data.Parameterized.Map as MapF
 import           Lang.Crucible.Backend
 import           Lang.Crucible.CFG.Expr
 import           Lang.Crucible.CFG.Generator hiding (dropRef)
-import           Lang.Crucible.Syntax
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.ExecutionTree hiding (FnState)
 import           Lang.Crucible.Simulator.GlobalState
@@ -76,6 +76,7 @@ import           Mir.Intrinsics.Array
 import           Mir.Intrinsics.Enum
 import           Mir.Intrinsics.Reference
 import           Mir.Intrinsics.Size
+import           Mir.Intrinsics.Slice
 import           Mir.Intrinsics.Syntax (MIR)
 import           Mir.Intrinsics.Vector
 
@@ -567,42 +568,6 @@ mirExtImpl = ExtensionImpl
              { extensionEval = \_sym _iTypes _log _f _state -> \case
              , extensionExec = execMirStmt
              }
-
---------------------------------------------------------------------------------
--- ** Slices
-
--- A Slice is a sequence of values plus an index to the first element
--- and a length.
-
-type MirSlice = StructType (EmptyCtx ::>
-                            MirReferenceType ::> -- first element
-                            UsizeType)       --- length
-
-pattern MirSliceRepr :: () => tp ~ MirSlice => TypeRepr tp
-pattern MirSliceRepr <- StructRepr
-     (viewAssign -> AssignExtend (viewAssign -> AssignExtend (viewAssign -> AssignEmpty)
-         MirReferenceRepr)
-         UsizeRepr)
- where MirSliceRepr = StructRepr (Empty :> MirReferenceRepr :> UsizeRepr)
-
-mirSliceCtxRepr :: CtxRepr (EmptyCtx ::>
-                            MirReferenceType ::>
-                            UsizeType)
-mirSliceCtxRepr = (Empty :> MirReferenceRepr :> UsizeRepr)
-
-mkSlice ::
-    Expr MIR s MirReferenceType ->
-    Expr MIR s UsizeType ->
-    Expr MIR s MirSlice
-mkSlice vec len = App $ MkStruct mirSliceCtxRepr $
-    Empty :> vec :> len
-
-getSlicePtr :: Expr MIR s MirSlice -> Expr MIR s MirReferenceType
-getSlicePtr e = getStruct i1of2 e
-
-getSliceLen :: Expr MIR s MirSlice -> Expr MIR s UsizeType
-getSliceLen e = getStruct i2of2 e
-
 
 --------------------------------------------------------------------------------
 -- ** MethodSpec and MethodSpecBuilder

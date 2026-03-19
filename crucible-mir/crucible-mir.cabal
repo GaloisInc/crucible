@@ -148,6 +148,7 @@ library
                    Mir.Intrinsics.Enum
                    Mir.Intrinsics.Reference
                    Mir.Intrinsics.Size
+                   Mir.Intrinsics.Slice
                    Mir.Intrinsics.Vector
                    Mir.TransTy
                    Mir.Trans
