@@ -28,5 +28,13 @@
     (let v3 (from-just (seq-head (from-just (seq-tail s2) "cdr s2")) "cadr s2"))
     (assert! (equal? 42 v3) "cadr s2 test")
 
+    (let r (seq-reverse s2))
+    (assert! (equal? 2 (seq-length r)) "reverse length")
+    (let rv1 (from-just (seq-head r) "head r"))
+    (assert! (equal? 42 rv1) "reversed first element")
+    (let r_tail (from-just (seq-tail r) "cdr r"))
+    (let rv2 (from-just (seq-head r_tail) "cadr r"))
+    (assert! (equal? 5 rv2) "reversed second element")
+
     (return ()))
 )

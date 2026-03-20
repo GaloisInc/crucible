@@ -30,14 +30,11 @@ module Lang.Crucible.Simulator.RecordAndReplay (
 import Control.Exception qualified as X
 import Control.Lens ((%~), (&), (^.))
 import Control.Lens qualified as Lens
-import Data.Foldable qualified as F
 import Data.Kind (Type)
 import Data.Text qualified as Text
-import Data.Sequence qualified as Seq
 import Lang.Crucible.Backend qualified as CB
 import Lang.Crucible.CFG.Core qualified as C
 import Lang.Crucible.FunctionHandle qualified as C
-import Lang.Crucible.Panic (panic)
 import Lang.Crucible.Simulator qualified as C
 import Lang.Crucible.Simulator.EvalStmt qualified as C
 import Lang.Crucible.Simulator.ExecutionTree qualified as C
@@ -254,37 +251,15 @@ recordFeature =
     -- API, but it could be exported in the future if necessary.
 
 -- | Obtain a 'RecordedTrace' after execution.
---
--- This currently requires concretizing the trace, because there is no efficient
--- reverse operation for 'CSSS.SymSequence'.
 getRecordedTrace ::
-  W4.IsExprBuilder sym =>
   C.SymGlobalState sym ->
   RecordState p sym ext rtp ->
   sym ->
-  -- | Evaluation for booleans, usually a 'What4.Expr.GroundEval.GroundEvalFn'
-  (W4.Pred sym -> IO Bool) ->
   IO (RecordedTrace sym)
-getRecordedTrace globals (RecordState g) sym evalBool = do
+getRecordedTrace globals (RecordState g) sym = do
   case C.lookupGlobal g globals of
     Nothing -> X.throw TraceGlobalNotDefined
-    Just s -> RecordedTrace <$> concretizeAndReverseTrace s
-  where
-    concretizeAndReverseTrace s = do
-      concretized <- CSSS.concretizeSymSequence evalBool (evalStr sym) s
-      let reversed = Seq.reverse concretized
-      symbolized <- mapM (W4.stringLit sym . W4.UnicodeLiteral) reversed
-      CSSS.fromListSymSequence sym (F.toList symbolized)
-
-    evalStr ::
-      W4.IsExpr (W4.SymExpr sym) =>
-      sym ->
-      W4.SymString sym W4.Unicode ->
-      IO Text.Text
-    evalStr _sym s =
-      case W4.asString s of
-        Just (W4.UnicodeLiteral s') -> pure s'
-        Nothing -> panic "getRecordedTrace" ["Non-literal trace element?"]
+    Just s -> RecordedTrace <$> CSSS.reverseSymSequence sym s
 
 {- | Inserts a recorded trace into the state's replay trace variable
 The replay feature will follow this trace if it is enabled

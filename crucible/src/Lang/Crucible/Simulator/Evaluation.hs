@@ -490,6 +490,8 @@ evalApp bak itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       do xs' <- evalSub xs
          mu <- unconsSymSequence sym (muxRegForType sym itefns tpr) xs'
          traverse (\ (h,tl) -> pure (Ctx.Empty Ctx.:> RV h Ctx.:> RV tl)) mu
+    SequenceReverse _tpr xs ->
+      reverseSymSequence sym =<< evalSub xs
 
     --------------------------------------------------------------------
     -- Symbolic Arrays

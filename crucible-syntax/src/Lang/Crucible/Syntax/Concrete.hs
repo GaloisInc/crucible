@@ -547,6 +547,7 @@ synthExpr typeHint = do
         SequenceHead_ -> seqHead
         SequenceTail_ -> seqTail
         SequenceUncons_ -> seqUncons
+        SequenceReverse_ -> seqReverse
         If -> ite
         Integerp -> intp
         BinaryToFP_ -> binaryToFp
@@ -1171,6 +1172,13 @@ synthExpr typeHint = do
            SequenceRepr elemT ->
              return $ SomeE (MaybeRepr (StructRepr (Ctx.Empty Ctx.:> elemT Ctx.:> SequenceRepr elemT))) $
                EApp $ SequenceUncons elemT e
+           other -> later $ describe ("sequence (found " <> T.pack (show other) <> ")") empty
+
+    seqReverse :: m (SomeExpr ext s)
+    seqReverse =
+      do (Pair t e) <- unary SequenceReverse_ synth
+         case t of
+           SequenceRepr elemT -> return $ SomeE (SequenceRepr elemT) $ EApp $ SequenceReverse elemT e
            other -> later $ describe ("sequence (found " <> T.pack (show other) <> ")") empty
 
     showExpr :: m (SomeExpr ext s)

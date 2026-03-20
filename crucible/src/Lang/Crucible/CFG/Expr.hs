@@ -530,6 +530,11 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
                  -> !(f (SequenceType tp))
                  -> App ext f (MaybeType (StructType (EmptyCtx ::> tp ::> SequenceType tp)))
 
+  -- Reverse a sequence
+  SequenceReverse :: !(TypeRepr tp)
+                  -> !(f (SequenceType tp))
+                  -> App ext f (SequenceType tp)
+
   ----------------------------------------------------------------------
   -- Vector
 
@@ -1227,6 +1232,7 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
       MaybeRepr (StructRepr (Ctx.Empty Ctx.:> tpr Ctx.:> SequenceRepr tpr))
     SequenceLength{} -> knownRepr
     SequenceTail tpr _ -> MaybeRepr (SequenceRepr tpr)
+    SequenceReverse tpr _ -> SequenceRepr tpr
 
     ----------------------------------------------------------------------
     -- SymbolicArrayType
