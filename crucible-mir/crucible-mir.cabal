@@ -151,8 +151,8 @@ library
                    Mir.Intrinsics.Reference
                    Mir.Intrinsics.Size
                    Mir.Intrinsics.Slice
+                   Mir.Intrinsics.Syntax
                    Mir.Intrinsics.Vector
                    Mir.TransTy
                    Mir.Trans
                    Mir.TransCustom
-  other-modules:   Mir.Intrinsics.Syntax
