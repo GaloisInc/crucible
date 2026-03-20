@@ -31,8 +31,6 @@
 -- See: https://ghc.haskell.org/trac/ghc/ticket/11581
 {-# LANGUAGE UndecidableInstances #-}
 
-{-# OPTIONS_GHC -fno-warn-orphans #-}
-
 module Mir.FancyMuxTree
   {-
 ( -- * Internal implementation types
