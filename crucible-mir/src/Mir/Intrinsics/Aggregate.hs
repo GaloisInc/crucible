@@ -16,7 +16,48 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module Mir.Intrinsics.Aggregate where
+-- TODO(#1786): refine exports
+module Mir.Intrinsics.Aggregate
+  ( MirAggregate (..),
+    MirAggregateEntry (..),
+    MirAggregateSymbol,
+    MirAggregateType,
+    pattern MirAggregateRepr,
+    MirAggregateFam,
+    muxMirAggregateEntry,
+    muxMirAggregate,
+    mirAgTypedCandidates,
+    liftIteFnMaybe,
+    agNoValueAtOffsetSimError,
+    agNoValueAtSymbolicOffsetSimError,
+    readMirAggregateWithSymOffset,
+    adjustMirAggregateWithSymOffset,
+    offsetInSpans,
+    foldRuns,
+    addToRun,
+    mkRun,
+    Run (..),
+    mirAggregate_entries,
+    mirAggregate_insert,
+    writeMirAggregateWithSymOffset,
+    mirAggregate_lookup,
+    resizeMirAggregate,
+    mirAggregate_split,
+    mirAggregate_split3,
+    mirAggregate_chunk,
+    mirAggregate_toChunks,
+    mirAggregate_concat,
+    mirAggregate_fromChunks,
+    concreteAllocSize,
+    mirAggregate_uninitIO,
+    mirAggregate_zstSim,
+    mirAggregate_zstIO,
+    mirAggregate_replicateIO,
+    mirAggregate_resizeIO,
+    mirAggregate_getIO,
+    mirAggregate_setIO,
+  )
+where
 
 import GHC.Stack (callStack)
 import GHC.TypeLits

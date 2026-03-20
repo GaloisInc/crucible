@@ -6,7 +6,15 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Mir.Intrinsics.Slice where
+module Mir.Intrinsics.Slice
+  ( MirSlice,
+    pattern MirSliceRepr,
+    mirSliceCtxRepr,
+    mkSlice,
+    getSlicePtr,
+    getSliceLen,
+  )
+where
 
 import Data.Parameterized.Context
   ( AssignView (AssignEmpty, AssignExtend),

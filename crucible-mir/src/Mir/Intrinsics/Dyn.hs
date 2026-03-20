@@ -2,7 +2,15 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Mir.Intrinsics.Dyn where
+-- TODO(#1786): refine exports, if necessary
+module Mir.Intrinsics.Dyn
+  ( DynRefType,
+    dynRefDataIndex,
+    dynRefVtableIndex,
+    pattern DynRefCtx,
+    pattern DynRefRepr,
+  )
+where
 
 import Data.Parameterized.Context
   ( Assignment,

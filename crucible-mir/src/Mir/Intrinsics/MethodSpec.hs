@@ -13,7 +13,22 @@
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
-module Mir.Intrinsics.MethodSpec where
+-- TODO(#1786): refine exports, if necessary
+module Mir.Intrinsics.MethodSpec
+  ( MethodSpecImpl (..),
+    MethodSpec (..),
+    MethodSpecSymbol,
+    MethodSpecType,
+    pattern MethodSpecRepr,
+    MethodSpecFam,
+    MethodSpecBuilderImpl (..),
+    MethodSpecBuilder(..),
+    MethodSpecBuilderSymbol,
+    MethodSpecBuilderType,
+    pattern MethodSpecBuilderRepr,
+    MethodSpecBuilderFam,
+  )
+where
 
 import GHC.TypeLits (ErrorMessage (ShowType, Text, (:<>:)), TypeError)
 

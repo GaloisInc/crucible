@@ -2,7 +2,18 @@
 {-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE TypeOperators #-}
 
-module Mir.Intrinsics.Enum where
+-- TODO(#1786): refine exports, if necessary
+module Mir.Intrinsics.Enum
+  ( RustEnumType,
+    RustEnumFields,
+    SomeRustEnumRepr (..),
+    pattern RustEnumFieldsRepr,
+    pattern RustEnumRepr,
+    mkRustEnum,
+    rustEnumDiscriminant,
+    rustEnumVariant,
+  )
+where
 
 import Data.Parameterized.Context
   ( EmptyCtx,

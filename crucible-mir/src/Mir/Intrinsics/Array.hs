@@ -4,7 +4,12 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GADTs #-}
 
-module Mir.Intrinsics.Array where
+module Mir.Intrinsics.Array
+  ( UsizeArrayType,
+    pattern UsizeArrayRepr,
+    arrayZeroedIO,
+  )
+where
 
 import GHC.TypeLits (type (<=))
 

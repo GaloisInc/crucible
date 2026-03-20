@@ -5,7 +5,62 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Mir.Intrinsics.Size where
+-- TODO(#1786): refine exports, if necessary
+module Mir.Intrinsics.Size
+  ( SizeBits,
+    UsizeType,
+    IsizeType,
+    BaseUsizeType,
+    BaseIsizeType,
+    pattern UsizeRepr,
+    pattern IsizeRepr,
+    pattern BaseUsizeRepr,
+    pattern BaseIsizeRepr,
+    usizeLit,
+    usizeAdd,
+    usizeSub,
+    usizeMul,
+    usizeDiv,
+    usizeRem,
+    usizeAnd,
+    usizeOr,
+    usizeXor,
+    usizeShl,
+    usizeShr,
+    usizeEq,
+    usizeLe,
+    usizeLt,
+    natToUsize,
+    usizeToNat,
+    usizeToBv,
+    bvToUsize,
+    sbvToUsize,
+    usizeIte,
+    isizeLit,
+    isizeAdd,
+    isizeSub,
+    isizeMul,
+    isizeDiv,
+    isizeRem,
+    isizeNeg,
+    isizeAnd,
+    isizeOr,
+    isizeXor,
+    isizeShl,
+    isizeShr,
+    isizeEq,
+    isizeLe,
+    isizeLt,
+    integerToIsize,
+    isizeToBv,
+    bvToIsize,
+    sbvToIsize,
+    isizeIte,
+    usizeToIsize,
+    isizeToUsize,
+    wordLit,
+  )
+where
 
 import GHC.TypeLits (type (<=))
 

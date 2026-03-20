@@ -14,7 +14,14 @@
 -- See: https://ghc.haskell.org/trac/ghc/ticket/11581
 {-# LANGUAGE UndecidableInstances #-}
 
-module Mir.Intrinsics.Syntax where
+-- TODO(#1786): refine exports, if necessary
+module Mir.Intrinsics.Syntax
+  ( MIR,
+    MirStmt (..),
+    traverseMirStmt,
+    execMirStmt,
+  )
+where
 
 import GHC.TypeLits (type (<=))
 

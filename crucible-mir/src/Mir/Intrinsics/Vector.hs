@@ -3,7 +3,17 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Mir.Intrinsics.Vector where
+-- TODO(#1786): refine exports, if necessary
+module Mir.Intrinsics.Vector
+  ( vectorGetUsize,
+    vectorSetUsize,
+    vectorSizeUsize,
+    vectorTakeIO,
+    vectorDropIO,
+    leafIndexVectorWithSymIndex,
+    leafAdjustVectorWithSymIndex,
+  )
+where
 
 import Control.Monad.IO.Class (liftIO)
 

@@ -3,6 +3,7 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE TypeApplications #-}
 
+-- TODO(#1786): refine exports
 module Mir.Intrinsics
   ( module Mir.Intrinsics,
     module Mir.Intrinsics.Aggregate,
