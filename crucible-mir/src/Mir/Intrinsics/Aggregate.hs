@@ -72,7 +72,6 @@ import Mir.FancyMuxTree
     subMuxLeafMA,
   )
 import Mir.Intrinsics.Size (UsizeType, wordLit)
-import Mir.Intrinsics.Syntax (MIR)
 
 --------------------------------------------------------------
 -- A MirAggregateType is a collection of elements of any type, with each entry
@@ -848,7 +847,7 @@ mirAggregate_uninitIO bak szSym = do
 
 -- | Construct a 'MirAggregate' value representing a zero-sized type (ZST) such
 -- as an empty tuple or array.
-mirAggregate_zstSim :: OverrideSim p sym MIR rtp args ret (MirAggregate sym)
+mirAggregate_zstSim :: OverrideSim p sym ext rtp args ret (MirAggregate sym)
 mirAggregate_zstSim = liftIO mirAggregate_zstIO
 
 -- | Construct a 'MirAggregate' value representing a zero-sized type (ZST) such

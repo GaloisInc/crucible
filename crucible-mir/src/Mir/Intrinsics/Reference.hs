@@ -136,7 +136,6 @@ import Mir.Intrinsics.Aggregate
 import Mir.Intrinsics.Array (UsizeArrayType, pattern UsizeArrayRepr)
 import Mir.Intrinsics.Enum (RustEnumType, pattern RustEnumRepr)
 import Mir.Intrinsics.Size (IsizeType, UsizeType, wordLit, pattern IsizeRepr)
-import Mir.Intrinsics.Syntax (MIR)
 import Mir.Intrinsics.Vector (leafAdjustVectorWithSymIndex, leafIndexVectorWithSymIndex)
 
 
@@ -627,7 +626,7 @@ readRefMuxSim :: IsSymInterface sym =>
     TypeRepr tp' ->
     (MirReference sym -> MuxLeafT sym IO (RegValue sym tp')) ->
     MirReferenceMux sym ->
-    OverrideSim m sym MIR rtp args ret (RegValue sym tp')
+    OverrideSim m sym ext rtp args ret (RegValue sym tp')
 readRefMuxSim tpr' f ref =
   ovrWithBackend $ \bak -> do
     ctx <- getContext
@@ -649,7 +648,7 @@ readRefMuxMA bak iTypes tpr' f (MirReferenceMux ref) =
 modifyRefMuxSim :: IsSymInterface sym =>
     (MirReference sym -> MuxLeafT sym IO (MirReference sym)) ->
     MirReferenceMux sym ->
-    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
+    OverrideSim m sym ext rtp args ret (MirReferenceMux sym)
 modifyRefMuxSim f ref =
   ovrWithBackend $ \bak -> do
     ctx <- getContext
@@ -674,7 +673,7 @@ readBeforeWriteMsg = ReadBeforeWriteSimError
 
 newMirRefSim :: IsSymInterface sym =>
     TypeRepr tp ->
-    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
+    OverrideSim m sym ext rtp args ret (MirReferenceMux sym)
 newMirRefSim tpr = do
     sym <- getSymInterface
     s <- get
@@ -726,7 +725,7 @@ typedLeafOp desc _ (MirReference_Integer _) _ =
 
 readMirRefSim :: IsSymInterface sym =>
     TypeRepr tp -> MirReferenceMux sym ->
-    OverrideSim m sym MIR rtp args ret (RegValue sym tp)
+    OverrideSim m sym ext rtp args ret (RegValue sym tp)
 readMirRefSim tpr ref =
   ovrWithBackend $ \bak ->
    do s <- get
@@ -765,7 +764,7 @@ writeMirRefSim ::
     TypeRepr tp ->
     MirReferenceMux sym ->
     RegValue sym tp ->
-    OverrideSim m sym MIR rtp args ret ()
+    OverrideSim m sym ext rtp args ret ()
 writeMirRefSim tpr ref x = do
     s <- get
     let gs0 = s ^. stateTree.actFrame.gpGlobals
@@ -940,7 +939,7 @@ subindexMirRefSim ::
     RegValue sym UsizeType ->
     -- | Size of the element, in bytes
     Word ->
-    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
+    OverrideSim m sym ext rtp args ret (MirReferenceMux sym)
 subindexMirRefSim sym tpr ref idx elemSize = do
     modifyRefMuxSim (\ref' -> subindexMirRefLeaf sym tpr ref' idx elemSize) ref
 
@@ -1349,7 +1348,7 @@ mirRef_offsetSim ::
     RegValue sym IsizeType ->
     -- | The size of each element, in bytes
     Word ->
-    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
+    OverrideSim m sym ext rtp args ret (MirReferenceMux sym)
 mirRef_offsetSim ref off elemSize =
     ovrWithBackend $ \bak ->
       modifyRefMuxSim (\ref' -> mirRef_offsetLeaf bak ref' off elemSize) ref
@@ -1390,7 +1389,7 @@ mirRef_offsetWrapSim ::
     RegValue sym IsizeType ->
     -- | The size of each element, in bytes
     Word ->
-    OverrideSim m sym MIR rtp args ret (MirReferenceMux sym)
+    OverrideSim m sym ext rtp args ret (MirReferenceMux sym)
 mirRef_offsetWrapSim ref off elemSize = do
     ovrWithBackend $ \bak ->
       modifyRefMuxSim (\ref' -> mirRef_offsetWrapLeaf bak ref' off elemSize) ref
@@ -1759,7 +1758,7 @@ mirRef_indexAndLenSim ::
     MirReferenceMux sym ->
     -- | The size of the pointee element, in bytes
     Word ->
-    OverrideSim p sym MIR rtp args ret
+    OverrideSim p sym ext rtp args ret
         (PartExpr (Pred sym) (RegValue sym UsizeType, RegValue sym UsizeType))
 mirRef_indexAndLenSim ref elemSize = do
   ovrWithBackend $ \bak ->

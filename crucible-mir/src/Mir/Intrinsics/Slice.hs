@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImportQualifiedPost #-}
 {-# LANGUAGE PatternSynonyms #-}
@@ -20,7 +21,7 @@ import Data.Parameterized.Context
 
 import Lang.Crucible.CFG.Expr (App (..))
 import Lang.Crucible.CFG.Reg (Expr (App))
-import Lang.Crucible.Syntax (getStruct)
+import Lang.Crucible.Syntax (IsExpr, getStruct)
 import Lang.Crucible.Types
   ( CtxRepr,
     StructType,
@@ -29,7 +30,6 @@ import Lang.Crucible.Types
 
 import Mir.Intrinsics.Reference (MirReferenceType, pattern MirReferenceRepr)
 import Mir.Intrinsics.Size (UsizeType, pattern UsizeRepr)
-import Mir.Intrinsics.Syntax (MIR)
 
 --------------------------------------------------------------------------------
 -- ** Slices
@@ -54,15 +54,15 @@ mirSliceCtxRepr :: CtxRepr (EmptyCtx ::>
 mirSliceCtxRepr = (Empty :> MirReferenceRepr :> UsizeRepr)
 
 mkSlice ::
-    Expr MIR s MirReferenceType ->
-    Expr MIR s UsizeType ->
-    Expr MIR s MirSlice
+    Expr ext s MirReferenceType ->
+    Expr ext s UsizeType ->
+    Expr ext s MirSlice
 mkSlice vec len = App $ MkStruct mirSliceCtxRepr $
     Empty :> vec :> len
 
 
-getSlicePtr :: Expr MIR s MirSlice -> Expr MIR s MirReferenceType
+getSlicePtr :: IsExpr (Expr ext s) => Expr ext s MirSlice -> Expr ext s MirReferenceType
 getSlicePtr e = getStruct i1of2 e
 
-getSliceLen :: Expr MIR s MirSlice -> Expr MIR s UsizeType
+getSliceLen :: IsExpr (Expr ext s) => Expr ext s MirSlice -> Expr ext s UsizeType
 getSliceLen e = getStruct i2of2 e
