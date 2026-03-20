@@ -145,6 +145,7 @@ library
                    Mir.Intrinsics
                    Mir.Intrinsics.Aggregate
                    Mir.Intrinsics.Array
+                   Mir.Intrinsics.Dyn
                    Mir.Intrinsics.Enum
                    Mir.Intrinsics.MethodSpec
                    Mir.Intrinsics.Reference

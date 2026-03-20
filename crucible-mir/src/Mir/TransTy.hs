@@ -72,7 +72,7 @@ import           Mir.Intrinsics
     , RustEnumType, pattern RustEnumRepr, SomeRustEnumRepr(..)
     , mkRustEnum, rustEnumVariant, rustEnumDiscriminant
     , pattern MethodSpecRepr, pattern MethodSpecBuilderRepr
-    , DynRefType, usizeLit , pattern BaseUsizeRepr )
+    , pattern DynRefRepr, usizeLit , pattern BaseUsizeRepr )
 
 
 -----------------------------------------------------------------------
@@ -294,17 +294,6 @@ tyToUnsizedRefRepr col ty =
       tyToUnsizedRefRepr col (lastField ^. M.fty)
 
     _ -> Nothing
-
-pattern DynRefCtx :: () => (ctx ~ (Ctx.EmptyCtx Ctx.::> MirReferenceType Ctx.::> C.AnyType)) => Ctx.Assignment C.TypeRepr ctx
-pattern DynRefCtx = Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> C.AnyRepr
-
--- | The representation for a @&dyn Tr@/@&mut dyn Tr@. Both use the same
--- representation: a pair of a data value (which is either @&Ty@ or @&mut Ty@)
--- and a vtable. The vtable is type-erased (`AnyRepr`); see @Note [Erase vtable
--- types]@ in "Mir.Intrinsics". See also `DynRefCtx`.
-pattern DynRefRepr :: () => (tp ~ DynRefType) => C.TypeRepr tp
-pattern DynRefRepr = C.StructRepr DynRefCtx
-
 
 tyToReprM :: M.Ty -> MirGenerator h s ret (Some C.TypeRepr)
 tyToReprM ty = do
