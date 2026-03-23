@@ -1186,25 +1186,35 @@ tyLayoutM ty = do
         Just x -> pure x
         Nothing -> mirFail $ "tyLayoutM: layout not found for type: " <> show ty
 
+-- | Get the offset and type of each field of a type.  Returns `Nothing` if the
+-- type is not present in the `M.Collection` (as described in Note [present]).
+-- Results are given in declaration order.
+tyFields :: M.Collection -> M.Ty -> Maybe [(Word, M.Ty)]
+tyFields col ty = do
+    layout <- tyLayout col ty
+    let offsets = case layout ^. M.layFieldOffsets of
+            Just x -> x
+            Nothing -> panic "tyFields" ["missing field offsets for type", show ty]
+    let tys = case ty of
+            M.TyTuple x -> x
+            M.TyClosure x -> x
+            M.TyCoroutineClosure x -> x
+            M.TyAdt {} -> panic "tyFields" ["TODO: tyFields struct case"]  -- For now, we only call this on tuples
+            _ -> panic "tyFields" ["tyFieldsM: unsupported type:", show ty]
+    when (length tys /= length offsets) $
+        panic "tyFieldsM" ["field count vs offset count mismatch",
+            show ty, show tys, show offsets]
+    return $ zip (map fromIntegral offsets) tys
+
 -- | Get the offset and type of each field of a type.  The type must be present
 -- in the `M.Collection`, as described in Note [present], or this will
 -- `mirFail`.  Results are given in declaration order.
 tyFieldsM :: M.Ty -> MirGenerator h s ret [(Word, M.Ty)]
 tyFieldsM ty = do
-    tys <- case ty of
-        M.TyTuple tys -> return tys
-        M.TyClosure tys -> return tys
-        M.TyCoroutineClosure tys -> return tys
-        M.TyAdt {} -> mirFail "TODO: tyFieldsM struct case"  -- For now, we only call this on tuples
-        _ -> mirFail $ "tyFieldsM: unsupported type: " ++ show ty
-    layout <- tyLayoutM ty
-    offsets <- case layout ^. M.layFieldOffsets of
-        Just x -> return x
-        Nothing -> panic "tyFieldsM" ["missing field offsets for type", show ty]
-    when (length tys /= length offsets) $
-        panic "tyFieldsM" ["field count vs offset count mismatch",
-            show ty, show tys, show offsets]
-    return $ zip (map fromIntegral offsets) tys
+    col <- use $ cs . collection
+    case tyFields col ty of
+        Just x -> pure x
+        Nothing -> mirFail $ "tyFieldsM: layout not found for type: " <> show ty
 
 structInfo :: M.Adt -> Int -> MirGenerator h s ret StructInfo
 structInfo adt i = do
