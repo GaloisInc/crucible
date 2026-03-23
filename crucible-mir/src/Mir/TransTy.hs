@@ -864,7 +864,7 @@ tupleLikeFieldTysM ty =
 
 {-
 Note [present]
-----------------------------------------
+--------------
 
 Many operations in this module require that a certain type be "present in the
 `M.Collection`" so that the operation can look up information such as the size
@@ -1200,9 +1200,9 @@ tyFields col ty = do
             M.TyClosure x -> x
             M.TyCoroutineClosure x -> x
             M.TyAdt {} -> panic "tyFields" ["TODO: tyFields struct case"]  -- For now, we only call this on tuples
-            _ -> panic "tyFields" ["tyFieldsM: unsupported type:", show ty]
+            _ -> panic "tyFields" ["tyFields: unsupported type:", show ty]
     when (length tys /= length offsets) $
-        panic "tyFieldsM" ["field count vs offset count mismatch",
+        panic "tyFields" ["field count vs offset count mismatch",
             show ty, show tys, show offsets]
     return $ zip (map fromIntegral offsets) tys
 
