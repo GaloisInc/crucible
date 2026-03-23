@@ -1,7 +1,7 @@
 # next
 
 This release supports [version
-9](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#9) of
+10](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#10) of
 `mir-json`'s schema.
 
 # 0.12 -- 2026-01-29
