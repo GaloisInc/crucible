@@ -1189,6 +1189,10 @@ tyLayoutM ty = do
 -- | Get the offset and type of each field of a type.  Returns `Nothing` if the
 -- type is not present in the `M.Collection` (as described in Note [present]).
 -- Results are given in declaration order.
+--
+-- This panics if it's called on a type that can't have fields or is otherwise
+-- unsupported.  It also panics on certain kinds of inconsistencies in the
+-- layout data retrieved from the `M.Collection`.
 tyFields :: M.Collection -> M.Ty -> Maybe [(Word, M.Ty)]
 tyFields col ty = do
     layout <- tyLayout col ty
