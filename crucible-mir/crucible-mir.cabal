@@ -143,6 +143,16 @@ library
                    Mir.DefId
                    Mir.FancyMuxTree
                    Mir.Intrinsics
+                   Mir.Intrinsics.Aggregate
+                   Mir.Intrinsics.Array
+                   Mir.Intrinsics.Dyn
+                   Mir.Intrinsics.Enum
+                   Mir.Intrinsics.MethodSpec
+                   Mir.Intrinsics.Reference
+                   Mir.Intrinsics.Size
+                   Mir.Intrinsics.Slice
+                   Mir.Intrinsics.Syntax
+                   Mir.Intrinsics.Vector
                    Mir.TransTy
                    Mir.Trans
                    Mir.TransCustom
