@@ -46,7 +46,7 @@ pattern DynRefCtx = Empty :> MirReferenceRepr :> AnyRepr
 -- | The representation for a @&dyn Tr@/@&mut dyn Tr@. Both use the same
 -- representation: a pair of a data value (which is either @&Ty@ or @&mut Ty@)
 -- and a vtable. The vtable is type-erased (`AnyRepr`); see @Note [Erase vtable
--- types]@ in "Mir.Intrinsics". See also `DynRefCtx`.
+-- types]@. See also `DynRefCtx`.
 pattern DynRefRepr :: () => (tp ~ DynRefType) => TypeRepr tp
 pattern DynRefRepr = StructRepr DynRefCtx
 
