@@ -14,6 +14,9 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 
+-- See: https://ghc.haskell.org/trac/ghc/ticket/11581
+{-# LANGUAGE UndecidableInstances #-}
+
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- TODO(#1786): refine exports
