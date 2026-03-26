@@ -13,6 +13,8 @@
 module Lang.Crucible.CLI
   ( simulateProgramWithExtension
   , simulateProgram
+  , ExtensionSetup(..)
+  , defaultExtensionSetup
   , SimulateProgramHooks(..)
   , defaultSimulateProgramHooks
   , repl
@@ -137,11 +139,36 @@ defaultSimulateProgramHooks = SimulateProgramHooks
        pure gst
   }
 
+-- | Configuration returned by the extension setup callback in
+-- 'simulateProgramWithExtension'. Bundles the extension implementation with
+-- any initial global state and intrinsic type registrations the extension
+-- needs.
+data ExtensionSetup p sym ext = ExtensionSetup
+  { extImpl :: ExtensionImpl p sym ext
+    -- ^ The extension implementation for the simulator.
+  , extIntrinsicTypes :: IntrinsicTypes sym
+    -- ^ Intrinsic types to register with the simulator (e.g.,
+    -- 'Lang.Crucible.LLVM.Intrinsics.llvmIntrinsicTypes' for LLVM memory).
+    -- Use 'emptyIntrinsicTypes' if no intrinsic types are needed.
+  , extInitGlobals :: SymGlobalState sym
+    -- ^ Initial global variable state. Use 'emptyGlobals' if no initial
+    -- globals are needed. The 'resolveExternsHook' will be applied on top
+    -- of this state.
+  }
+
+-- | Create an 'ExtensionSetup' with no intrinsic types or initial globals.
+defaultExtensionSetup :: ExtensionImpl p sym ext -> ExtensionSetup p sym ext
+defaultExtensionSetup impl = ExtensionSetup
+  { extImpl = impl
+  , extIntrinsicTypes = emptyIntrinsicTypes
+  , extInitGlobals = emptyGlobals
+  }
+
 simulateProgramWithExtension
    :: forall ext.
       (IsSyntaxExtension ext, ?parserHooks :: ParserHooks ext)
    => (forall p sym bak t st fs. (IsSymBackend sym bak, sym ~ ExprBuilder t st fs) =>
-        bak -> IO (ExtensionImpl p sym ext))
+        bak -> IO (ExtensionSetup p sym ext))
    -> FilePath -- ^ The name of the input (appears in source locations)
    -> Text     -- ^ The contents of the input
    -> Handle   -- ^ A handle that will receive the output
@@ -219,12 +246,14 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks dbg dbgCmds
                     | Ctx.Empty <- C.Reg.cfgArgTypes mn
                     , CT.UnitRepr <- C.Reg.cfgReturnType mn ->
                     do let retType = C.Reg.cfgReturnType mn
-                       gst <- resolveExternsHook hooks sym externs emptyGlobals
                        let mainHdl = cfgHandle mn
-                       ext <- mkExt bak
+                       extSetup <- mkExt bak
+                       gst <- resolveExternsHook hooks sym externs (extInitGlobals extSetup)
 
                        let fns = FnBindings emptyHandleMap
-                       let simCtx = initSimContext bak emptyIntrinsicTypes ha outh fns ext p
+                       let iTypes = extIntrinsicTypes extSetup
+                           impl = extImpl extSetup
+                           simCtx = initSimContext bak iTypes ha outh fns impl p
                        let simSt  = InitialState simCtx gst defaultAbortHandler retType $
                                       runOverrideSim retType $
                                         do forM_ (parsedProgramFnBindings parsedProg) registerFnBinding
@@ -282,7 +311,7 @@ simulateProgram
    -> IO ()
 simulateProgram fn theInput outh profh opts hooks dbg dbgCmds = do
   let ?parserHooks = defaultParserHooks
-  let ext = const (pure emptyExtensionImpl)
+  let ext = const (pure (defaultExtensionSetup emptyExtensionImpl))
   simulateProgramWithExtension ext fn theInput outh profh opts hooks dbg dbgCmds
 
 repl :: 
@@ -324,10 +353,10 @@ data Command
 -- | Main entry point for Crucible CLI frontends: the frontends provide
 -- language-specific hooks and a 'Command' (usually parsed from the command
 -- line), and this function takes care of the rest.
-execCommand :: 
+execCommand ::
   (IsSyntaxExtension ext, ?parserHooks :: ParserHooks ext) =>
   (forall p sym bak t st fs. (IsSymBackend sym bak, sym ~ ExprBuilder t st fs) =>
-    bak -> IO (ExtensionImpl p sym ext)) ->
+    bak -> IO (ExtensionSetup p sym ext)) ->
   SimulateProgramHooks ext ->
   Command ->
   IO ()

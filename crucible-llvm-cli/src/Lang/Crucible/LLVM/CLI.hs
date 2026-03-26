@@ -9,7 +9,6 @@ module Lang.Crucible.LLVM.CLI
   ( withLlvmHooks
   ) where
 
-import qualified Control.Lens as Lens
 import qualified Control.Monad as Monad
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.IntMap as IntMap
@@ -26,11 +25,10 @@ import qualified What4.FunctionName as W4
 import Lang.Crucible.Backend (IsSymBackend)
 import Lang.Crucible.FunctionHandle (newHandleAllocator)
 import qualified Lang.Crucible.FunctionHandle as C
-import Lang.Crucible.Simulator.ExecutionTree (ExtensionImpl)
 import Lang.Crucible.Simulator.OverrideSim (writeGlobal)
 import qualified Lang.Crucible.Simulator as C
 
-import Lang.Crucible.CLI (SimulateProgramHooks(..), defaultSimulateProgramHooks)
+import qualified Lang.Crucible.CLI as CLI
 
 import Lang.Crucible.Syntax.Concrete (ParserHooks)
 
@@ -67,8 +65,10 @@ tryBindTypedOverride hdl ov = do
 withLlvmHooks ::
   (forall w.
     (HasPtrWidth w, ?parserHooks :: ParserHooks LLVM) =>
-    (forall p sym bak. IsSymBackend sym bak => bak -> IO (ExtensionImpl p sym LLVM)) ->
-    SimulateProgramHooks LLVM ->
+    (forall p sym bak.
+      IsSymBackend sym bak =>
+      bak -> IO (CLI.ExtensionSetup p sym LLVM)) ->
+    CLI.SimulateProgramHooks LLVM ->
     IO a) ->
   IO a
 withLlvmHooks k = do
@@ -77,13 +77,8 @@ withLlvmHooks k = do
   let ?ptrWidth = knownNat @64
   let ?parserHooks = llvmParserHooks (typeAliasParserHooks x86_64LinuxTypes) mvar
   let simulationHooks =
-        defaultSimulateProgramHooks
-          { setupHook = \bak _ha fwdDecs -> do
-              let addIntrinsicTypes types ctx =
-                    ctx { C.ctxIntrinsicTypes = MapF.union (C.ctxIntrinsicTypes ctx) types }
-              let iTypes = MapF.union llvmIntrinsicTypes llvmSymIOIntrinsicTypes
-              C.stateContext Lens.%= addIntrinsicTypes iTypes
-
+        CLI.defaultSimulateProgramHooks
+          { CLI.setupHook = \bak _ha fwdDecs -> do
               mem <- liftIO (Mem.emptyMem LittleEndian)
               writeGlobal mvar mem
               let ?recordLLVMAnnotation = \_ _ _ -> pure ()
@@ -118,6 +113,13 @@ withLlvmHooks k = do
               _ <- registerLLVMOverrides bak llvmCtx fwdDecs'
               return ()
           }
-  let ext _ = let ?recordLLVMAnnotation = \_ _ _ -> pure ()
-              in pure (llvmExtensionImpl Mem.defaultMemOptions)
+  let ext _ =
+        let iTypes =
+              MapF.union llvmIntrinsicTypes llvmSymIOIntrinsicTypes
+        in let ?recordLLVMAnnotation = \_ _ _ -> pure ()
+           in pure CLI.ExtensionSetup
+                { CLI.extImpl = llvmExtensionImpl Mem.defaultMemOptions
+                , CLI.extIntrinsicTypes = iTypes
+                , CLI.extInitGlobals = C.emptyGlobals
+                }
   k ext simulationHooks
