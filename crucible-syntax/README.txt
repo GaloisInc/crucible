@@ -103,33 +103,14 @@ already have been set by the time that the .cbl file which declares the extern
 uses it. It is the responsibility of the client to ensure that externs are
 inserted into the Crucible symbolic global state before being accessed.
 
-Types
+Formal grammar and typing rules
 
-si ::= 'Unicode' | 'Char16' | 'Char8'
+The full grammar (types, expressions, statements, terminators, blocks,
+and top-level forms) is defined as a PLT Redex language in
+redex/grammar.rkt. Typing rules are defined as Redex judgment forms in
+redex/typing.rkt.
 
-fi ::= 'Half' | 'Float' | 'Double' | 'Quad'
-     | 'X86_80' | 'DoubleDouble'
+To generate SVG diagrams of the grammar and typing rules, run:
 
-t ::= 'Any' | 'Unit' | 'Bool' | 'Nat' | 'Integer' | 'Real'
-    | 'ComplexReal' | 'Char' | '(' 'String' si ')'
-    | '(' 'FP' fi ')' | '(' 'BitVector' n ')'
-    | '(' '->' t ... t ')' | '(' 'Maybe' t ')'
-    | '(' 'Sequence' t ')' | '(' 'Vector' t ')' | '(' 'Ref' t ')'
-    | '(' 'Struct' t ... t ')' | '(' 'Variant' t ... t ')'
-
-
-Expressions
-
-
-
-Registers
-
-
-Blocks
-
-
-Statements
-
-
-
+  racket redex/doc.rkt
 
