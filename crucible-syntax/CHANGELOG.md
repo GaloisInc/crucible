@@ -1,5 +1,11 @@
 # next
 
+* **BREAKING:** Rename various bits associated with the "breakpoint"
+  feature in accordance with renaming the feature to "cutpoint".
+  In particular the concrete name "breakpoint" has been changed to
+  "cut", and the `Breakpoint_` atom has been changed to
+  `Cut_`.
+
 # 0.5 -- 2025-11-09
 
 * Add `parsedProgramFnBindings` to a new module,

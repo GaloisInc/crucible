@@ -129,11 +129,11 @@ data BlockInput ext s blocks ret args
            , binputTerm       :: !(Posd (ExtendedTermStmt s blocks ret))
            }
 
--- The Breakpoint non-terminator statement becomes a jump during SSA conversion.
--- This datatype temporarily adds breakpoint as a terminator statement.
+-- The Cut non-terminator statement becomes a jump during SSA conversion.
+-- This datatype temporarily adds cut as a terminator statement.
 data ExtendedTermStmt s blocks ret where
   BaseTermStmt :: TermStmt s ret -> ExtendedTermStmt s blocks ret
-  BreakStmt :: JumpInfo s blocks -> ExtendedTermStmt s blocks ret
+  CutStmt :: JumpInfo s blocks -> ExtendedTermStmt s blocks ret
 
 type BlockInputAssignment ext s blocks ret
    = Assignment (BlockInput ext s blocks ret)
@@ -144,21 +144,21 @@ extBlockInputAssignment ::
 extBlockInput ::
   BlockInput ext s blocks ret args ->
   BlockInput ext s (blocks ::> tp) ret arg
-extBreakpoints ::
-  Bimap BreakpointName (Some (C.BlockID blocks)) ->
-  Bimap BreakpointName (Some (C.BlockID (blocks ::> tp)))
+extCutpoints ::
+  Bimap CutpointName (Some (C.BlockID blocks)) ->
+  Bimap CutpointName (Some (C.BlockID (blocks ::> tp)))
 #ifdef UNSAFE_OPS
 extBlockInputAssignment = unsafeCoerce
 
 extBlockInput = unsafeCoerce
 
-extBreakpoints = unsafeCoerce
+extCutpoints = unsafeCoerce
 #else
 extBlockInputAssignment = fmapFC extBlockInput
 
 extBlockInput bi = bi { binputID = C.extendBlockID (binputID bi) }
 
-extBreakpoints = Bimap.mapR (mapSome C.extendBlockID)
+extCutpoints = Bimap.mapR (mapSome C.extendBlockID)
 #endif
 
 ------------------------------------------------------------------------
@@ -295,11 +295,11 @@ extBlockInfo bi binput = do
   let blocks' = extBlockInputAssignment $ biBlocks bi
   let jump_info' = extJumpInfoMap $ biJumpInfo bi
   let switch_info' = extSwitchInfoMap $ biSwitchInfo bi
-  let breakpoints' = extBreakpoints $ biBreakpoints bi
+  let cutpoints' = extCutpoints $ biCutpoints bi
   BI { biBlocks = extend blocks' binput
      , biJumpInfo = jump_info'
      , biSwitchInfo = switch_info'
-     , biBreakpoints = breakpoints'
+     , biCutpoints = cutpoints'
      }
 
 ------------------------------------------------------------------------
@@ -393,7 +393,7 @@ data BlockInfo ext s ret blocks
    = BI { biBlocks      :: !(Assignment (BlockInput ext s blocks ret) blocks)
         , biJumpInfo    :: !(JumpInfoMap s blocks)
         , biSwitchInfo  :: !(SwitchInfoMap s blocks)
-        , biBreakpoints :: !(Bimap BreakpointName (Some (C.BlockID blocks)))
+        , biCutpoints :: !(Bimap CutpointName (Some (C.BlockID blocks)))
         }
 
 -- | This infers the information given a set of blocks.
@@ -403,7 +403,7 @@ inferBlockInfo blocks = seq input_map $ resolveBlocks bi0 blocks
         bi0 = BI { biBlocks = empty
                  , biJumpInfo = emptyJumpInfoMap
                  , biSwitchInfo = emptySwitchInfoMap
-                 , biBreakpoints = Bimap.empty
+                 , biCutpoints = Bimap.empty
                  }
         resolveBlocks ::
           BlockInfo ext s ret blocks ->
@@ -432,7 +432,7 @@ inferBlockInfo blocks = seq input_map $ resolveBlocks bi0 blocks
                   let bi' = extBlockInfo bi binput
                   let ji = JumpInfo block_id crepr ra
                   let bi'' = bi' { biJumpInfo = insertJumpInfo l ji (biJumpInfo bi') }
-                  splitLastBlockInputOnBreakpoints bi'' rest
+                  splitLastBlockInputOnCutpoints bi'' rest
                 LambdaID l -> do
                   let block_id = C.BlockID (nextIndex sz)
                   let lastArg = AtomValue (lambdaAtom l)
@@ -445,16 +445,16 @@ inferBlockInfo blocks = seq input_map $ resolveBlocks bi0 blocks
                   let bi' = extBlockInfo bi binput
                   let si = SwitchInfo block_id crepr ra
                   let bi'' = bi' { biSwitchInfo = insertSwitchInfo l si (biSwitchInfo bi') }
-                  splitLastBlockInputOnBreakpoints bi'' rest
-        splitLastBlockInputOnBreakpoints ::
+                  splitLastBlockInputOnCutpoints bi'' rest
+        splitLastBlockInputOnCutpoints ::
           BlockInfo ext s ret blocks ->
           [Block ext s ret] ->
           Some (BlockInfo ext s ret)
-        splitLastBlockInputOnBreakpoints bi rest
+        splitLastBlockInputOnCutpoints bi rest
           | first_binputs :> last_binput <- biBlocks bi
-          , (first_stmts, break_stmt Seq.:<| last_stmts) <-
-              Seq.breakl isBreakpoint (binputStmts last_binput)
-          , Breakpoint nm args <- pos_val break_stmt = do
+          , (first_stmts, cut_stmt Seq.:<| last_stmts) <-
+              Seq.breakl isCut (binputStmts last_binput)
+          , Cut nm args <- pos_val cut_stmt = do
             let block_id = C.BlockID $ nextIndex $ size $ biBlocks bi
 
             let first_binputs' = extBlockInputAssignment $ first_binputs
@@ -462,7 +462,7 @@ inferBlockInfo blocks = seq input_map $ resolveBlocks bi0 blocks
             let jump_info = JumpInfo block_id (fmapFC typeOfValue args) args
             let last_binput' = (extBlockInput last_binput)
                   { binputStmts = first_stmts
-                  , binputTerm = break_stmt { pos_val = BreakStmt jump_info }
+                  , binputTerm = cut_stmt { pos_val = CutStmt jump_info }
                   }
 
             let new_binput = (extBlockInput last_binput)
@@ -471,23 +471,23 @@ inferBlockInfo blocks = seq input_map $ resolveBlocks bi0 blocks
                   , binputStmts = last_stmts
                   }
 
-            let new_breakpoints = do
-                  let try_new_breakpoints = Bimap.tryInsert nm (Some block_id) $
-                        extBreakpoints $ biBreakpoints bi
-                  if Bimap.pairMember (nm, (Some block_id)) try_new_breakpoints
-                    then try_new_breakpoints
-                    else error $ "Duplicate breakpoint: " ++ show nm
+            let new_cutpoints = do
+                  let try_new_cutpoints = Bimap.tryInsert nm (Some block_id) $
+                        extCutpoints $ biCutpoints bi
+                  if Bimap.pairMember (nm, (Some block_id)) try_new_cutpoints
+                    then try_new_cutpoints
+                    else error $ "Duplicate cutpoint: " ++ show nm
             let bi' = BI
                   { biBlocks = first_binputs' :> last_binput' :> new_binput
                   , biJumpInfo = extJumpInfoMap $ biJumpInfo bi
                   , biSwitchInfo = extSwitchInfoMap $ biSwitchInfo bi
-                  , biBreakpoints = new_breakpoints
+                  , biCutpoints = new_cutpoints
                   }
-            splitLastBlockInputOnBreakpoints bi' rest
-        splitLastBlockInputOnBreakpoints bi rest = resolveBlocks bi rest
-        isBreakpoint :: Posd (Stmt ext s) -> Bool
-        isBreakpoint = \case
-          Posd _ Breakpoint{} -> True
+            splitLastBlockInputOnCutpoints bi' rest
+        splitLastBlockInputOnCutpoints bi rest = resolveBlocks bi rest
+        isCut :: Posd (Stmt ext s) -> Bool
+        isCut = \case
+          Posd _ Cut{} -> True
           _ -> False
 
 
@@ -695,7 +695,7 @@ resolveTermStmt bi reg_map bindings (BaseTermStmt t0) =
     ErrorStmt e -> C.ErrorStmt (resolveAtom reg_map e)
 
     Output l e -> C.Jump (resolveLambdaAsJump bi reg_map l (resolveAtom reg_map e))
-resolveTermStmt _ reg_map _ (BreakStmt (JumpInfo next_id types inputs)) = do
+resolveTermStmt _ reg_map _ (CutStmt (JumpInfo next_id types inputs)) = do
   let args = fmapFC (resolveReg reg_map) inputs
   C.Jump $ C.JumpTarget next_id types args
 
@@ -915,14 +915,14 @@ resolveStmts nm bi sz reg_map bindings appMap (Posd p s0:rest) t = do
                            (resolveAtom reg_map m))
                  (resolveStmts nm bi sz reg_map bindings appMap rest t)
 
-    -- breakpoint statements are eliminated during the inferBlockInfo phase
-    Breakpoint{} -> error $
-      "Unexpected breakpoint at position " ++ show p ++ ": " ++ show (Pretty.pretty s0)
+    -- cut statements are eliminated during the inferBlockInfo phase
+    Cut{} -> error $
+      "Unexpected cut at position " ++ show p ++ ": " ++ show (Pretty.pretty s0)
 
 data SomeBlockMap ext ret where
   SomeBlockMap ::
     Ctx.Index blocks tp ->
-    Bimap BreakpointName (Some (C.BlockID blocks)) ->
+    Bimap CutpointName (Some (C.BlockID blocks)) ->
     C.BlockMap ext blocks ret ->
     SomeBlockMap ext ret
 
@@ -952,7 +952,7 @@ resolveBlockMap nm entry blocks = do
       case lookupJumpInfo entry (biJumpInfo bi) of
         Nothing -> error "Missing initial block."
         Just (JumpInfo (C.BlockID idx) _ _) ->
-          SomeBlockMap idx (biBreakpoints bi) $
+          SomeBlockMap idx (biCutpoints bi) $
             fmapFC (resolveBlock bi) (biBlocks bi)
 
 ------------------------------------------------------------------------
@@ -970,7 +970,7 @@ toSSA g = do
   let entry = cfgEntryLabel g
   let blocks = cfgBlocks g
   case resolveBlockMap (handleName h) entry blocks of
-    SomeBlockMap idx breakpoints block_map -> do
+    SomeBlockMap idx cutpoints block_map -> do
           let b = block_map ! idx
           case C.blockInputs b `testEquality` initTypes of
             Nothing -> error $
@@ -981,6 +981,6 @@ toSSA g = do
               let g' = C.CFG { C.cfgHandle = h
                              , C.cfgBlockMap = block_map
                              , C.cfgEntryBlockID = C.BlockID idx
-                             , C.cfgBreakpoints = breakpoints
+                             , C.cfgCutpoints = cutpoints
                              }
               reachableCFG g'

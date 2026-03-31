@@ -1660,11 +1660,11 @@ normStmt' :: forall s m ext
 normStmt' =
   call (printStmt <|> printLnStmt <|> letStmt <|> (void funcall) <|>
         setGlobal <|> setReg <|> setRef <|> dropRef <|>
-        assertion <|> assumption <|> breakpoint <|>
+        assertion <|> assumption <|> cut_ <|>
         (void (extensionParser ?parserHooks)))
 
   where
-    printStmt, printLnStmt, letStmt, setGlobal, setReg, setRef, dropRef, assertion, breakpoint :: m ()
+    printStmt, printLnStmt, letStmt, setGlobal, setReg, setRef, dropRef, assertion, cut_ :: m ()
     printStmt =
       do Posd loc e <- unary Print_ (located $ reading $ check (StringRepr UnicodeRepr))
          strAtom <- eval loc e
@@ -1754,13 +1754,13 @@ normStmt' =
          msg' <- eval mLoc msg
          tell [Posd loc $ Assume cond' msg']
 
-    breakpoint =
+    cut_ =
       do (Posd loc (nm, arg_list)) <-
-           located $ binary Breakpoint_
-             (string <&> BreakpointName)
+           located $ binary Cut_
+             (string <&> CutpointName)
              (rep ra_value)
          case toCtx arg_list of
-           Some args -> tell [Posd loc $ Breakpoint nm args]
+           Some args -> tell [Posd loc $ Cut nm args]
       where
         ra_value :: m (Some (Value s))
         ra_value = (reading synth) >>= \case

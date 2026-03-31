@@ -49,7 +49,7 @@ module Lang.Crucible.LLVM.Translation.Constant
 
     -- * Utility functions
   , showInstr
-  , testBreakpointFunction
+  , testCutpointFunction
   ) where
 
 import qualified Control.Exception as X
@@ -1200,5 +1200,5 @@ transConstantExpr expr = case expr of
  badExp :: String -> m a
  badExp msg = throwError $ unlines [msg, show expr]
 
-testBreakpointFunction :: String -> Bool
-testBreakpointFunction = isPrefixOf "__breakpoint__"
+testCutpointFunction :: String -> Bool
+testCutpointFunction = isPrefixOf "__cutpoint__"
