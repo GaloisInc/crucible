@@ -1,5 +1,10 @@
 # next
 
+* **BREAKING:** Rename various bits associated with the "breakpoint"
+  feature in accordance with renaming the feature to "cutpoint".
+  In particular the concrete name "breakpoint" has been changed to
+  "cut", and the `Breakpoint_` atom has been changed to
+  `Cut_`.
 * Add `seq-reverse` syntax for reversing symbolic sequences.
 * The `Lang.Crucible.Syntax.Overrides` module has been removed from this library,
   as the overrides it provided (`proveObligations` and `crucible-print-assumption-state`)

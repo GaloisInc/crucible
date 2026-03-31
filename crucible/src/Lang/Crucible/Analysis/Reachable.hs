@@ -119,11 +119,11 @@ reachableCFG g =
                  SomeCFG g'
         where oldToNew = mkOldMap newToOld
               new_map = remapBlockMap oldToNew newToOld
-              new_breakpoints = Bimap.mapR (mapSome $ remapBlockID oldToNew) (cfgBreakpoints g)
+              new_cutpoints = Bimap.mapR (mapSome $ remapBlockID oldToNew) (cfgCutpoints g)
               g' = CFG { cfgHandle = cfgHandle g
                        , cfgBlockMap = new_map
                        , cfgEntryBlockID = remapBlockID oldToNew entry_id
-                       , cfgBreakpoints = new_breakpoints
+                       , cfgCutpoints = new_cutpoints
                        }
   where old_map = cfgBlockMap g
         entry_id = cfgEntryBlockID g

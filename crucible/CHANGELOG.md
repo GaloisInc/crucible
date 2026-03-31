@@ -1,5 +1,17 @@
 # next
 
+* **BREAKING:** Rename various bits associated with the "breakpoint"
+  feature in accordance with renaming the feature to "cut" or
+  "cutpoint".
+  Exported Haskell symbols renamed:
+  - `Lang.Crucible.Simulator.Breakpoint` -> `Lang.Crucible.Simulator.Cut`
+  - `BreakpointName` -> `CutpointName`
+  - `Breakpoint` -> `Cut`
+  - `addBreakpointStmt` -> `addCutStmt`
+  - `breakAndReturn` -> `cutAndReturn`
+  - `breakpointPostdomInfo` -> `cutpointPostdomInfo`
+  - `cfgBreakpoints` -> `cfgCutpoints`
+  - `setFrameBreakpointPostdomInfo` -> `setFrameCutpointPostdomInfo`
 * Add `reverseSymSequence` to `Lang.Crucible.Simulator.SymSequence`
 * **BREAKING:** Add `SequenceReverse` constructor to `App` in
   `Lang.Crucible.CFG.Expr` for reversing symbolic sequences.

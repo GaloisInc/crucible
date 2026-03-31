@@ -1,20 +1,20 @@
 -----------------------------------------------------------------------
 -- |
--- Module           : Lang.Crucible.Simulator.Breakpoint
--- Description      : Support for symbolic execution breakpoints
+-- Module           : Lang.Crucible.Simulator.Cut
+-- Description      : Support for symbolic execution cuts
 -- Copyright        : (c) Galois, Inc 2019
 -- License          : BSD3
 -- Maintainer       : Andrei Stefanescu <andrei@galois.com>
 -- Stability        : provisional
 --
 -- This module provides execution features for changing the state on
--- breakpoints.
+-- cutpoints.
 -----------------------------------------------------------------------
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RecordWildCards #-}
-module Lang.Crucible.Simulator.Breakpoint
-  ( breakAndReturn
+module Lang.Crucible.Simulator.Cut
+  ( cutAndReturn
   ) where
 
 import           Control.Lens
@@ -39,26 +39,26 @@ import qualified Lang.Crucible.Simulator.OverrideSim as C
 import qualified Lang.Crucible.Simulator.RegValue as C
 import qualified What4.FunctionName as W
 
--- | This execution feature registers an override for a breakpoint.
---   The override summarizes the execution from the breakpoint
+-- | This execution feature registers an override for a cutpoint.
+--   The override summarizes the execution from the cutpoint
 --   to the return from the function (similar to a tail call).
 --   This feature requires a map from each function handle
---   to the list of breakpoints in the respective function with this
+--   to the list of cutpoints in the respective function with this
 --   execution feature.
-breakAndReturn ::
+cutAndReturn ::
   (C.IsSymInterface sym, C.IsSyntaxExtension ext) =>
   C.CFG ext blocks init ret ->
-  C.BreakpointName ->
+  C.CutpointName ->
   Ctx.Assignment C.TypeRepr args ->
   C.TypeRepr ret ->
   C.OverrideSim p sym ext rtp args ret (C.RegValue sym ret) ->
-  HashMap C.SomeHandle [C.BreakpointName] ->
+  HashMap C.SomeHandle [C.CutpointName] ->
   IO (C.ExecutionFeature p sym ext rtp)
-breakAndReturn C.CFG{..} breakpoint_name arg_types ret_type override all_breakpoints =
-  case Bimap.lookup breakpoint_name cfgBreakpoints of
-    Just (Some breakpoint_block_id)
-      | breakpoint_block <- C.getBlock breakpoint_block_id cfgBlockMap
-      , Just Refl <- testEquality (C.blockInputs breakpoint_block) arg_types ->
+cutAndReturn C.CFG{..} cutpoint_name arg_types ret_type override all_cutpoints =
+  case Bimap.lookup cutpoint_name cfgCutpoints of
+    Just (Some cutpoint_block_id)
+      | cutpoint_block <- C.getBlock cutpoint_block_id cfgBlockMap
+      , Just Refl <- testEquality (C.blockInputs cutpoint_block) arg_types ->
         return $ C.ExecutionFeature $ \case
           C.RunningState (C.RunPostBranchMerge block_id) state
             | frame <- state ^. C.stateCrucibleFrame
@@ -66,11 +66,11 @@ breakAndReturn C.CFG{..} breakpoint_name arg_types ret_type override all_breakpo
             , Just Refl <- testEquality
                 (fmapFC C.blockInputs cfgBlockMap)
                 (fmapFC C.blockInputs $ C.frameBlockMap frame)
-            , Just Refl <- testEquality breakpoint_block_id block_id
+            , Just Refl <- testEquality cutpoint_block_id block_id
             , Just Refl <- testEquality ret_type (C.frameReturnType frame) -> do
               let override_frame = C.OF $ C.OverrideFrame
                     { _override = W.functionNameFromText $
-                        C.breakpointNameText breakpoint_name
+                        C.cutpointNameText cutpoint_name
                     , _overrideHandle = C.frameHandle frame
                     , _overrideRegMap = state ^.
                         C.stateCrucibleFrame . C.frameRegs
@@ -80,11 +80,11 @@ breakAndReturn C.CFG{..} breakpoint_name arg_types ret_type override all_breakpo
                   C.pushCallFrame C.TailReturnToCrucible override_frame
               return $ C.ExecutionFeatureNewState result_state
           C.CallState return_handler (C.CrucibleCall block_id frame) state
-            | Just breakpoints <- HashMap.lookup
+            | Just cutpoints <- HashMap.lookup
                 (C.frameHandle frame)
-                all_breakpoints -> do
-              let result_frame = C.setFrameBreakpointPostdomInfo
-                    breakpoints
+                all_cutpoints -> do
+              let result_frame = C.setFrameCutpointPostdomInfo
+                    cutpoints
                     frame
               result_state <- runReaderT
                 (C.performFunctionCall
@@ -93,11 +93,11 @@ breakAndReturn C.CFG{..} breakpoint_name arg_types ret_type override all_breakpo
                 state
               return $ C.ExecutionFeatureNewState result_state
           C.TailCallState value_from_value (C.CrucibleCall block_id frame) state
-            | Just breakpoints <- HashMap.lookup
+            | Just cutpoints <- HashMap.lookup
                 (C.frameHandle frame)
-                all_breakpoints -> do
-              let result_frame = C.setFrameBreakpointPostdomInfo
-                    breakpoints
+                all_cutpoints -> do
+              let result_frame = C.setFrameCutpointPostdomInfo
+                    cutpoints
                     frame
               result_state <- runReaderT
                 (C.performTailCall
@@ -106,4 +106,4 @@ breakAndReturn C.CFG{..} breakpoint_name arg_types ret_type override all_breakpo
                 state
               return $ C.ExecutionFeatureNewState result_state
           _ -> return C.ExecutionFeatureNoChange
-    _ -> fail $ "unexpected breakpoint: " ++ show breakpoint_name
+    _ -> fail $ "unexpected cutpoint: " ++ show cutpoint_name

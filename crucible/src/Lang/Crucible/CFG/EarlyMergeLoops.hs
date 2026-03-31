@@ -342,7 +342,7 @@ lowerValueWrites ng pvals st =
    Print {}       -> orig
    Assert {}      -> orig
    Assume {}      -> orig
-   Breakpoint {}  -> orig
+   Cut {}         -> orig
 
   where
     orig = pure (Seq.fromList [st])
@@ -380,7 +380,7 @@ lowerValueReads ng pvals st =
     Print {}       -> lowerAtomReads ng pvals atomsToLower st
     Assert {}      -> lowerAtomReads ng pvals atomsToLower st
     Assume {}      -> lowerAtomReads ng pvals atomsToLower st
-    Breakpoint {}  -> lowerAtomReads ng pvals atomsToLower st
+    Cut {}         -> lowerAtomReads ng pvals atomsToLower st
   where
     atomsToLower :: [Some (Atom s)]
     atomsToLower = Set.toList (foldStmtInputs addIfLowered (pos_val st) mempty)

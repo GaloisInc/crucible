@@ -15,7 +15,7 @@ module Lang.Crucible.CFG.Common
   ( -- * Global variables
     GlobalVar(..)
   , freshGlobalVar
-  , BreakpointName(..)
+  , CutpointName(..)
   ) where
 
 import           Data.Text (Text)
@@ -65,8 +65,8 @@ freshGlobalVar halloc nm tp = do
          , globalType  = tp
          }
 
-newtype BreakpointName = BreakpointName { breakpointNameText :: Text }
+newtype CutpointName = CutpointName { cutpointNameText :: Text }
   deriving (Eq, Ord, Show)
 
-instance Pretty BreakpointName where
-  pretty = pretty . breakpointNameText
+instance Pretty CutpointName where
+  pretty = pretty . cutpointNameText

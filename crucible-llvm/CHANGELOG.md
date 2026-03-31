@@ -1,5 +1,11 @@
 # next
 
+* **BREAKING:** Rename various bits associated with the "breakpoint"
+  feature in accordance with renaming the feature to "cutpoint".
+  In particular, `testBreakpointFunction` is now `testCutpointFunction`.
+  Also, the family of LLVM symbols recognized now begins with `__cutpoint__`
+  rather than `__breakpoint__`.
+
 * Remove `llvmOverride_declare :: Text.LLVM.AST.Declare` from `LLVMOverride`.
 
   * Add `Lang.Crucible.LLVM.Intrinsics.Declare` module.

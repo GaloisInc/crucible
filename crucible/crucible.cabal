@@ -210,10 +210,10 @@ library
     Lang.Crucible.FunctionHandle
     Lang.Crucible.README
     Lang.Crucible.Simulator
-    Lang.Crucible.Simulator.Breakpoint
     Lang.Crucible.Simulator.BoundedExec
     Lang.Crucible.Simulator.BoundedRecursion
     Lang.Crucible.Simulator.CallFrame
+    Lang.Crucible.Simulator.Cut
     Lang.Crucible.Simulator.Evaluation
     Lang.Crucible.Simulator.EvalStmt
     Lang.Crucible.Simulator.ExecutionTree

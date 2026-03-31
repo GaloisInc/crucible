@@ -781,7 +781,7 @@ data CFG (ext :: Type)
    = CFG { cfgHandle :: FnHandle init ret
          , cfgBlockMap :: !(BlockMap ext blocks ret)
          , cfgEntryBlockID :: !(BlockID blocks init)
-         , cfgBreakpoints :: !(Bimap BreakpointName (Some (BlockID blocks)))
+         , cfgCutpoints :: !(Bimap CutpointName (Some (BlockID blocks)))
          }
 
 cfgArgTypes :: CFG ext blocks init ret -> CtxRepr init

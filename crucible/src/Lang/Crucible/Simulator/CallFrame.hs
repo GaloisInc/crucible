@@ -38,7 +38,7 @@ module Lang.Crucible.Simulator.CallFrame
   , framePostdom
   , frameProgramLoc
   , setFrameBlock
-  , setFrameBreakpointPostdomInfo
+  , setFrameCutpointPostdomInfo
   , extendFrame
   , updateFrame
   , mergeCallFrame
@@ -198,13 +198,13 @@ setFrameBlock bid@(BlockID block_id) args f = f'
                  , _framePostdom = mkFramePostdom pds
                  }
 
-setFrameBreakpointPostdomInfo ::
-  [BreakpointName] ->
+setFrameCutpointPostdomInfo ::
+  [CutpointName] ->
   CallFrame sym ext blocks ret ctx ->
   CallFrame sym ext blocks ret ctx
-setFrameBreakpointPostdomInfo breakpoints f = case f of
+setFrameCutpointPostdomInfo cutpoints f = case f of
   CallFrame{ _frameCFG = g, _frameBlockID = Some (BlockID block_id) } -> do
-    let pdInfo = breakpointPostdomInfo g breakpoints
+    let pdInfo = cutpointPostdomInfo g cutpoints
     f { _framePostdomMap = pdInfo
       , _framePostdom  = mkFramePostdom (getConst $ pdInfo Ctx.! block_id)
       }
