@@ -38,7 +38,6 @@ import Data.Sequence qualified as Seq
 import Lang.Crucible.Backend qualified as CB
 import Lang.Crucible.CFG.Core qualified as C
 import Lang.Crucible.FunctionHandle qualified as C
-import Lang.Crucible.Panic (panic)
 import Lang.Crucible.Simulator qualified as C
 import Lang.Crucible.Simulator.EvalStmt qualified as C
 import Lang.Crucible.Simulator.ExecutionTree qualified as C
@@ -284,20 +283,9 @@ getConcreteRecordedTrace globals (RecordState g) sym evalBool = do
     Just s -> RecordedTrace <$> concretizeAndReverseTrace s
   where
     concretizeAndReverseTrace s = do
-      concretized <- CSSS.concretizeSymSequence evalBool (evalStr sym) s
+      concretized <- CSSS.concretizeSymSequence evalBool pure s
       let reversed = Seq.reverse concretized
-      symbolized <- mapM (W4.stringLit sym . W4.UnicodeLiteral) reversed
-      CSSS.fromListSymSequence sym (F.toList symbolized)
-
-    evalStr ::
-      W4.IsExpr (W4.SymExpr sym) =>
-      sym ->
-      W4.SymString sym W4.Unicode ->
-      IO Text.Text
-    evalStr _sym s =
-      case W4.asString s of
-        Just (W4.UnicodeLiteral s') -> pure s'
-        Nothing -> panic "getRecordedTrace" ["Non-literal trace element?"]
+      CSSS.fromListSymSequence sym (F.toList reversed)
 
 {- | Inserts a recorded trace into the state's replay trace variable
 The replay feature will follow this trace if it is enabled
