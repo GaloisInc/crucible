@@ -94,6 +94,10 @@ data OutputOptions = OutputOptions
     -- ^ Print values assigned to symbolic variables
     --   when printing failed verification goals
 
+  , counterexampleDetails :: Bool
+    -- ^ Print detailed counterexample information (witness values, references)
+    --   when printing failed verification goals
+
   , simVerbose :: Int
     -- ^ Level of verbosity for the symbolic simulation
 
@@ -109,6 +113,7 @@ defaultOutputOptions copts = OutputOptions
   { colorOptions = copts
   , printFailures = False
   , printSymbolicVars = False
+  , counterexampleDetails = True
   , quietMode = False
   , simVerbose = 0
   }
@@ -331,6 +336,11 @@ cruxOptions = Config
           printSymbolicVars <-
             section "print-symbolic-vars" yesOrNoSpec False
             ("Print values assigned to symbolic variables " <>
+             "when printing failed verification goals")
+
+          counterexampleDetails <-
+            section "counterexample-details" yesOrNoSpec True
+            ("Print detailed counterexample information (witness values, references) " <>
              "when printing failed verification goals")
 
           skipReport <-

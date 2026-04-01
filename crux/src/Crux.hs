@@ -280,7 +280,8 @@ mkOutputConfig (outHandle, outWantsColor) (errHandle, errWantsColor) logMessageT
 
       printFails = maybe True printFailures opts
       printVars = maybe False printSymbolicVars opts
-      lgGoal = sayWhatFailedGoals printFails printVars >$< lgWhat
+      showCexDetails = maybe True counterexampleDetails opts
+      lgGoal = sayWhatFailedGoals printFails printVars showCexDetails >$< lgWhat
       splitResults r@(CruxSimulationResult _cmpl gls) = (snd <$> gls, r)
   in OutputConfig
      { _outputHandle = outHandle
