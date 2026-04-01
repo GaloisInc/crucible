@@ -293,7 +293,7 @@ jobs:
         id: labels
         with:
           images: ${{ matrix.image }}
-          label-custom: |
+          labels: |
              org.opencontainers.image.source=https://github.com/${{ matrix.image-repo }}
 
       - uses: docker/login-action@v4
