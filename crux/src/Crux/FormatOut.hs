@@ -60,8 +60,8 @@ sayWhatResultStatus (CruxSimulationResult cmpl gls) =
           | otherwise ->
               SayWhat Fail "Crux" "Internal error computing overall status."
 
-sayWhatFailedGoals :: Bool -> Bool -> Seq ProvedGoals -> SayWhat
-sayWhatFailedGoals skipIncompl showVars allGls =
+sayWhatFailedGoals :: Bool -> Bool -> Bool -> Seq ProvedGoals -> SayWhat
+sayWhatFailedGoals skipIncompl showVars showDetails allGls =
   if null allDocs
      then SayNothing
      else SayWhat Fail "Crux" $ ppToText $ PP.vsep allDocs
@@ -77,11 +77,13 @@ sayWhatFailedGoals skipIncompl showVars allGls =
                -- n.b. prefer the prepared pretty explanation, but
                -- if not available, use the NotProved information.
                -- Don't show both: they tend to be duplications.
-               ] ++ case (show ex, simErrorContext err) of
-                      ([], _) ->  [  PP.viaShow err ] 
-                      (_, Nothing) -> [ex]
-                      (_, Just ctx) ->
-                        [ex, "Context:", PP.indent 2 (ppProgramStack ctx)]
+               ] ++ if not showDetails
+                      then [PP.viaShow err]
+                      else case (show ex, simErrorContext err) of
+                             ([], _) ->  [  PP.viaShow err ]
+                             (_, Nothing) -> [ex]
+                             (_, Just ctx) ->
+                               [ex, "Context:", PP.indent 2 (ppProgramStack ctx)]
                  -- if `showVars` is set, print the sequence of symbolic
                  -- variable events that led to this failure
                  ++ if showVars then

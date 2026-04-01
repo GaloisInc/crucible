@@ -5,7 +5,7 @@ on:
     tags:
       - "crux-v?[0-9]+.[0-9]+"
       - "crux-v?[0-9]+.[0-9]+.[0-9]+"
-    branches: [master, "release-**"]
+    branches: ["**"]  # TODO: restore to [master, "release-**"]
   pull_request:
     # Don't run on documentation-only changes
     paths-ignore: ["**.md"]
@@ -190,6 +190,14 @@ jobs:
       - name: Test crux-llvm
         run: .github/ci.sh test crux-llvm
         if: runner.os == 'Linux' || runner.os == 'macOS'
+
+      - name: Collect crux-llvm CVE test performance metrics
+        if: strategy.job-index == 0
+        run: |
+          cd crux-llvm
+          python3 ../scripts/perf.py --package exe:crux-llvm \
+            -- test-data/golden/libpng-cve-2018-13785.c --solver z3 --quiet \
+            >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/cache/save@v5
         name: Save cabal store cache
