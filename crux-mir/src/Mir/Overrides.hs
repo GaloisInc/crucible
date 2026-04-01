@@ -422,13 +422,18 @@ overrideRust cs name = do
   -- above, but are needed for type inference to succeed.
   Refl <- case testEquality (handleArgTypes fhF) (handleArgTypes fhG) of
     Just x -> return x
-    Nothing -> fail $ "type mismatch: original and override argument lists don't match: " ++
-      show (handleArgTypes fhF, handleArgTypes fhG)
+    Nothing -> panic "overrideRust"
+      [ "type mismatch: original and override argument lists don't match",
+        "  original: " <> show (handleArgTypes fhF),
+        "  override: " <> show (handleArgTypes fhG)
+      ]
   Refl <- case testEquality (handleReturnType fhF) (handleReturnType fhG) of
     Just x -> return x
-    Nothing -> fail $ "type mismatch: original and override return types don't match: " ++
-      show (handleReturnType fhF, handleReturnType fhG)
-
+    Nothing -> panic "overrideRust"
+      [ "type mismatch: original and override return types don't match",
+        "  original: " <> show (handleReturnType fhF),
+        "  override: " <> show (handleReturnType fhG)
+      ]
   bindFnHandle fhF $ UseOverride $ mkOverride' (handleName fhF) (handleReturnType fhF) $ do
     args <- getOverrideArgs
     regValue <$> callFnVal (HandleFnVal fhG) args
