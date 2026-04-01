@@ -586,7 +586,7 @@ data Stmt ext s
    | Assert !(Atom s BoolType) !(Atom s (StringType Unicode))
      -- | Assume the given expression.
    | Assume !(Atom s BoolType) !(Atom s (StringType Unicode))
-   | forall args . Breakpoint BreakpointName !(Assignment (Value s) args)
+   | forall args . Cut CutpointName !(Assignment (Value s) args)
 
 instance PrettyExt ext => Show (Stmt ext s) where
   show = show . pretty
@@ -602,7 +602,7 @@ instance PrettyExt ext => Pretty (Stmt ext s) where
       Print  v   -> "print"  <+> pretty v
       Assert c m -> "assert" <+> pretty c <+> pretty m
       Assume c m -> "assume" <+> pretty c <+> pretty m
-      Breakpoint nm args -> "breakpoint" <+> pretty nm <+> parens (commas (toListFC pretty args))
+      Cut nm args -> "cut" <+> pretty nm <+> parens (commas (toListFC pretty args))
 
 -- | Return local value assigned by this statement or @Nothing@ if this
 -- does not modify a register.
@@ -617,7 +617,7 @@ stmtAssignedValue s =
     Print{} -> Nothing
     Assert{} -> Nothing
     Assume{} -> Nothing
-    Breakpoint{} -> Nothing
+    Cut{} -> Nothing
 
 -- | Fold all registers that are inputs tostmt.
 foldStmtInputs :: TraverseExt ext => (forall x . Value s x -> b -> b) -> Stmt ext s -> b -> b
@@ -631,7 +631,7 @@ foldStmtInputs f s b =
     Print  e     -> f (AtomValue e) b
     Assert c m   -> f (AtomValue c) (f (AtomValue m) b)
     Assume c m   -> f (AtomValue c) (f (AtomValue m) b)
-    Breakpoint _ args -> foldrFC' f b args
+    Cut _ args   -> foldrFC' f b args
 
 substStmt :: ( Applicative m, TraverseExt ext )
           => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))
@@ -647,7 +647,7 @@ substStmt f s =
     Print e -> Print <$> substAtom f e
     Assert c m -> Assert <$> substAtom f c <*> substAtom f m
     Assume c m -> Assume <$> substAtom f c <*> substAtom f m
-    Breakpoint nm args -> Breakpoint nm <$> traverseFC (substValue f) args
+    Cut nm args -> Cut nm <$> traverseFC (substValue f) args
 
 mapStmtAtom :: ( Applicative m, TraverseExt ext )
           => (forall (x :: CrucibleType). Atom s x -> m (Atom s x))
@@ -663,7 +663,7 @@ mapStmtAtom f s =
     Print e -> Print <$> f e
     Assert c m -> Assert <$> f c <*> f m
     Assume c m -> Assume <$> f c <*> f m
-    Breakpoint nm args -> Breakpoint nm <$> traverseFC (substValueAtom f) args
+    Cut nm args -> Cut nm <$> traverseFC (substValueAtom f) args
 
 substPosdStmt :: ( Applicative m, TraverseExt ext )
               => (forall (x :: CrucibleType). Nonce s x -> m (Nonce s' x))

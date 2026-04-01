@@ -2024,7 +2024,7 @@ unaryArithOp op _ x =
          return $ App $ FloatNeg fi a
 
 -- | Generate a call to an LLVM function, without any special
---   handling for debug intrinsics or breakpoints.
+--   handling for debug intrinsics or cuts/cutpoints.
 callOrdinaryFunction ::
    Maybe L.Instr {- ^ The instruction causing this call -} ->
    Bool    {- ^ Is the function a tail call? -} ->
@@ -2064,7 +2064,7 @@ callOrdinaryFunction instr _tailCall fnTy _fn _args _assign_f =
 
 
 -- | Generate a call to an LLVM function, generating special support
--- for debugging intrinsics and breakpoint functions.
+-- for debugging intrinsics and cuts/cutpoint functions.
 callFunction :: forall s arch ret.
    (?transOpts :: TranslationOptions) =>
    L.Instr {- ^ Source instruction of the call -} ->
@@ -2098,11 +2098,11 @@ callFunction instr tailCall_ fnTy fn args assign_f
                  ] = return ()
 
      | L.ValSymbol (L.Symbol nm) <- fn
-     , testBreakpointFunction nm = do
+     , testCutpointFunction nm = do
         some_val_args <- mapM (\tv -> typedValueAsCrucibleValue tv) args
         case Ctx.fromList some_val_args of
           Some val_args -> do
-            addBreakpointStmt (Text.pack nm) val_args
+            addCutStmt (Text.pack nm) val_args
 
      | otherwise = callOrdinaryFunction (Just instr) tailCall_ fnTy fn args assign_f
 
@@ -2118,7 +2118,7 @@ typedValueAsCrucibleValue tv = case L.typedValue tv of
       Nothing -> reportError $ fromString $
         "Could not find identifier " ++ show i ++ "."
   v -> reportError $ fromString $
-    "Unsupported breakpoint parameter: " ++ show v ++ "."
+    "Unsupported cutpoint parameter: " ++ show v ++ "."
 
 
 
