@@ -1,0 +1,23 @@
+test mistyped/<DISAMB>::test[0]: [Crux] Attempting to prove verification conditions.
+FAILED
+
+failures:
+
+---- mistyped/<DISAMB>::test[0] counterexamples ----
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/overrides/mistyped.rs:18:5: 18:20: error: in mistyped/<DISAMB>::test[0]
+[Crux]   type mismatch between original and override argument types
+[Crux]     original: [&u16, &u16]
+[Crux]     override: [&u8, &u16]
+[Crux]   Context:
+[Crux]     internal: crucible_override_
+[Crux]     test/symb_eval/overrides/mistyped.rs:18:5: 18:20: mistyped/<DISAMB>::test[0]
+
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 1
+[Crux]   Proved: 0
+[Crux]   Disproved: 1
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Invalid.
