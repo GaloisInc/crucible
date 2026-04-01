@@ -245,6 +245,7 @@ jobs:
         include:
           - file: .github/Dockerfile-crux-mir
             image: ghcr.io/galoisinc/crux-mir
+            image-repo: GaloisInc/crux
             cache: ghcr.io/galoisinc/cache-crux-mir
     steps:
       - uses: actions/checkout@v6
@@ -281,6 +282,8 @@ jobs:
         id: labels
         with:
           images: ${{ matrix.image }}
+          label-custom: |
+             org.opencontainers.image.source=https://github.com/${{ matrix.image-repo }}
 
       - uses: docker/login-action@v4
         with:
