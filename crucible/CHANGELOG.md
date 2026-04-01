@@ -6,6 +6,8 @@
 * **BREAKING:** Change the signature of `getRecordedTrace` in
   `Lang.Crucible.Simulator.RecordAndReplay` to remove the `evalBool` parameter,
   as the implementation no longer concretizes the trace.
+* Add `Lang.Crucible.Simulator.RecordAndReplay.getConcreteRecordedTrace` for
+  performant trace reversal when concretization is desired.
 * Add `withStateBackend` and additional infrastructure for including stack
   traces in `SimError` and `IsSymBackend`
 * Fix `onlineProve` to properly negate goals before checking satisfiability
