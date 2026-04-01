@@ -14,7 +14,7 @@
 
 module Mir.Overrides (bindFn, getString) where
 
-import Control.Lens ((^?), (.=), use, ix, _Wrapped)
+import Control.Lens ((^?), (.=), (^.), use, ix, _Wrapped)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans (lift)
@@ -23,6 +23,7 @@ import Control.Monad.Trans.Maybe (MaybeT(..))
 import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString as BS
 import qualified Data.IntMap as IntMap
+import qualified Data.List as List
 import Data.List.Extra (unsnoc)
 import Data.Map (Map, fromList)
 import qualified Data.Map as Map
@@ -75,6 +76,7 @@ import Mir.FancyMuxTree
 import Mir.Generator (CollectionState, collection, handleMap, MirHandle(..))
 import Mir.Intrinsics
 import qualified Mir.Mir as M
+import Mir.PP (fmt)
 
 
 getString :: forall sym rtp args ret p. (IsSymInterface sym) =>
@@ -394,21 +396,44 @@ overrideRust cs name = do
   (fDefId, gDefId) <- case tyArgs of
     Just [M.TyFnDef f, M.TyFnDef g] -> return (f, g)
     _ -> error $ "expected two TyFnDef arguments, but got " ++ show tyArgs
-  MirHandle _ _ fhF <- case cs ^? handleMap . ix fDefId of
+  MirHandle _ fSig fhF <- case cs ^? handleMap . ix fDefId of
     Just fh -> return fh
     _ -> error $ "failed to get function definition for " ++ show fDefId
-  MirHandle _ _ fhG <- case cs ^? handleMap . ix gDefId of
+  MirHandle _ gSig fhG <- case cs ^? handleMap . ix gDefId of
     Just fh -> return fh
     _ -> error $ "failed to get function definition for " ++ show gDefId
+
+  let fArgTys = fSig ^. M.fsarg_tys
+      fRetTy = fSig ^. M.fsreturn_ty
+      gArgTys = gSig ^. M.fsarg_tys
+      gRetTy = gSig ^. M.fsreturn_ty
+  when (fArgTys /= gArgTys) $ fail $ List.intercalate "\n"
+    [ "type mismatch between original and override argument types",
+      "  original: " <> fmt fArgTys,
+      "  override: " <> fmt gArgTys
+    ]
+  when (fRetTy /= gRetTy) $ fail $ List.intercalate "\n"
+    [ "type mismatch between original and override return type",
+      "  original: " <> fmt fRetTy,
+      "  override: " <> fmt gRetTy
+    ]
+
+  -- These checks are redundant with the more exhaustive `M.Ty`-based checks
+  -- above, but are needed for type inference to succeed.
   Refl <- case testEquality (handleArgTypes fhF) (handleArgTypes fhG) of
     Just x -> return x
-    Nothing -> fail $ "type mismatch: original and override argument lists don't match: " ++
-      show (handleArgTypes fhF, handleArgTypes fhG)
+    Nothing -> panic "overrideRust"
+      [ "type mismatch: original and override argument lists don't match",
+        "  original: " <> show (handleArgTypes fhF),
+        "  override: " <> show (handleArgTypes fhG)
+      ]
   Refl <- case testEquality (handleReturnType fhF) (handleReturnType fhG) of
     Just x -> return x
-    Nothing -> fail $ "type mismatch: original and override return types don't match: " ++
-      show (handleReturnType fhF, handleReturnType fhG)
-
+    Nothing -> panic "overrideRust"
+      [ "type mismatch: original and override return types don't match",
+        "  original: " <> show (handleReturnType fhF),
+        "  override: " <> show (handleReturnType fhG)
+      ]
   bindFnHandle fhF $ UseOverride $ mkOverride' (handleName fhF) (handleReturnType fhF) $ do
     args <- getOverrideArgs
     regValue <$> callFnVal (HandleFnVal fhG) args
