@@ -108,6 +108,7 @@ import           Lang.Crucible.LLVM.DataLayout ( noAlignment )
 import           Lang.Crucible.LLVM.Intrinsics
 import           Lang.Crucible.LLVM.QQ( llvmOvr )
 
+import qualified What4.Expr.ArrayUpdateMap as AUM
 import qualified What4.Interface as W4
 import qualified What4.Partial as W4P
 
@@ -479,10 +480,46 @@ callReadFileHandle memOps fsVars filedesc buf count =
            Right (chunk, bytesRead) -> do
              ovrWithBackend $ \bak ->
                modifyGlobal memOps $ \mem -> liftIO $ do
-                 chunkArray <- SymIO.chunkToArray sym (W4.BaseBVRepr PtrWidth) chunk
+                 chunkArray <- chunkToConcreteArray sym chunk bytesRead
                  mem' <- doArrayStore bak mem (regValue buffer_ptr) noAlignment chunkArray bytesRead
                  return (bytesRead, mem')
        Nothing -> \_ -> returnIOError
+
+-- | Convert an 'ArrayChunk' to a What4 array. When @bytesRead@ is concrete and
+-- at most 4096, builds an 'ArrayMap' by enumerating all indices; lookups into
+-- an 'ArrayMap' resolve in O(log n) via 'sbConcreteLookup'. When @bytesRead@ is
+-- symbolic, falls back to 'chunkToArray' which produces an 'ArrayFromFn'.
+chunkToConcreteArray ::
+  (W4.IsSymExprBuilder sym, HasPtrWidth wptr) =>
+  sym ->
+  SymIO.DataChunk sym wptr ->
+  W4.SymBV sym wptr ->
+  IO (W4.SymArray sym (EmptyCtx ::> W4.BaseBVType wptr) (W4.BaseBVType 8))
+chunkToConcreteArray sym chunk bytesRead = case W4.asBV bytesRead of
+  Just concSize
+    | BVS.asUnsigned concSize <= 4096 ->
+      buildArrayMap sym chunk (BVS.asUnsigned concSize)
+  _ -> SymIO.chunkToArray sym (W4.BaseBVRepr PtrWidth) chunk
+
+-- | Enumerate @[0..n-1]@, evaluate each byte via 'evalChunk', and pack
+-- the results into an 'AUM.ArrayUpdateMap' wrapped in 'W4.arrayFromMap'.
+buildArrayMap ::
+  (W4.IsSymExprBuilder sym, HasPtrWidth wptr) =>
+  sym ->
+  SymIO.DataChunk sym wptr ->
+  Integer ->
+  IO (W4.SymArray sym (EmptyCtx ::> W4.BaseBVType wptr) (W4.BaseBVType 8))
+buildArrayMap sym chunk n = do
+  pairs <- forM [0 .. n - 1] $ \i -> do
+    let bv = BVS.mkBV PtrWidth (fromIntegral i)
+    idx <- W4.bvLit sym PtrWidth bv
+    val <- SymIO.evalChunk chunk idx
+    let cidx = Empty :> W4.BVIndexLit PtrWidth bv
+    return (cidx, val)
+  let tpRepr = W4.BaseBVRepr (W4.knownNat @8)
+  defaultVal <- W4.freshConstant sym W4.emptySymbol tpRepr
+  let updateMap = AUM.fromAscList tpRepr pairs
+  W4.arrayFromMap sym (Empty :> W4.BaseBVRepr PtrWidth) updateMap defaultVal
 
 -- | If the write is to a concrete FD for which we have an associated 'IO.Handle', mirror the write to that Handle
 --
