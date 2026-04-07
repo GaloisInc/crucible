@@ -4,6 +4,7 @@ use crucible::{Symbolic, crucible_assert, override_};
 use crucible::coroutine::coroutine_field_ref;
 use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
+use std::future::Future;
 
 fn block_on<F: Future>(mut fut: F) -> F::Output {
     let mut cx = Context::from_waker(Waker::noop());
