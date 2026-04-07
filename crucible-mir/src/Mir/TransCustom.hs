@@ -2323,7 +2323,7 @@ coroutine_field = (["crucible", "coroutine", "coroutine_field"],
             case r of
                 MirReferenceRepr ->
                  do MirPlace _ u _ <- coroutineUpvarRef ca i val
-                    let actualU = (ca ^. caUpvarTys) !! i
+                    let actualU = (ca ^. caUpvarTys) !! i -- index validated by coroutineUpvarRef
                     if actualU == expectU then
                         pure (MirExp MirReferenceRepr u)
                     else
