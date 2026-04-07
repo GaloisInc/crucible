@@ -193,8 +193,8 @@ lookupAlias i =
     Just stp -> return stp
     Nothing  -> throwError $ unwords ["Unknown type alias", show i]
 
-lookupMetadata :: (?lc :: TypeContext) => Int -> Maybe L.ValMd
-lookupMetadata x = view (at x) (llvmMetadataMap ?lc)
+lookupMetadata :: (?lc :: TypeContext) => L.UnnamedMdIdx -> Maybe L.ValMd
+lookupMetadata x = view (at (L.unnamedMdIdx x)) (llvmMetadataMap ?lc)
 
 -- | If argument corresponds to a @MemType@ possibly via aliases,
 -- then return it.  Otherwise, returns @Nothing@.
