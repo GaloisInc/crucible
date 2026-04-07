@@ -5,7 +5,7 @@
   In particular, `testBreakpointFunction` is now `testCutpointFunction`.
   Also, the family of LLVM symbols recognized now begins with `__cutpoint__`
   rather than `__breakpoint__`.
-
+* Support LLVM 22.
 * Remove `llvmOverride_declare :: Text.LLVM.AST.Declare` from `LLVMOverride`.
 
   * Add `Lang.Crucible.LLVM.Intrinsics.Declare` module.
