@@ -208,6 +208,8 @@ customOpDefs = Map.fromList $ [
 
                          , ctpop
 
+                         , coroutine_field
+
                          , integer_from_u8
                          , integer_from_i32
                          , integer_from_u64
@@ -2304,6 +2306,30 @@ non_zero_new = (["core", "num", "nonzero", "{impl}", "new", "crucible_non_zero_n
                         Refl <- expectEnumOrFail discrTpr variantsCtx enumTpr
                         pure enum)
             _ -> mirFail $ "bad arguments to NonZero::new: " ++ show ops
+    )
+
+--------------------------------------------------------------------------------------------------------------------------
+-- Coroutine futures
+
+coroutine_field :: (ExplodedDefId, CustomRHS)
+coroutine_field = (["crucible", "coroutine", "coroutine_field"],
+    \substs -> case substs of
+        Substs [TyCoroutine ca, expectU, TyConst (ConstInt (Usize i_))] -> Just $ CustomMirOp $ \args ->
+         do let i = fromInteger i_ :: Int
+            refOp <- case args of
+                [refOp] -> pure refOp
+                _ -> mirFail ("BUG: crucible::coroutine::coroutine_field bad arguments: " ++ show args)
+            MirExp r val <- evalOperand refOp
+            case r of
+                MirReferenceRepr ->
+                 do MirPlace _ u _ <- coroutineUpvarRef ca i val
+                    let actualU = (ca ^. caUpvarTys) !! i -- index validated by coroutineUpvarRef
+                    if actualU == expectU then
+                        pure (MirExp MirReferenceRepr u)
+                    else
+                        mirFail ("crucible::coroutine::coroutine_field expected type " ++ show expectU ++ " got type " ++ show actualU) 
+                _ -> mirFail "BUG: coroutine_field pointer argument not a reference"
+        _ -> Nothing
     )
 
 --------------------------------------------------------------------------------------------------------------------------
