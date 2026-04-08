@@ -27,6 +27,9 @@
 * Added `register_specific_llvm_overrides` to register overrides for a provided
   list of declarations and definitions rather than extracting them from a
   provided LLVM module.
+* **BREAKING**: Changed `lookupMetadata` to take the new `llvm-pretty`-provided
+  `UnnamedMdIdx` rather than the older simple `Int` value to refer to the index
+  of the metadata to be looked up.
 
 # 0.9 -- 2026-01-29
 
