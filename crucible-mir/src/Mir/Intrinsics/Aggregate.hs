@@ -116,6 +116,7 @@ import Mir.FancyMuxTree
     subMuxLeafMA,
   )
 import Mir.Intrinsics.Size (UsizeType, wordLit)
+import Mir.Mir (OpSize)
 
 --------------------------------------------------------------
 -- A MirAggregateType is a collection of elements of any type, with each entry
@@ -287,10 +288,11 @@ readMirAggregateWithSymOffset ::
   bak ->
   (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
   RegValue sym UsizeType ->
+  OpSize ->
   TypeRepr tp ->
   MirAggregate sym ->
   MuxLeafT sym m (RegValue sym tp)
-readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
+readMirAggregateWithSymOffset bak iteFn off readSize tpr ag@(MirAggregate totalSize m)
   | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
       case IntMap.lookup off' m of
         Nothing -> leafAbort $ agNoValueAtOffsetSimError off' totalSize
