@@ -226,6 +226,7 @@ import Mir.Intrinsics.Array (UsizeArrayType, pattern UsizeArrayRepr)
 import Mir.Intrinsics.Enum (RustEnumType, pattern RustEnumRepr)
 import Mir.Intrinsics.Size (IsizeType, UsizeType, wordLit, pattern IsizeRepr)
 import Mir.Intrinsics.Vector (leafAdjustVectorWithSymIndex, leafIndexVectorWithSymIndex)
+import Mir.Mir (OpSize (..))
 
 
 --------------------------------------------------------------
@@ -490,35 +491,36 @@ readRefPath ::
   bak ->
   IntrinsicTypes sym ->
   RegValue sym tp ->
+  OpSize ->
   MirReferencePath sym tp tp' ->
   MuxLeafT sym m (RegValue sym tp')
-readRefPath bak iTypes v = \case
+readRefPath bak iTypes v readSize = \case
   Empty_RefPath -> return v
   Field_RefPath _ctx path fld ->
-    do flds <- readRefPath bak iTypes v path
+    do flds <- readRefPath bak iTypes v All path
        return $ unRV $ flds ! fld
   Variant_RefPath _ ctx path fld ->
-    do (Empty :> _discr :> RV variant) <- readRefPath bak iTypes v path
+    do (Empty :> _discr :> RV variant) <- readRefPath bak iTypes v All path
        let msg = GenericSimError $
                "attempted to read from wrong variant (" ++ show fld ++ " of " ++ show ctx ++ ")"
        leafReadPartExpr bak (unVB $ variant ! fld) msg
   Just_RefPath tp path ->
-    do v' <- readRefPath bak iTypes v path
+    do v' <- readRefPath bak iTypes v All path
        let msg = ReadBeforeWriteSimError $
                "attempted to read from uninitialized Maybe of type " ++ show tp
        leafReadPartExpr bak v' msg
   VectorIndex_RefPath tp path idx ->
-    do v' <- readRefPath bak iTypes v path
+    do v' <- readRefPath bak iTypes v All path
        leafIndexVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) v' idx
   ArrayIndex_RefPath _btp path idx ->
-    do arr <- readRefPath bak iTypes v path
+    do arr <- readRefPath bak iTypes v All path
        liftIO $ arrayLookup (backendGetSym bak) arr (Empty :> idx)
   AgElem_RefPath off _sz tpr path -> do
-    ag <- readRefPath bak iTypes v path
-    readMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr) off tpr ag
+    ag <- readRefPath bak iTypes v All path
+    readMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr) off readSize tpr ag
   AggregateAsChunks_RefPath off chunkSize numChunks path -> do
     let sym = backendGetSym bak
-    ag <- readRefPath bak iTypes v path
+    ag <- readRefPath bak iTypes v All path
     chunkedAg <- case mirAggregate_toChunks sym off chunkSize numChunks ag of
       Left err -> die $ "mirAggregate_toChunks: " ++ err
       Right x -> return x
@@ -813,14 +815,16 @@ typedLeafOp desc _ (MirReference_Integer _) _ =
 
 
 readMirRefSim :: IsSymInterface sym =>
-    TypeRepr tp -> MirReferenceMux sym ->
+    TypeRepr tp ->
+    OpSize ->
+    MirReferenceMux sym ->
     OverrideSim m sym ext rtp args ret (RegValue sym tp)
-readMirRefSim tpr ref =
+readMirRefSim tpr readSize ref =
   ovrWithBackend $ \bak ->
    do s <- get
       let gs = s ^. stateTree.actFrame.gpGlobals
       let iTypes = ctxIntrinsicTypes $ s ^. stateContext
-      liftIO $ readMirRefMA bak gs iTypes tpr ref
+      liftIO $ readMirRefMA bak gs iTypes tpr readSize ref
 
 readMirRefMA ::
     MonadAssert sym bak m =>
@@ -828,10 +832,11 @@ readMirRefMA ::
     SymGlobalState sym ->
     IntrinsicTypes sym ->
     TypeRepr tp ->
+    OpSize ->
     MirReferenceMux sym ->
     m (RegValue sym tp)
-readMirRefMA bak gs iTypes tpr ref =
-    readRefMuxMA bak iTypes tpr (readMirRefLeaf bak gs iTypes tpr) ref
+readMirRefMA bak gs iTypes tpr readSize ref =
+    readRefMuxMA bak iTypes tpr (readMirRefLeaf bak gs iTypes tpr readSize) ref
 
 readMirRefLeaf ::
     (MonadAssert sym bak m) =>
@@ -839,12 +844,13 @@ readMirRefLeaf ::
     SymGlobalState sym ->
     IntrinsicTypes sym ->
     TypeRepr tp ->
+    OpSize ->
     MirReference sym ->
     MuxLeafT sym m (RegValue sym tp)
-readMirRefLeaf bak gs iTypes tpr ref =
+readMirRefLeaf bak gs iTypes tpr readSize ref =
   typedLeafOp "read" tpr ref $ \root path -> do
     v <- readRefRoot bak gs root
-    v' <- readRefPath bak iTypes v path
+    v' <- readRefPath bak iTypes v readSize path
     return v'
 
 
@@ -1067,7 +1073,7 @@ mirRef_agElem_unsizedLeaf bak gs iTypes off ref =
       Just bv -> return $ fromIntegral $ BV.asUnsigned bv
       Nothing -> leafAbort $ GenericSimError $
         "mirRef_agElem_unsized: offset must be concrete, but got " ++ show (printSymExpr off)
-    MirAggregate _ m <- readMirRefLeaf bak gs iTypes MirAggregateRepr ref
+    MirAggregate _ m <- readMirRefLeaf bak gs iTypes MirAggregateRepr All ref
     (sz, Some entryTpr) <- case IntMap.lookup offConcrete m of
       Just (MirAggregateEntry sz entryTpr _) -> return (sz, Some entryTpr)
       Nothing -> return (0, Some MirAggregateRepr)
@@ -1803,7 +1809,7 @@ mirRef_indexAndLenLeaf bak gs iTypes _elemSize (MirReference tpr root (VectorInd
     let sym = backendGetSym bak
     let parentTpr = VectorRepr tpr
     let parent = MirReference parentTpr root path
-    parentVec <- readMirRefLeaf bak gs iTypes parentTpr parent
+    parentVec <- readMirRefLeaf bak gs iTypes parentTpr All parent
     let lenInteger = toInteger $ V.length parentVec
     len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat lenInteger
     return (idx, len)
@@ -1818,7 +1824,7 @@ mirRef_indexAndLenLeaf bak gs iTypes elemSize (MirReference _tpr root (AgElem_Re
     let sym = backendGetSym bak
     let parentTpr = MirAggregateRepr
     let parent = MirReference parentTpr root path
-    parentAg <- readMirRefLeaf bak gs iTypes parentTpr parent
+    parentAg <- readMirRefLeaf bak gs iTypes parentTpr All parent
     let MirAggregate totalSize _ = parentAg
     when (totalSize `mod` elemSize /= 0) $
        leafAbort $ Unsupported callStack $
