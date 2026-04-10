@@ -60,7 +60,7 @@ module Lang.Crucible.CFG.Generator
   , assertExpr
   , assumeExpr
   , addPrintStmt
-  , addBreakpointStmt
+  , addCutStmt
   , extensionStmt
   , mkAtom
   , mkFresh
@@ -455,13 +455,13 @@ addPrintStmt e =
   do e_a <- mkAtom e
      addStmt (Print e_a)
 
--- | Add a breakpoint.
-addBreakpointStmt ::
+-- | Add a cutpoint.
+addCutStmt ::
   (Monad m, IsSyntaxExtension ext) =>
-  Text {- ^ breakpoint name -} ->
-  Assignment (Value s) args {- ^ breakpoint values -} ->
+  Text {- ^ cutpoint name -} ->
+  Assignment (Value s) args {- ^ cutpoint values -} ->
   Generator ext s t r m ()
-addBreakpointStmt nm args = addStmt $ Breakpoint (BreakpointName nm) args
+addCutStmt nm args = addStmt $ Cut (CutpointName nm) args
 
 -- | Add an assert statement.
 assertExpr ::

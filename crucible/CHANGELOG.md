@@ -1,3 +1,18 @@
+# next
+
+* **BREAKING:** Rename various bits associated with the "breakpoint"
+  feature in accordance with renaming the feature to "cut" or
+  "cutpoint".
+  Exported Haskell symbols renamed:
+  - `Lang.Crucible.Simulator.Breakpoint` -> `Lang.Crucible.Simulator.Cut`
+  - `BreakpointName` -> `CutpointName`
+  - `Breakpoint` -> `Cut`
+  - `addBreakpointStmt` -> `addCutStmt`
+  - `breakAndReturn` -> `cutAndReturn`
+  - `breakpointPostdomInfo` -> `cutpointPostdomInfo`
+  - `cfgBreakpoints` -> `cfgCutpoints`
+  - `setFrameBreakpointPostdomInfo` -> `setFrameCutpointPostdomInfo`
+
 # 0.9 -- 2026-01-29
 
 # 0.8.0 -- 2025-11-09

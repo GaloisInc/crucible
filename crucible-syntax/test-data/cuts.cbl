@@ -7,12 +7,12 @@
     (set-register! $i 0)
     (jump header:))
   (defblock header:
-    (breakpoint "foo_header" (n $s $i))
+    (cut "foo_header" (n $s $i))
     (let i $i)
     (let c (< i n))
     (branch c body: end:))
   (defblock body:
-    (breakpoint "foo_body" (n $s $i i))
+    (cut "foo_body" (n $s $i i))
     (let s $s)
     (set-register! $s (+ s i))
     (set-register! $i (+ i 1))
