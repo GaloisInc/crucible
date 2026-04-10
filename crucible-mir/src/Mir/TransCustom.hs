@@ -285,10 +285,11 @@ vector_replicate = ( ["crucible","vector","{impl}", "replicate"], ) $ \substs ->
 
 vector_len :: (ExplodedDefId, CustomRHS)
 vector_len = ( ["crucible","vector","{impl}", "len"], ) $ \substs -> case substs of
-    Substs [t] -> Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp MirReferenceRepr eRef] -> do
+    Substs [t] -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+        ([TyRef selfTy _mut], [MirExp MirReferenceRepr eRef]) -> do
             Some tpr <- tyToReprM t
-            e <- readMirRef (C.VectorRepr tpr) eRef
+            selfSize <- tySizeM selfTy
+            e <- readMirRef (C.VectorRepr tpr) (Width selfSize) eRef
             return $ MirExp UsizeRepr (R.App $ vectorSizeUsize R.App e)
         _ -> mirFail $ "bad arguments for Vector::len: " ++ show ops
     _ -> Nothing
@@ -344,12 +345,13 @@ vector_pop_front = ( ["crucible","vector","{impl}", "pop_front"], ) $ \substs ->
 
 vector_as_slice_impl :: CustomRHS
 vector_as_slice_impl (Substs [t]) =
-    Just $ CustomOp $ \_ ops -> case ops of
-        [MirExp MirReferenceRepr e] -> do
+    Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+        ([TyRef selfTy _mut], [MirExp MirReferenceRepr e]) -> do
             Some tpr <- tyToReprM t
             elemSize <- tySizeM t
+            selfSize <- tySizeM selfTy
             -- This is similar to `&mut [T; n] -> &mut [T]` unsizing.
-            v <- readMirRef (C.VectorRepr tpr) e
+            v <- readMirRef (C.VectorRepr tpr) (Width selfSize) e
             let end = R.App $ vectorSizeUsize R.App v
             e' <- subindexRef tpr e (R.App $ usizeLit 0) elemSize
             let tup = S.mkStruct
@@ -637,7 +639,8 @@ ptr_read_impl what substs =
     Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp MirReferenceRepr ptr] -> do
             Some tpr <- tyToReprM ty
-            MirExp tpr <$> readMirRef tpr ptr
+            tySize <- tySizeM ty
+            MirExp tpr <$> readMirRef tpr (Width tySize) ptr
         _ -> mirFail $ "bad arguments for " ++ what ++ ": " ++ show ops
     _ -> Nothing
 
@@ -656,8 +659,9 @@ ptr_swap = ( ["core", "ptr", "swap"], \substs -> case substs of
     Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp MirReferenceRepr ptr1, MirExp MirReferenceRepr ptr2] -> do
             Some tpr <- tyToReprM ty
-            x1 <- readMirRef tpr ptr1
-            x2 <- readMirRef tpr ptr2
+            tySize <- tySizeM ty
+            x1 <- readMirRef tpr (Width tySize) ptr1
+            x2 <- readMirRef tpr (Width tySize) ptr2
             writeMirRef tpr ptr1 x2
             writeMirRef tpr ptr2 x1
             MirExp MirAggregateRepr <$> mirAggregate_zst
@@ -758,7 +762,7 @@ intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
             -- TODO: check for overlap and copy in reverse order if needed.
             -- This will let us avoid the temporary `constMirRef`.
             (srcAg, srcIdx) <- mirRef_peelIndex src elemSize
-            srcSnapAg <- readMirRef MirAggregateRepr srcAg
+            srcSnapAg <- readMirRef MirAggregateRepr All srcAg
             srcSnapRoot <- constMirRef MirAggregateRepr srcSnapAg
             srcSnap <- subindexRef elemTpr srcSnapRoot srcIdx elemSize
 
@@ -1349,8 +1353,9 @@ mem_swap = (["core","mem", "swap"], \substs ->
     Substs [ty] -> Just $ CustomOp $ \ opTys ops -> case ops of
         [MirExp MirReferenceRepr e1, MirExp MirReferenceRepr e2] -> do
             Some tpr <- tyToReprM ty
-            val1 <- readMirRef tpr e1
-            val2 <- readMirRef tpr e2
+            tySize <- tySizeM ty
+            val1 <- readMirRef tpr (Width tySize) e1
+            val2 <- readMirRef tpr (Width tySize) e2
             writeMirRef tpr e1 val2
             writeMirRef tpr e2 val1
             MirExp MirAggregateRepr <$> mirAggregate_zst
@@ -1478,8 +1483,8 @@ array_from_ref = (["core", "array", "from_ref", "crucible_array_from_ref_hook"],
                 -- correctly implemented as a type cast, so that the input and
                 -- output are aliases.
                 Some elemRepr <- tyToReprM elemTy
-                elemVal <- readMirRef elemRepr elemRef
                 elemSize <- tySizeM elemTy
+                elemVal <- readMirRef elemRepr (Width elemSize) elemRef
                 ag <- mirAggregate_uninit_constSize elemSize
                 ag' <- mirAggregate_set 0 elemSize elemRepr elemVal ag
                 agRef <- constMirRef MirAggregateRepr ag'
@@ -1895,11 +1900,12 @@ bv_overflowing_binop name bop =
 bv_eq :: (ExplodedDefId, CustomRHS)
 bv_eq = (["crucible", "bitvector", "{impl}", "eq"], \substs -> case substs of
   Substs [sz] ->
-    Just $ CustomOp $ \_optys ops -> case ops of
-        [MirExp MirReferenceRepr r1, MirExp MirReferenceRepr r2]
+    Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+        ([TyRef selfTy _mut, _], [MirExp MirReferenceRepr r1, MirExp MirReferenceRepr r2])
           | Just (BVSize w) <- tyBvSize sz -> do
-            v1 <- readMirRef (C.BVRepr w) r1
-            v2 <- readMirRef (C.BVRepr w) r2
+            selfSize <- tySizeM selfTy
+            v1 <- readMirRef (C.BVRepr w) (Width selfSize) r1
+            v2 <- readMirRef (C.BVRepr w) (Width selfSize) r2
             return $ MirExp C.BoolRepr $ S.app $ E.BVEq w v1 v2
         _ -> mirFail $ "BUG: invalid arguments to bv_eq: " ++ show ops
   _ -> Nothing)
@@ -1907,11 +1913,12 @@ bv_eq = (["crucible", "bitvector", "{impl}", "eq"], \substs -> case substs of
 bv_lt :: (ExplodedDefId, CustomRHS)
 bv_lt = (["crucible", "bitvector", "{impl}", "lt"], \substs -> case substs of
   Substs [sz] ->
-    Just $ CustomOp $ \_optys ops -> case ops of
-        [MirExp MirReferenceRepr r1, MirExp MirReferenceRepr r2]
+    Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+        ([TyRef selfTy _mut, _], [MirExp MirReferenceRepr r1, MirExp MirReferenceRepr r2])
           | Just (BVSize w) <- tyBvSize sz -> do
-            v1 <- readMirRef (C.BVRepr w) r1
-            v2 <- readMirRef (C.BVRepr w) r2
+            selfSize <- tySizeM selfTy
+            v1 <- readMirRef (C.BVRepr w) (Width selfSize) r1
+            v2 <- readMirRef (C.BVRepr w) (Width selfSize) r2
             return $ MirExp C.BoolRepr $ S.app $ E.BVUlt w v1 v2
         _ -> mirFail $ "BUG: invalid arguments to bv_lt: " ++ show ops
   _ -> Nothing)
@@ -1994,7 +2001,7 @@ reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
             G.assertExpr isZero $
                 S.litExpr "bad pointer in reallocate: not the start of an allocation"
 
-            oldAg <- readMirRef MirAggregateRepr agPtr
+            oldAg <- readMirRef MirAggregateRepr All agPtr
             let newSize = R.App (usizeMul newLen (R.App (usizeLit (fromIntegral elemSize))))
             newAg <- mirAggregate_resize oldAg newSize
             writeMirRef MirAggregateRepr agPtr newAg
@@ -2033,7 +2040,8 @@ atomic_load_impl :: CustomRHS
 atomic_load_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
     ([TyRawPtr ty _], [MirExp MirReferenceRepr ref]) -> do
         Some tpr <- tyToReprM ty
-        MirExp tpr <$> readMirRef tpr ref
+        tySize <- tySizeM ty
+        MirExp tpr <$> readMirRef tpr (Width tySize) ref
     _ -> mirFail $ "BUG: invalid arguments to atomic_load: " ++ show ops
 
 atomic_cxchg_impl :: CustomRHS
@@ -2041,7 +2049,8 @@ atomic_cxchg_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops
     ([_, ty, _], [MirExp MirReferenceRepr ref, MirExp tpr expect, MirExp tpr' val])
       | Just Refl <- testEquality tpr tpr'
       , C.BVRepr w <- tpr -> do
-        old <- readMirRef tpr ref
+        tySize <- tySizeM ty
+        old <- readMirRef tpr (Width tySize) ref
         let eq = R.App $ E.BVEq w old expect
         let new = R.App $ E.BVIte eq w val old
         writeMirRef tpr ref new
@@ -2077,15 +2086,17 @@ atomic_rmw_impl ::
         R.Expr MIR s MirReferenceType ->
         MirGenerator h s ret (R.Expr MIR s MirReferenceType)) ->
     CustomRHS
-atomic_rmw_impl name rmwBv rmwPtr = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
-    [MirExp MirReferenceRepr ref, MirExp tpr val]
+atomic_rmw_impl name rmwBv rmwPtr = \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+    ([TyRawPtr ty _mut, _], [MirExp MirReferenceRepr ref, MirExp tpr val])
       | C.BVRepr w <- tpr -> do
-        old <- readMirRef tpr ref
+        size <- tySizeM ty
+        old <- readMirRef tpr (Width size) ref
         new <- rmwBv w old val
         writeMirRef tpr ref new
         return $ MirExp tpr old
       | MirReferenceRepr <- tpr -> do
-        old <- readMirRef tpr ref
+        size <- tySizeM ty
+        old <- readMirRef tpr (Width size) ref
         new <- rmwPtr old val
         writeMirRef tpr ref new
         return $ MirExp tpr old

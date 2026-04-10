@@ -600,9 +600,11 @@ dropMirRef refExp = void $ G.extensionStmt (MirDropRef refExp)
 
 readMirRef ::
   C.TypeRepr tp ->
+  -- | The size of the value to read.
+  OpSize ->
   R.Expr MIR s MirReferenceType ->
   MirGenerator h s ret (R.Expr MIR s tp)
-readMirRef tp refExp = G.extensionStmt (MirReadRef tp refExp)
+readMirRef tp tySize refExp = G.extensionStmt (MirReadRef tp tySize refExp)
 
 writeMirRef ::
   C.TypeRepr tp ->

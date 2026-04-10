@@ -349,14 +349,15 @@ typedVarInfo name tpr = do
                     ++ ", but it has type " ++ show tpr' ++ " instead"
             return vi
 
-readVar :: C.TypeRepr tp -> VarInfo s tp -> MirGenerator h s ret (R.Expr MIR s tp)
-readVar tpr vi = G.readReg (varInfoReg vi) >>= readMirRef tpr
+readVar :: C.TypeRepr tp -> Word ->VarInfo s tp -> MirGenerator h s ret (R.Expr MIR s tp)
+readVar tpr tySize vi = G.readReg (varInfoReg vi) >>= readMirRef tpr (Width tySize)
 
 varExp :: HasCallStack => M.Var -> MirGenerator h s ret (MirExp s)
 varExp (M.Var vname' _ vty _) = do
     Some tpr <- tyToReprM vty
+    tySize <- tySizeM vty
     vi <- typedVarInfo vname' tpr
-    x <- readVar tpr vi
+    x <- readVar tpr tySize vi
     return $ MirExp tpr x
 
 varPlace :: HasCallStack => M.Var -> MirGenerator h s ret (MirPlace s)
@@ -401,10 +402,10 @@ staticSlicePlace len ty did = do
         Nothing -> mirFail $ "cannot find static variable " ++ fmt did
 
 -- NOTE: The return var in the MIR output is always "_0"
-getReturnExp :: HasCallStack => C.TypeRepr ret -> MirGenerator h s ret (R.Expr MIR s ret)
-getReturnExp tpr = do
+getReturnExp :: HasCallStack => C.TypeRepr ret -> Word -> MirGenerator h s ret (R.Expr MIR s ret)
+getReturnExp tpr tySize = do
     vi <- typedVarInfo "_0" tpr
-    readVar tpr vi
+    readVar tpr tySize vi
 
 
 -- ** Expressions: Operations and Aggregates
@@ -426,7 +427,9 @@ derefExp pointeeTy (MirExp MirReferenceRepr e) = do
 derefExp _pointeeTy (MirExp tpr _) = mirFail $ "don't know how to deref " ++ show tpr
 
 readPlace :: HasCallStack => M.Ty -> MirPlace s -> MirGenerator h s ret (MirExp s)
-readPlace _ty (MirPlace tpr r NoMeta) = MirExp tpr <$> readMirRef tpr r
+readPlace ty (MirPlace tpr r NoMeta) = do
+    tySize <- tySizeM ty
+    MirExp tpr <$> readMirRef tpr (Width tySize) r
 readPlace ty (MirPlace tpr _ meta) =
     mirFail $ "don't know how to read from place with metadata " ++ show meta
         ++ " (type " ++ show ty ++ ", repr " ++ show tpr ++ ")"
@@ -1521,6 +1524,10 @@ evalPlaceProj ty (MirPlace tpr ref NoMeta) M.Deref = do
         CTyBox t -> doRef t
         _ -> mirFail $ "deref not supported on " ++ show ty
   where
+    ptrOpSize, fatPtrOpSize :: OpSize
+    ptrOpSize = Width 8
+    fatPtrOpSize = Width 16
+
     doRef :: M.Ty -> MirGenerator h s ret (MirPlace s)
     doRef (M.TySlice ty') | MirSliceRepr <- tpr = doSlice ty' ref
     doRef M.TyStr | MirSliceRepr <- tpr = doSlice (M.TyUint M.B8) ref
@@ -1532,7 +1539,7 @@ evalPlaceProj ty (MirPlace tpr ref NoMeta) M.Deref = do
         -- This use of `tyToReprM` is okay because `TyDynamic` and other
         -- unsized cases are handled above.
         Some tpr' <- tyToReprM ty'
-        MirPlace tpr' <$> readMirRef tpr ref <*> pure NoMeta
+        MirPlace tpr' <$> readMirRef tpr ptrOpSize ref <*> pure NoMeta
     doRef _ = mirFail $ "deref: bad repr for " ++ show ty ++ ": " ++ show tpr
 
     -- Slice types [U] are unsized, so we handle them differently. Given a
@@ -1550,7 +1557,7 @@ evalPlaceProj ty (MirPlace tpr ref NoMeta) M.Deref = do
         -- This use of `tyToReprM` is okay because we know the element type of
         -- a slice is always sized.
         Some tpr' <- tyToReprM ty'
-        slice <- readMirRef MirSliceRepr ref'
+        slice <- readMirRef MirSliceRepr fatPtrOpSize ref'
         let ptr = getSlicePtr slice
         let len = getSliceLen slice
         return $ MirPlace tpr' ptr (SliceMeta len)
@@ -1572,7 +1579,7 @@ evalPlaceProj ty (MirPlace tpr ref NoMeta) M.Deref = do
     -- type like AnyType.
     doDyn :: R.Expr MIR s MirReferenceType -> MirGenerator h s ret (MirPlace s)
     doDyn ref' = do
-        dynRef <- readMirRef DynRefRepr ref'
+        dynRef <- readMirRef DynRefRepr fatPtrOpSize ref'
         let dynRefData = S.getStruct dynRefDataIndex dynRef
         let dynRefVtable = S.getStruct dynRefVtableIndex dynRef
         return $ MirPlace C.AnyRepr dynRefData (DynMeta dynRefVtable)
@@ -1596,7 +1603,7 @@ evalPlaceProj ty (MirPlace tpr ref NoMeta) M.Deref = do
         -- expect to check/use this type directly elsewhere, so we can get away
         -- with an `AnyRepr` placeholder.
         let adtRepr = C.AnyRepr
-        adtRef <- readMirRef MirSliceRepr ref'
+        adtRef <- readMirRef MirSliceRepr fatPtrOpSize ref'
         -- In both this case and the case of plain slices, `readMirRef` gives us
         -- access to a double-wide DST pointer. In both cases, the second half
         -- holds the slice length. In our case, the first half holds a pointer
@@ -1628,7 +1635,7 @@ evalPlaceProj ty (MirPlace tpr ref NoMeta) M.Deref = do
         -- value, we don't expect to check/use this type directly elsewhere, so
         -- we can get away with an `AnyRepr` placeholder.
         let adtRepr = C.AnyRepr
-        dynRef <- readMirRef DynRefRepr ref'
+        dynRef <- readMirRef DynRefRepr fatPtrOpSize ref'
         let adtPtr = S.getStruct dynRefDataIndex dynRef
         let vtable = S.getStruct dynRefVtableIndex dynRef
         return $ MirPlace adtRepr adtPtr (DynMeta vtable)
@@ -1995,8 +2002,6 @@ jumpToBlock bbi = do
 
 doReturn :: HasCallStack => C.TypeRepr ret -> MirGenerator h s ret a
 doReturn tr = do
-    e <- getReturnExp tr
-
     -- In static initializers, "local" variables stay live past the end of the
     -- function so that the initializer can return references to them.  For
     -- example, in `static R: &'static i32 = &1;`, the initializer stores `1`
@@ -2007,6 +2012,9 @@ doReturn tr = do
     -- To detect if the current function is a static initializer, we check if
     -- there's an entry in `statics` matching the current `fname`.
     fn <- expectFnContext
+    retSize <- tySizeM (fn ^. fsig . fsreturn_ty)
+    e <- getReturnExp tr retSize
+
     let curName = fn ^. fname
     isStatic <- use $ cs . collection . statics . to (Map.member curName)
     when (not isStatic) cleanupLocals
@@ -2701,16 +2709,17 @@ transVtableShim colState vtableName (VtableItem fnName defName)
         G.FunctionDef MIR FnState (C.AnyType :<: argTys) retTy (ST h)
     buildShimForByValue recvMirTy recvTy argTys implFH = \argsA -> (\x -> (fnState, x)) $ do
         let (recv, args) = splitMethodArgs @C.AnyType @argTys argsA (Ctx.size argTys)
-        recvValue <- if isZeroSized (colState ^. collection) recvMirTy
-            then do
+        recvSize <- tySizeM recvMirTy
+        recvValue <- case recvSize of
+            0 -> do
                 Refl <- testEqualityOrFail recvTy MirAggregateRepr $
                     "transVtableShim: expected receiver type to have MirAggregateRepr, "
                       ++ "but got " ++ show recvTy
                 mirAggregate_uninit_constSize 0
-            else do
+            _ -> do
                 recvDowncast <- G.fromJustExpr (R.App $ E.UnpackAny MirReferenceRepr recv)
                     (R.App $ E.StringLit $ fromString $ "bad receiver type for " ++ show fnName)
-                readMirRef recvTy recvDowncast
+                readMirRef recvTy (Width recvSize) recvDowncast
         G.tailCall (R.App $ E.HandleLit implFH) (recvValue <: args)
 
 splitMethodArgs :: forall recvTy argTys s.
@@ -3345,7 +3354,7 @@ vectorCopy tpr ptr0 len elemSize = do
     G.jumpToLambda c_id $ S.app $ E.VectorLit tpr mempty
   -- Else branch
   y_id <- G.defineBlockLabel $ do
-    elt0 <- readMirRef tpr ptr0
+    elt0 <- readMirRef tpr (Width elemSize) ptr0
     let out0 = S.app $ E.VectorReplicate tpr (S.app $ usizeToNat len) elt0
     iRef <- G.newRef $ S.app $ usizeLit 0
     ptrRef <- G.newRef ptr0
@@ -3356,7 +3365,7 @@ vectorCopy tpr ptr0 len elemSize = do
             (pos, do i <- G.readRef iRef
                      ptr <- G.readRef ptrRef
                      out1 <- G.readRef outRef
-                     elt <- readMirRef tpr ptr
+                     elt <- readMirRef tpr (Width elemSize) ptr
                      let i' = S.app $ usizeAdd i (S.app $ usizeLit 1)
                      ptr' <- mirRef_offset ptr (S.app $ usizeLit 1) elemSize
                      let out2 = S.app $ vectorSetUsize tpr R.App out1 i elt
@@ -3381,7 +3390,7 @@ aggregateCopy_constLen tpr ptr0 len size = do
   ag' <- foldM
     (\ag' i -> do
        ptr <- mirRef_offset ptr0 (S.app $ usizeLit $ fromIntegral i) size
-       elt <- readMirRef tpr ptr
+       elt <- readMirRef tpr (Width size) ptr
        mirAggregate_set (fromIntegral i * size) size tpr elt ag')
     ag (init [0 .. len])
   return ag'
@@ -3402,7 +3411,7 @@ ptrCopy tpr src dest len elemSize = do
             (pos, do i <- G.readRef iRef
                      src' <- mirRef_offset src i elemSize
                      dest' <- mirRef_offset dest i elemSize
-                     val <- readMirRef tpr src'
+                     val <- readMirRef tpr (Width elemSize) src'
                      writeMirRef tpr dest' val
                      let i' = S.app $ usizeAdd i (S.app $ usizeLit 1)
                      G.writeRef iRef i')

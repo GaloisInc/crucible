@@ -142,6 +142,7 @@ import Mir.Intrinsics.Size
     pattern UsizeRepr,
   )
 import Mir.Intrinsics.Vector (vectorDropIO, vectorTakeIO)
+import Mir.Mir (OpSize)
 
 -- | Sigil type indicating the MIR syntax extension
 data MIR
@@ -165,6 +166,9 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      MirStmt f MirReferenceType
   MirReadRef ::
      !(TypeRepr tp) ->
+     -- | The size of the value to read, in bytes. This must be known concretely
+     -- at symbolic execution time.
+     !OpSize ->
      !(f MirReferenceType) ->
      MirStmt f tp
   MirWriteRef ::
@@ -398,7 +402,7 @@ instance TypeApp MirStmt where
     MirIntegerToRef _ -> MirReferenceRepr
     MirGlobalRef _ -> MirReferenceRepr
     MirConstRef _ _ -> MirReferenceRepr
-    MirReadRef tp _ -> tp
+    MirReadRef tp _ _ -> tp
     MirWriteRef _ _ _ -> UnitRepr
     MirDropRef _    -> UnitRepr
     MirSubfieldRef _ _ _ -> MirReferenceRepr
@@ -435,7 +439,7 @@ instance PrettyApp MirStmt where
     MirIntegerToRef i -> "integerToMirRef" <+> pp i
     MirGlobalRef gv -> "globalMirRef" <+> pretty gv
     MirConstRef _ v -> "constMirRef" <+> pp v
-    MirReadRef _ x  -> "readMirRef" <+> pp x
+    MirReadRef _ sz x  -> "readMirRef" <+> pretty sz <+> pp x
     MirWriteRef _ x y -> "writeMirRef" <+> pp x <+> "<-" <+> pp y
     MirDropRef x    -> "dropMirRef" <+> pp x
     MirSubfieldRef _ x idx -> "subfieldRef" <+> pp x <+> viaShow idx
@@ -496,8 +500,8 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
          do let r = MirReference tpr (Const_RefRoot tpr v) Empty_RefPath
             return (mkRef r, s)
 
-       MirReadRef tpr (regValue -> ref) ->
-         readOnly s $ readMirRefMA bak gs iTypes tpr ref
+       MirReadRef tpr readSize (regValue -> ref) ->
+         readOnly s $ readMirRefMA bak gs iTypes tpr readSize ref
        MirWriteRef tpr (regValue -> ref) (regValue -> x) ->
          writeOnly s $ writeMirRefIO bak gs iTypes tpr ref x
        MirDropRef (regValue -> ref) ->

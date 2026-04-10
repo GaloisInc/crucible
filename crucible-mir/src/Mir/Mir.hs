@@ -40,6 +40,8 @@ import Control.Lens (makeLenses, makePrisms, makeWrapped)
 
 import GHC.Generics
 
+import Prettyprinter (Pretty(..))
+
 import Mir.DefId
 
 import Data.Coerce(coerce)
@@ -757,7 +759,23 @@ onlyVariant (Adt name kind _ _ _ _ _) = error $
     "expected " ++ show kind ++ " " ++ show name ++ " to have only one variant"
 
 
+--------------------------------------------------------------------------------
+-- OpSize
 
+-- | Several operations need to know how many bytes are occupied by the Rust
+-- values being operated on - use this structure to provide that information.
+data OpSize
+  = -- | A statically-known width, in bytes.
+    Width Word
+  | -- | A dynamic width, generally meant for reading entire allocations,
+    -- regardless of size.
+    All
+  deriving (Eq, Ord)
+
+instance Pretty OpSize where
+  pretty s = case s of
+    Width w -> pretty w
+    All -> "<alloc>"
 
 
 --------------------------------------------------------------------------------------
