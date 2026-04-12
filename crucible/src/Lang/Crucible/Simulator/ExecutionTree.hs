@@ -480,7 +480,7 @@ execStateSimState = \case
 
 abortedGlobals ::
   Monad f =>
-  -- | How to handle 'AbortedBranch'.
+  -- | How to handle branches (e.g., 'AbortedBranch', 'PartialRes').
   --
   -- Common options include concretizing the 'Pred' or returning a partial
   -- result (e.g., 'Nothing').
@@ -499,7 +499,7 @@ abortedGlobals handleBranch =
 -- | Extract the 'SymGlobalState' from an 'ExecResult'.
 execResultGlobals ::
   Monad f =>
-  -- | How to handle 'AbortedBranch'.
+  -- | How to handle branches (e.g., 'AbortedBranch', 'PartialRes').
   --
   -- Common options include concretizing the 'Pred' or returning a partial
   -- result (e.g., 'Nothing').
@@ -508,7 +508,13 @@ execResultGlobals ::
   f (SymGlobalState sym)
 execResultGlobals handleBranch =
   \case
-    FinishedResult _ctx partial -> pure (partial ^. partialValue . gpGlobals)
+    FinishedResult simCtx partial ->
+      case partial of
+        TotalRes gp -> pure (gp ^. gpGlobals)
+        PartialRes loc p gp aborted -> do
+          let l = gp ^. gpGlobals
+          r <- abortedGlobals (handleBranch simCtx) aborted
+          handleBranch simCtx loc p l r
     TimeoutResult st -> execStateGlobals handleBranch st
     AbortedResult simCtx aborted ->
       abortedGlobals (handleBranch simCtx) aborted
@@ -516,7 +522,7 @@ execResultGlobals handleBranch =
 -- | Extract the 'SymGlobalState' from an 'ExecState'.
 execStateGlobals ::
   Monad f =>
-  -- | How to handle 'AbortedBranch'.
+  -- | How to handle branches (e.g., 'AbortedBranch', 'PartialRes').
   --
   -- Common options include concretizing the 'Pred' or returning a partial
   -- result (e.g., 'Nothing').
