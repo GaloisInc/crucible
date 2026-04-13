@@ -5,7 +5,7 @@ failures:
 
 ---- construct/<DISAMB>::crux_test[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/crucible/lib.rs:46:9: 46:79 !test/symb_eval/sym_bytes/construct.rs:13:5: 13:35: error: in construct/<DISAMB>::crux_test[0]
+[Crux]   ./libs/crucible/lib.rs:48:9: 48:79 !test/symb_eval/sym_bytes/construct.rs:13:5: 13:35: error: in construct/<DISAMB>::crux_test[0]
 [Crux]   MIR assertion at test/symb_eval/sym_bytes/construct.rs:13:5:
 [Crux]   	sym2[0] == 0
 
