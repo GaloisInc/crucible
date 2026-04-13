@@ -1,5 +1,9 @@
 # next
 
+* Fix `uniquelyConcRegMap` blocking clause: use disjunction (OR) instead of
+  conjunction (AND). The old code would falsely report a `RegMap` as uniquely
+  concretized whenever any single component was unique, even if other components
+  had multiple possible values.
 * **BREAKING:** Rename various bits associated with the "breakpoint"
   feature in accordance with renaming the feature to "cut" or
   "cutpoint".

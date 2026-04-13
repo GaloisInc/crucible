@@ -64,15 +64,16 @@ mkOverrideBinding ha name override = do
 -- | Set up all test overrides
 setupOverrides ::
   ( IsSymBackend sym bak
-  , sym ~ ExprBuilder scope st fs
+  , sym ~ ExprBuilder scope st (Flags fm)
   , SymExpr sym ~ Expr scope
-  , bak ~ CBO.OnlineBackend solver scope st fs
+  , bak ~ CBO.OnlineBackend solver scope st (Flags fm)
   , WPO.OnlineSolver solver
   ) =>
   bak ->
+  FloatModeRepr fm ->
   HandleAllocator ->
   IO [(FnBinding p sym ext, Position)]
-setupOverrides bak ha =
+setupOverrides bak fm ha =
   do let sym = backendGetSym bak
      sequence
        [ mkOverrideBinding ha "symbolicBranchTest" symbolicBranchTest
@@ -83,6 +84,7 @@ setupOverrides bak ha =
        , mkOverrideBinding ha "crucible-print-assumption-state" (printAssumptionState (Just sym))
        , mkOverrideBinding ha "prove-offline" (proveOffline (Just sym))
        , mkOverrideBinding ha "prove-online" (proveOnline bak (Just sym))
+       , mkOverrideBinding ha "uniquely-conc-ints" (uniquelyConcInts bak fm)
        ]
 
 
@@ -292,3 +294,34 @@ proveOnline bak _proxy =
       let prover = CB.onlineProver sym sp
       let strat = CB.ProofStrategy prover CB.keepGoing
       CB.proveCurrentObligations bak strat proveChecker
+
+-- | Test unique concretization of two integers via 'uniquelyConcRegMap'.
+--
+-- Calls the real 'uniquelyConcRegMap' on a two-entry RegMap. The bug
+-- (now fixed) was that the blocking clause used AND instead of OR,
+-- causing a map to be reported as uniquely concretized whenever any
+-- single entry was unique.
+--
+-- Prints a message, so must be observed on the programs stdout (which the test
+-- suite does).
+uniquelyConcInts ::
+  ( IsSymBackend sym bak
+  , sym ~ ExprBuilder scope st (Flags fm)
+  , SymExpr sym ~ Expr scope
+  , bak ~ CBO.OnlineBackend solver scope st (Flags fm)
+  , WPO.OnlineSolver solver
+  ) =>
+  bak ->
+  FloatModeRepr fm ->
+  OverrideSim p sym ext r
+    (EmptyCtx ::> IntegerType ::> IntegerType) UnitType (RegValue sym UnitType)
+uniquelyConcInts bak fm = do
+  h <- printHandle <$> getContext
+  args <- getOverrideArgs
+  let x = reg @0 args
+  let y = reg @1 args
+  let rm = RegMap (Empty :> RegEntry IntegerRepr x :> RegEntry IntegerRepr y)
+  result <- liftIO $ Conc.uniquelyConcRegMap bak fm MapF.empty MapF.empty rm
+  liftIO $ case result of
+    Left e  -> hPutStrLn h ("uniquelyConcRegMap: " ++ show e)
+    Right _ -> hPutStrLn h "uniquelyConcRegMap: unique"
