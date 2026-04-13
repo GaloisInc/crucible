@@ -65,7 +65,6 @@ module Lang.Crucible.Syntax.Parser
   )
 where
 
-import Control.Lens
 import Control.Applicative
 import Control.Monad (MonadPlus(..))
 import Control.Monad.Error.Class (MonadError(..))
@@ -80,6 +79,8 @@ import qualified Data.Map as Map
 import Data.Parameterized.Nonce ( NonceGenerator, Nonce, freshNonce )
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Text as T
+import Lens.Micro
+import Lens.Micro.Mtl
 
 import Lang.Crucible.Syntax.Atoms
 import qualified Lang.Crucible.Syntax.ExprParse as SP
@@ -179,19 +180,19 @@ data ProgramState s =
                , _progHandleAlloc :: HandleAllocator
                }
 
-progFunctions :: Simple Lens (ProgramState s) (Map FunctionName FunctionHeader)
+progFunctions :: Lens' (ProgramState s) (Map FunctionName FunctionHeader)
 progFunctions = lens _progFunctions (\s v -> s { _progFunctions = v })
 
-progForwardDecs :: Simple Lens (ProgramState s) (Map FunctionName FunctionHeader)
+progForwardDecs :: Lens' (ProgramState s) (Map FunctionName FunctionHeader)
 progForwardDecs = lens _progForwardDecs (\s v -> s { _progForwardDecs = v })
 
-progGlobals :: Simple Lens (ProgramState s) (Map GlobalName (Some GlobalVar))
+progGlobals :: Lens' (ProgramState s) (Map GlobalName (Some GlobalVar))
 progGlobals = lens _progGlobals (\s v -> s { _progGlobals = v })
 
-progExterns :: Simple Lens (ProgramState s) (Map GlobalName (Some GlobalVar))
+progExterns :: Lens' (ProgramState s) (Map GlobalName (Some GlobalVar))
 progExterns = lens _progExterns (\s v -> s { _progExterns = v })
 
-progHandleAlloc :: Simple Lens (ProgramState s) HandleAllocator
+progHandleAlloc :: Lens' (ProgramState s) HandleAllocator
 progHandleAlloc = lens _progHandleAlloc (\s v -> s { _progHandleAlloc = v })
 
 -------------------------------------------------------------------------
@@ -244,31 +245,31 @@ initSyntaxState :: NonceGenerator IO s -> ProgramState s -> SyntaxState s
 initSyntaxState =
   SyntaxState Map.empty Map.empty Map.empty
 
-stxLabels :: Simple Lens (SyntaxState s) (Map LabelName (LabelInfo s))
+stxLabels :: Lens' (SyntaxState s) (Map LabelName (LabelInfo s))
 stxLabels = lens _stxLabels (\s v -> s { _stxLabels = v })
 
-stxAtoms :: Simple Lens (SyntaxState s) (Map AtomName (Some (Atom s)))
+stxAtoms :: Lens' (SyntaxState s) (Map AtomName (Some (Atom s)))
 stxAtoms = lens _stxAtoms (\s v -> s { _stxAtoms = v })
 
-stxRegisters :: Simple Lens (SyntaxState s) (Map RegName (Some (Reg s)))
+stxRegisters :: Lens' (SyntaxState s) (Map RegName (Some (Reg s)))
 stxRegisters = lens _stxRegisters (\s v -> s { _stxRegisters = v })
 
-stxNonceGen :: Getter (SyntaxState s) (NonceGenerator IO s)
+stxNonceGen :: Getting (NonceGenerator IO s) (SyntaxState s) (NonceGenerator IO s)
 stxNonceGen = to _stxNonceGen
 
-stxProgState :: Simple Lens (SyntaxState s) (ProgramState s)
+stxProgState :: Lens' (SyntaxState s) (ProgramState s)
 stxProgState = lens _stxProgState (\s v -> s { _stxProgState = v })
 
-stxFunctions :: Simple Lens (SyntaxState s) (Map FunctionName FunctionHeader)
+stxFunctions :: Lens' (SyntaxState s) (Map FunctionName FunctionHeader)
 stxFunctions = stxProgState . progFunctions
 
-stxForwardDecs :: Simple Lens (SyntaxState s) (Map FunctionName FunctionHeader)
+stxForwardDecs :: Lens' (SyntaxState s) (Map FunctionName FunctionHeader)
 stxForwardDecs = stxProgState . progForwardDecs
 
-stxGlobals :: Simple Lens (SyntaxState s) (Map GlobalName (Some GlobalVar))
+stxGlobals :: Lens' (SyntaxState s) (Map GlobalName (Some GlobalVar))
 stxGlobals = stxProgState . progGlobals
 
-stxExterns :: Simple Lens (SyntaxState s) (Map GlobalName (Some GlobalVar))
+stxExterns :: Lens' (SyntaxState s) (Map GlobalName (Some GlobalVar))
 stxExterns = stxProgState . progExterns
 
 -------------------------------------------------------------------------

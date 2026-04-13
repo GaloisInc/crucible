@@ -84,7 +84,6 @@ module Lang.Crucible.Simulator.OverrideSim
   ) where
 
 import           Control.Exception
-import           Control.Lens
 import           Control.Monad hiding (fail)
 import qualified Control.Monad.Catch as X
 import           Control.Monad.IO.Class (MonadIO(..))
@@ -100,6 +99,8 @@ import           Numeric.Natural (Natural)
 import           System.Exit
 import           System.IO
 import           System.IO.Error
+import           Lens.Micro
+import           Lens.Micro.Mtl
 
 import           Data.Parameterized.TraversableFC (fmapFC)
 

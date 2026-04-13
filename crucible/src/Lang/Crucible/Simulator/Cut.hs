@@ -17,7 +17,6 @@ module Lang.Crucible.Simulator.Cut
   ( cutAndReturn
   ) where
 
-import           Control.Lens
 import           Control.Monad.Reader
 import qualified Data.Bimap as Bimap
 import           Data.HashMap.Strict (HashMap)
@@ -27,6 +26,7 @@ import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Parameterized.TraversableFC
+import           Lens.Micro
 
 import qualified Lang.Crucible.Backend as C
 import qualified Lang.Crucible.CFG.Core as C

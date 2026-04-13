@@ -17,7 +17,7 @@ module Lang.Crucible.Debug.Override
   , debugRunOverride
   ) where
 
-import Control.Lens qualified as Lens
+import Lens.Micro.Mtl qualified as Lens
 import Control.Monad.IO.Class (liftIO)
 import Data.Text qualified as Text
 import Data.Parameterized.Context qualified as Ctx

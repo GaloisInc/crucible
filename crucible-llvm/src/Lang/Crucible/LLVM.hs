@@ -28,9 +28,10 @@ module Lang.Crucible.LLVM
   , llvmExtensionImpl
   ) where
 
-import           Control.Lens
 import           Control.Monad (when)
 import           Control.Monad.IO.Class
+import           Lens.Micro
+import           Lens.Micro.Mtl
 import qualified Text.LLVM.AST as L
 
 import           Lang.Crucible.Analysis.Postdom

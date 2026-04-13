@@ -46,7 +46,6 @@ module Lang.Crucible.Backend.Assumptions
   ) where
 
 
-import           Control.Lens (Traversal, folded)
 import           Data.Kind (Type)
 import qualified Data.Foldable as F
 import           Data.Functor.Identity
@@ -54,6 +53,7 @@ import           Data.Functor.Const
 import qualified Data.Parameterized.TraversableF as TF
 import qualified Data.Sequence as Seq
 import           Data.Sequence (Seq)
+import           Lens.Micro (Traversal)
 import qualified Prettyprinter as PP
 
 import           What4.Expr.Builder
@@ -212,7 +212,7 @@ assumptionsPred sym (SingleEvent _) =
 assumptionsPred _sym (SingleAssumption a) =
   return (assumptionPred a)
 assumptionsPred sym (ManyAssumptions xs) =
-  andAllOf sym folded =<< traverse (assumptionsPred sym) xs
+  F.foldlM (andPred sym) (truePred sym) =<< traverse (assumptionsPred sym) xs
 assumptionsPred sym (MergeAssumptions c xs ys) =
   do xs' <- assumptionsPred sym xs
      ys' <- assumptionsPred sym ys

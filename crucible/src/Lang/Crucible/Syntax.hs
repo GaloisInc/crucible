@@ -85,7 +85,6 @@ module Lang.Crucible.Syntax
   , littleEndianStore
   ) where
 
-import           Control.Lens
 import qualified Data.BitVector.Sized as BV
 import           Data.Kind
 import           Data.Parameterized.Classes
@@ -93,6 +92,8 @@ import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
 import           Data.Text (Text)
 import qualified Data.Vector as V
+import           Lens.Micro
+import           Lens.Micro.Mtl
 import           Numeric.Natural
 
 import           Lang.Crucible.CFG.Expr

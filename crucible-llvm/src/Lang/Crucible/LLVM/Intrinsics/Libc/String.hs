@@ -51,12 +51,12 @@ module Lang.Crucible.LLVM.Intrinsics.Libc.String
   , callStrndup
   ) where
 
-import           Control.Lens ((^.), _1, _2, _3)
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.BitVector.Sized as BV
 
 import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 import qualified Data.Parameterized.Context as Ctx
+import           Lens.Micro ((^.))
 
 import           What4.Interface
 import           What4.ProgramLoc (plSourceLoc)
@@ -114,7 +114,7 @@ llvmMemcpyOverride =
           volatile <- liftIO $ RegEntry knownRepr <$> bvZero sym knownNat
           Ctx.uncurryAssignment (callMemcpy memOps)
                                 (args :> volatile)
-          return $ regValue $ args^._1 -- return first argument
+          return $ regValue $ args ^. Ctx.field @0 -- return first argument
     )
 
 
@@ -130,12 +130,12 @@ llvmMemcpyChkOverride
 llvmMemcpyChkOverride =
   [llvmOvr| i8* @__memcpy_chk ( i8*, i8*, size_t, size_t ) |]
   (\memOps args ->
-      do let args' = Empty :> (args^._1) :> (args^._2) :> (args^._3)
+      do let args' = Empty :> (args ^. Ctx.field @0) :> (args ^. Ctx.field @1) :> (args ^. Ctx.field @2)
          sym <- getSymInterface
          volatile <- liftIO $ RegEntry knownRepr <$> bvZero sym knownNat
          Ctx.uncurryAssignment (callMemcpy memOps)
                                (args' :> volatile)
-         return $ regValue $ args^._1 -- return first argument
+         return $ regValue $ args ^. Ctx.field @0 -- return first argument
     )
 
 llvmMemmoveOverride
@@ -153,7 +153,7 @@ llvmMemmoveOverride =
          volatile <- liftIO (RegEntry knownRepr <$> bvZero sym knownNat)
          Ctx.uncurryAssignment (callMemmove memOps)
                                (args :> volatile)
-         return $ regValue $ args^._1 -- return first argument
+         return $ regValue $ args ^. Ctx.field @0 -- return first argument
     )
 
 llvmMemsetOverride :: forall p sym ext wptr.
@@ -168,9 +168,9 @@ llvmMemsetOverride =
   (\memOps args ->
       do sym <- getSymInterface
          LeqProof <- return (leqTrans @9 @16 @wptr LeqProof LeqProof)
-         let dest = args^._1
-         val <- liftIO (RegEntry knownRepr <$> bvTrunc sym (knownNat @8) (regValue (args^._2)))
-         let len = args^._3
+         let dest = args ^. Ctx.field @0
+         val <- liftIO (RegEntry knownRepr <$> bvTrunc sym (knownNat @8) (regValue (args ^. Ctx.field @1)))
+         let len = args ^. Ctx.field @2
          volatile <- liftIO
             (RegEntry knownRepr <$> bvZero sym knownNat)
          callMemset memOps dest val len volatile
@@ -189,10 +189,10 @@ llvmMemsetChkOverride =
   [llvmOvr| i8* @__memset_chk( i8*, i32, size_t, size_t ) |]
   (\memOps args ->
       do sym <- getSymInterface
-         let dest = args^._1
+         let dest = args ^. Ctx.field @0
          val <- liftIO
-              (RegEntry knownRepr <$> bvTrunc sym knownNat (regValue (args^._2)))
-         let len = args^._3
+              (RegEntry knownRepr <$> bvTrunc sym knownNat (regValue (args ^. Ctx.field @1)))
+         let len = args ^. Ctx.field @2
          volatile <- liftIO
             (RegEntry knownRepr <$> bvZero sym knownNat)
          callMemset memOps dest val len volatile

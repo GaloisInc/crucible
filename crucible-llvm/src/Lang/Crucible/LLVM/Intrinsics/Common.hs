@@ -48,12 +48,13 @@ import qualified Text.LLVM.AST as L
 
 import           Control.Monad (when)
 import           Control.Monad.IO.Class (liftIO)
-import           Control.Lens
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import qualified Data.Text as Text
 import           Numeric (readDec)
 import qualified System.Info as Info
+import           Lens.Micro
+import           Lens.Micro.Mtl
 
 import qualified ABI.Itanium as ABI
 import qualified Data.Parameterized.Context as Ctx

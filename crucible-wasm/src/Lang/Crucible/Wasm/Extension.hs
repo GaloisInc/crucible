@@ -13,14 +13,14 @@
 
 module Lang.Crucible.Wasm.Extension where
 
-import Control.Lens
 import Control.Monad.Trans
 import Control.Monad.Trans.State
 import Data.Kind
-import Prettyprinter
-
-import Data.Parameterized.TraversableFC
 import qualified Data.BitVector.Sized as BV
+import Data.Parameterized.TraversableFC
+import Lens.Micro
+import Lens.Micro.Mtl
+import Prettyprinter
 
 import Lang.Crucible.Backend
 import Lang.Crucible.CFG.Extension

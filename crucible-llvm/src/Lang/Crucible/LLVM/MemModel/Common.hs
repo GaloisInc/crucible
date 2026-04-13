@@ -49,13 +49,14 @@ module Lang.Crucible.LLVM.MemModel.Common
   ) where
 
 import Control.Exception (assert)
-import Control.Lens
 import Control.Monad (guard)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Lens.Micro
+import Lens.Micro.Mtl
 import Numeric.Natural
 
 import Lang.Crucible.Panic ( panic )

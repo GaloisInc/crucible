@@ -2,7 +2,6 @@
 
 module Main (main) where
 
-import Control.Lens ((^.))
 import Data.List (isInfixOf)
 import Data.Maybe (fromMaybe)
 
@@ -14,6 +13,7 @@ import qualified Test.Tasty.HUnit as TTH
 import Data.Parameterized.Nonce (newIONonceGenerator)
 import Data.Parameterized.Some (Some(Some))
 import Lang.Crucible.Backend (SomeBackend(..))
+import Lens.Micro ((^.))
 import qualified Lang.Crucible.Backend as LCB
 import Lang.Crucible.Backend.Simple (newSimpleBackend)
 import Lang.Crucible.Panic

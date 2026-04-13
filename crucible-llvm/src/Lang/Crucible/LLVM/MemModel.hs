@@ -197,7 +197,6 @@ module Lang.Crucible.LLVM.MemModel
 
 import           Prelude hiding (seq)
 
-import           Control.Lens hiding (Empty, (:>))
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans (lift)
@@ -209,6 +208,8 @@ import           Data.Maybe
 import           Data.Text (Text)
 import           Data.Word
 import qualified GHC.Stack as GHC
+import           Lens.Micro
+import           Lens.Micro.Mtl
 import           Numeric.Natural (Natural)
 import qualified Prettyprinter as PP
 import           System.IO (Handle, hPutStrLn)
@@ -1732,7 +1733,7 @@ buildDisjointRegionsAssertionWithSub sym dest dlen src slen = do
 
   diffBlk <- notPred sym =<< ptrSameAlloc sym dest src
 
-  allPos <- andAllOf sym folded =<< mapM (bvSle sym zero_bv) [doff, dend, soff, send]
+  allPos <- foldM (andPred sym) (truePred sym) =<< mapM (bvSle sym zero_bv) [doff, dend, soff, send]
   destfirst <- bvSle sym zero_bv =<< bvSub sym soff dend
   srcfirst <- bvSle sym zero_bv =<< bvSub sym doff send
 

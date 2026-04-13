@@ -32,13 +32,13 @@ module Lang.Crucible.Simulator.BoundedRecursion
   ( boundedRecursionFeature
   ) where
 
-import           Control.Lens ( (^.), (&), (%~) )
 import           Control.Monad (when)
 import           Data.IORef
 import           Data.Maybe
+import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 import           Data.Word
-import qualified Data.Map.Strict as Map
+import           Lens.Micro ((^.), (&), (%~))
 
 import           Data.Parameterized.Ctx
 import qualified Data.Parameterized.Map as MapF

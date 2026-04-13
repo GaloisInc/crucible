@@ -13,10 +13,10 @@ module MemSetup
   )
   where
 
-import           Control.Lens ( (^.) )
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Nonce
 import           Data.Parameterized.Some
+import           Lens.Micro ( (^.) )
 import qualified Text.LLVM.AST as L
 
 import qualified What4.Expr as WE

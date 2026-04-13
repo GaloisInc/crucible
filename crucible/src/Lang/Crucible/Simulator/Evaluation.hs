@@ -35,7 +35,6 @@ module Lang.Crucible.Simulator.Evaluation
 import           Prelude hiding (pred)
 
 import qualified Control.Exception as Ex
-import           Control.Lens
 import           Control.Monad
 import qualified Data.BitVector.Sized as BV
 import qualified Data.Map.Strict as Map
@@ -50,6 +49,7 @@ import           GHC.Stack
 import           Data.Parameterized.Classes
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.TraversableFC
+import           Lens.Micro
 
 import           What4.Interface
 import           What4.InterpretedFloatingPoint

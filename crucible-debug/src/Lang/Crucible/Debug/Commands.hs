@@ -31,7 +31,7 @@ module Lang.Crucible.Debug.Commands
   ) where
 
 import Control.Exception qualified as X
-import Control.Lens qualified as Lens
+import Lens.Micro qualified as Lens
 import Control.Monad.Except (runExceptT)
 import Control.Monad.IO.Class (liftIO)
 import Data.List qualified as List

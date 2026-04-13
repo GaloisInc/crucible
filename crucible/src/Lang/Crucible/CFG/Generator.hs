@@ -109,7 +109,6 @@ module Lang.Crucible.CFG.Generator
   , module Lang.Crucible.CFG.EarlyMergeLoops
   ) where
 
-import           Control.Lens hiding (Index)
 import           Control.Monad ((>=>))
 import qualified Control.Monad.Fail as F
 import           Control.Monad.IO.Class (MonadIO(..))
@@ -127,6 +126,8 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import           Data.Text (Text)
 import           Data.Void
+import           Lens.Micro
+import           Lens.Micro.Mtl
 
 import           What4.ProgramLoc
 import           What4.Symbol
@@ -162,7 +163,7 @@ initCurrentBlockState inputs block_id =
       }
 
 -- | Statements translated so far in this block.
-cbsStmts :: Simple Lens (CurrentBlockState ext s) (StmtSeq ext s)
+cbsStmts :: Lens' (CurrentBlockState ext s) (StmtSeq ext s)
 cbsStmts = lens _cbsStmts (\s v -> s { _cbsStmts = v })
 
 ------------------------------------------------------------------------
@@ -186,14 +187,14 @@ type EndState ext s t ret m =
   IxGeneratorState ext s t ret m ()
 
 -- | Label for entry block.
-gsEntryLabel :: Getter (IxGeneratorState ext s t ret m i) (Label s)
+gsEntryLabel :: SimpleGetter (IxGeneratorState ext s t ret m i) (Label s)
 gsEntryLabel = to _gsEntryLabel
 
 -- | List of previously processed blocks.
-gsBlocks :: Simple Lens (IxGeneratorState ext s t ret m i) (Seq (Block ext s ret))
+gsBlocks :: Lens' (IxGeneratorState ext s t ret m i) (Seq (Block ext s ret))
 gsBlocks = lens _gsBlocks (\s v -> s { _gsBlocks = v })
 
-gsNonceGen :: Getter (IxGeneratorState ext s t ret m i) (NonceGenerator m s)
+gsNonceGen :: SimpleGetter (IxGeneratorState ext s t ret m i) (NonceGenerator m s)
 gsNonceGen = to _gsNonceGen
 
 -- | Information about current block.
@@ -201,15 +202,15 @@ gsCurrent :: Lens (IxGeneratorState ext s t ret m i) (IxGeneratorState ext s t r
 gsCurrent = lens _gsCurrent (\s v -> s { _gsCurrent = v })
 
 -- | Current source position.
-gsPosition :: Simple Lens (IxGeneratorState ext s t ret m i) Position
+gsPosition :: Lens' (IxGeneratorState ext s t ret m i) Position
 gsPosition = lens _gsPosition (\s v -> s { _gsPosition = v })
 
 -- | User state for current block. This gets reset between blocks.
-gsState :: Simple Lens (IxGeneratorState ext s t ret m i) (t s)
+gsState :: Lens' (IxGeneratorState ext s t ret m i) (t s)
 gsState = lens _gsState (\s v -> s { _gsState = v })
 
 -- | List of functions seen by current generator.
-seenFunctions :: Simple Lens (IxGeneratorState ext s t ret m i) [AnyCFG ext]
+seenFunctions :: Lens' (IxGeneratorState ext s t ret m i) [AnyCFG ext]
 seenFunctions = lens _seenFunctions (\s v -> s { _seenFunctions = v })
 
 ------------------------------------------------------------------------

@@ -97,13 +97,13 @@ module Lang.Crucible.LLVM.SimpleLoopInvariant
   , simpleLoopInvariant
   ) where
 
-import           Control.Lens
 import           Control.Monad (forM, unless, when)
 import           Control.Monad.IO.Class (MonadIO(..))
 import           Control.Monad.Except (ExceptT, MonadError(..), runExceptT)
 import           Control.Monad.Reader (MonadReader(..), ReaderT, runReaderT)
 import           Control.Monad.State (MonadState(..), StateT(..))
 import           Data.Foldable
+import           Data.Functor.Const (Const(..))
 import qualified Data.IntMap as IntMap
 import           Data.IORef
 import qualified Data.List as List
@@ -112,6 +112,7 @@ import qualified Data.Map as Map
 import           Data.Map (Map)
 import qualified Data.Set as Set
 import qualified System.IO
+import           Lens.Micro
 import           Numeric.Natural
 import           Prettyprinter (pretty)
 

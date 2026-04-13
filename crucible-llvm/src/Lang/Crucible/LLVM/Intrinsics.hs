@@ -34,9 +34,9 @@ module Lang.Crucible.LLVM.Intrinsics
 , module Lang.Crucible.LLVM.Intrinsics.Match
 ) where
 
-import           Control.Lens hiding (op, (:>), Empty)
 import           Control.Monad (forM)
 import           Data.Maybe (catMaybes)
+import           Lens.Micro
 import qualified Text.LLVM.AST as L
 
 import qualified ABI.Itanium as ABI

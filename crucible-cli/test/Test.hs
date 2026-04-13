@@ -5,7 +5,6 @@
 
 module Main (main) where
 
-import Control.Lens (use)
 import Control.Monad.IO.Class (MonadIO(..))
 
 import qualified Data.List as List (sort)
@@ -14,6 +13,7 @@ import Data.Map (Map)
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Some (Some(..))
 import qualified Data.Text.IO as T
+import           Lens.Micro.Mtl (use)
 
 import qualified System.FilePath as Path
 import qualified System.IO as IO

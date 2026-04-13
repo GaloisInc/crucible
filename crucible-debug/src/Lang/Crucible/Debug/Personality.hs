@@ -15,7 +15,7 @@ module Lang.Crucible.Debug.Personality
   , stop
   ) where
 
-import Control.Lens qualified as Lens
+import Lens.Micro qualified as Lens
 import Data.Function ((&))
 import Lang.Crucible.Debug.Context (Context)
 import Lang.Crucible.Debug.Context qualified as Ctxt

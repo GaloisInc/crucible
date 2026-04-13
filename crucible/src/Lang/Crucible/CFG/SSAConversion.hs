@@ -30,7 +30,6 @@ module Lang.Crucible.CFG.SSAConversion
   ) where
 
 import           Control.Exception (assert)
-import           Control.Lens ((&))
 import           Control.Monad.State.Strict
 import           Data.Bimap (Bimap)
 import qualified Data.Bimap as Bimap
@@ -45,6 +44,7 @@ import qualified Data.Sequence as Seq
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.Type.Equality
+import           Lens.Micro ((&))
 import qualified Prettyprinter as Pretty
 
 import           What4.FunctionName (FunctionName)

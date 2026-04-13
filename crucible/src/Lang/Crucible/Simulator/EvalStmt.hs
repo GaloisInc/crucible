@@ -45,7 +45,6 @@ module Lang.Crucible.Simulator.EvalStmt
   ) where
 
 import qualified Control.Exception as Ex
-import           Control.Lens
 import           Control.Monad (foldM, when)
 import           Control.Monad.IO.Class (MonadIO(..))
 import           Control.Monad.Reader (ReaderT(..), withReaderT, ask)
@@ -56,6 +55,8 @@ import qualified Data.Text as Text
 import           Data.Time.Clock
 import           System.IO
 import           System.IO.Error as Ex
+import           Lens.Micro
+import           Lens.Micro.Mtl
 import           Prettyprinter
 
 import           What4.Config

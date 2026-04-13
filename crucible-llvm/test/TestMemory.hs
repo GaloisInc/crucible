@@ -13,10 +13,10 @@ module TestMemory
   )
 where
 
-import           Control.Lens ( (^.), _1, _2 )
 import           Control.Monad ( foldM, forM_, void )
 import           Data.Foldable ( foldlM )
 import qualified Data.Vector as V
+import           Lens.Micro ( (^.) )
 
 import qualified Test.Tasty as T
 import           Test.Tasty.HUnit ( testCase, (@=?), assertFailure )
@@ -592,8 +592,8 @@ testStructStore = testCase "struct store" $ withMem LLVMD.BigEndian $ \bak mem0 
                checkField bak' expectedBV actualPtrRV = do
                  actualSymBV <- projectLLVM_bv bak' $ CS.unRV actualPtrRV
                  Just expectedBV @=? What4.asBV actualSymBV
-           checkField bak struct_bv1 (struct_val' ^. _1)
-           checkField bak struct_bv2 (struct_val' ^. _2)
+           checkField bak struct_bv1 (struct_val' ^. Ctx.field @0)
+           checkField bak struct_bv2 (struct_val' ^. Ctx.field @1)
 
      testWithOpts (?memOpts{ LLVMMem.laxLoadsAndStores = False })
      testWithOpts (?memOpts{ LLVMMem.laxLoadsAndStores = True

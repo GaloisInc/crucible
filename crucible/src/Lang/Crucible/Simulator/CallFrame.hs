@@ -61,9 +61,11 @@ module Lang.Crucible.Simulator.CallFrame
   , frameStackLoc
   ) where
 
-import           Control.Lens
+import           Data.Functor.Const (getConst)
 import           Data.Kind
 import qualified Data.Parameterized.Context as Ctx
+
+import           Lens.Micro
 
 import           What4.FunctionName
 import           What4.Interface ( Pred )
@@ -130,22 +132,22 @@ frameHandle CallFrame { _frameCFG = g } = SomeHandle (cfgHandle g)
 frameReturnType :: CallFrame sym ext blocks ret ctx -> TypeRepr ret
 frameReturnType CallFrame { _frameCFG = g } = cfgReturnType g
 
-framePostdomMap :: Simple Lens (CallFrame sym ext blocks ret ctx) (CFGPostdom blocks)
+framePostdomMap :: Lens' (CallFrame sym ext blocks ret ctx) (CFGPostdom blocks)
 framePostdomMap = lens _framePostdomMap (\s x -> s{ _framePostdomMap = x })
 
-frameBlockID :: Simple Lens (CallFrame sym ext blocks ret ctx) (Some (BlockID blocks))
+frameBlockID :: Lens' (CallFrame sym ext blocks ret ctx) (Some (BlockID blocks))
 frameBlockID = lens _frameBlockID (\s v -> s { _frameBlockID = v })
 
 -- | List of statements to execute next.
-frameStmts :: Simple Lens (CallFrame sym ext blocks ret ctx) (StmtSeq ext blocks ret ctx)
+frameStmts :: Lens' (CallFrame sym ext blocks ret ctx) (StmtSeq ext blocks ret ctx)
 frameStmts = lens _frameStmts (\s v -> s { _frameStmts = v })
 {-# INLINE frameStmts #-}
 
-frameRegs :: Simple Lens (CallFrame sym ext blocks ret args) (RegMap sym args)
+frameRegs :: Lens' (CallFrame sym ext blocks ret args) (RegMap sym args)
 frameRegs = lens _frameRegs (\s v -> s { _frameRegs = v })
 
 -- | List of statements to execute next.
-framePostdom :: Simple Lens (CallFrame sym ext blocks ret ctx) (Some (CrucibleBranchTarget (CrucibleLang blocks ret)))
+framePostdom :: Lens' (CallFrame sym ext blocks ret ctx) (Some (CrucibleBranchTarget (CrucibleLang blocks ret)))
 framePostdom = lens _framePostdom (\s v -> s { _framePostdom = v })
 
 -- | Create a new call frame.
@@ -258,10 +260,10 @@ data OverrideFrame sym (ret :: CrucibleType) args
                      -- ^ Arguments to override.
                    }
 
-override :: Simple Lens (OverrideFrame sym ret args) FunctionName
+override :: Lens' (OverrideFrame sym ret args) FunctionName
 override = lens _override (\o x -> o{ _override = x })
 
-overrideHandle :: Simple Lens (OverrideFrame sym ret args) SomeHandle
+overrideHandle :: Lens' (OverrideFrame sym ret args) SomeHandle
 overrideHandle = lens _overrideHandle (\o x -> o { _overrideHandle = x })
 
 overrideRegMap :: Lens (OverrideFrame sym ret args) (OverrideFrame sym ret args')
@@ -324,7 +326,7 @@ fromReturnFrame :: SimFrame sym ext f 'Nothing
                 -> RegEntry sym (FrameRetType f)
 fromReturnFrame (RF _ x) = x
 
-frameFunctionName :: Getter (SimFrame sym ext f a) FunctionName
+frameFunctionName :: SimpleGetter (SimFrame sym ext f a) FunctionName
 frameFunctionName = to $ \case
   OF f -> f ^. override
   MF f -> case frameHandle f of SomeHandle h -> handleName h

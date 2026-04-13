@@ -34,8 +34,7 @@ module Lang.Crucible.Utils.MuxTree
   , muxTreeGt
   ) where
 
-import           Control.Lens (folded)
-
+import           Control.Monad (foldM)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Map.Merge.Strict as Map
@@ -73,7 +72,7 @@ muxTreeCmpOp ::
   MuxTree sym a ->
   MuxTree sym a ->
   IO (Pred sym)
-muxTreeCmpOp sym f xt yt = orOneOf sym folded =<< sequence zs
+muxTreeCmpOp sym f xt yt = foldM (orPred sym) (falsePred sym) =<< sequence zs
   where
   zs = [ do pf <- f x y
             andPred sym pf =<< andPred sym px py

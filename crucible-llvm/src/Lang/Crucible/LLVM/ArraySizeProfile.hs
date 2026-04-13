@@ -31,11 +31,7 @@ module Lang.Crucible.LLVM.ArraySizeProfile
  , arraySizeProfile
  ) where
 
-import Control.Lens.TH
-
-import Control.Lens
-
-import Data.Type.Equality (testEquality)
+import Data.Type.Equality (testEquality, (:~:)(Refl))
 import Data.IORef
 import Data.Text (Text)
 import qualified Data.Text as Text
@@ -47,6 +43,8 @@ import qualified Data.BitVector.Sized as BV
 import Data.Parameterized.SymbolRepr
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.TraversableFC
+import Lens.Micro
+import Lens.Micro.TH (makeLenses)
 
 import qualified Lang.Crucible.Backend as C
 import qualified Lang.Crucible.CFG.Core as C

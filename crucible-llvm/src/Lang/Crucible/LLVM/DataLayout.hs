@@ -38,13 +38,14 @@ module Lang.Crucible.LLVM.DataLayout
   , intWidthSize
   ) where
 
-import Control.Lens
 import Control.Monad.State.Strict
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Word (Word32)
-import qualified Text.LLVM as L
+import Lens.Micro
+import Lens.Micro.Mtl
 import Numeric.Natural
+import qualified Text.LLVM as L
 
 import What4.Utils.Arithmetic
 import Lang.Crucible.LLVM.Bytes
@@ -133,7 +134,7 @@ floatAlignment dl w = Map.lookup w t
 
 -- | Return maximum alignment constraint stored in tree.
 maxAlignmentInTree :: AlignInfo -> Alignment
-maxAlignmentInTree (AT t) = foldrOf folded max noAlignment t
+maxAlignmentInTree (AT t) = Map.foldl' max noAlignment t
 
 -- | Update alignment tree
 updateAlign :: Natural
@@ -141,15 +142,6 @@ updateAlign :: Natural
             -> Maybe Alignment
             -> AlignInfo
 updateAlign w (AT t) ma = AT (Map.alter (const ma) w t)
-
-type instance Index AlignInfo = Natural
-type instance IxValue AlignInfo = Alignment
-
-instance Ixed AlignInfo where
-  ix k = at k . traverse
-
-instance At AlignInfo where
-  at k f m = updateAlign k m <$> indexed f k (findExact k m)
 
 -- | Flags byte orientation of target machine.
 data EndianForm = BigEndian | LittleEndian
@@ -227,7 +219,7 @@ fromBits a | w <= 0 = Left $ "Alignment must be a positive number."
 
 -- | Insert alignment into spec.
 setAt :: Lens' DataLayout AlignInfo -> Natural -> Alignment -> State DataLayout ()
-setAt f sz a = f . at sz ?= a
+setAt f sz a = f %= \ai -> updateAlign sz ai (Just a)
 
 -- | The default data layout if no spec is defined. From the LLVM
 -- Language Reference: "When constructing the data layout for a given
@@ -286,7 +278,7 @@ setAtBits :: Lens' DataLayout AlignInfo -> L.LayoutSpec -> L.Storage -> State Da
 setAtBits f spec st =
   case fromBits (L.alignABI (L.storageAlignment st)) of
     Left{} -> layoutWarnings %= (spec:)
-    Right w -> f . at (fromSize (L.storageSize st)) .= Just w
+    Right w -> f %= \ai -> updateAlign (fromSize (L.storageSize st)) ai (Just w)
 
 -- | Insert alignment into spec.
 setBits :: Lens' DataLayout Alignment -> L.LayoutSpec -> L.NumBits -> State DataLayout ()

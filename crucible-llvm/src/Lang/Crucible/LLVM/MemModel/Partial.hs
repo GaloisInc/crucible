@@ -67,7 +67,6 @@ module Lang.Crucible.LLVM.MemModel.Partial
 
 import           Prelude hiding (pred)
 
-import           Control.Lens ((^.), view)
 import           Control.Monad.IO.Class (MonadIO(..))
 import           Control.Monad.Except (ExceptT, MonadError(..), runExceptT)
 import           Control.Monad.State.Strict (StateT, get, put, runStateT)
@@ -84,6 +83,8 @@ import qualified Data.BitVector.Sized as BV
 import           Data.Parameterized.Classes (toOrdering, OrdF(..))
 import           Data.Parameterized.NatRepr
 import           Data.Parameterized.Some (Some(..))
+import           Lens.Micro ((^.))
+import           Lens.Micro.Extras (view)
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.Simulator.SimError

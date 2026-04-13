@@ -45,7 +45,6 @@ import           Control.Arrow ((&&&))
 import           Control.Monad (foldM)
 import           Control.Monad.IO.Class (MonadIO(..))
 import           Control.Monad.Except (MonadError(..))
-import           Control.Lens hiding (op, (:>) )
 import qualified Data.Foldable as Foldable
 import           Data.List (genericLength, isPrefixOf)
 import           Data.Map.Strict (Map)
@@ -59,6 +58,7 @@ import qualified Data.Parameterized.Context as Ctx
 import qualified Text.LLVM.AST as L
 
 import           Data.Parameterized.NatRepr as NatRepr
+import           Lens.Micro
 
 import           Lang.Crucible.LLVM.Bytes
 import           Lang.Crucible.LLVM.DataLayout

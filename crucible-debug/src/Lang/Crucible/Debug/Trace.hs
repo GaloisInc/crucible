@@ -20,7 +20,7 @@ module Lang.Crucible.Debug.Trace
   , latest
   ) where
 
-import Control.Lens qualified as Lens
+import Lens.Micro qualified as Lens
 import Data.Parameterized.Classes (ixF')
 import Data.Parameterized.Context qualified as Ctx
 import Data.Parameterized.NatRepr qualified as NatRepr

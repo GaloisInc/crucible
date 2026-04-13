@@ -51,11 +51,12 @@ module Lang.Crucible.Analysis.Fixpoint (
   ) where
 
 import           Control.Applicative
-import           Control.Lens.Operators ( (^.), (%=), (.~), (&), (%~) )
 import qualified Control.Monad.State.Strict as St
 import qualified Data.Functor.Identity as I
 import           Data.Kind
 import qualified Data.Set as S
+import           Lens.Micro ((^.), (.~), (&), (%~))
+import           Lens.Micro.Mtl ((%=))
 import           Text.Printf
 
 import           Prelude

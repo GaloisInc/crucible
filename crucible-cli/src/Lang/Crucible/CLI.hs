@@ -26,7 +26,6 @@ module Lang.Crucible.CLI
   , execCommand
   ) where
 
-import qualified Control.Lens as Lens
 import Control.Monad
 import Control.Monad.Except (runExceptT)
 import Control.Monad.IO.Class (liftIO)
@@ -47,6 +46,7 @@ import Data.Parameterized.Nonce
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Map as MapF
 import Data.Parameterized.Some (Some(Some))
+import qualified Lens.Micro as Lens
 
 import qualified Lang.Crucible.CFG.Reg as C.Reg
 import Lang.Crucible.CFG.Extension (IsSyntaxExtension)

@@ -38,7 +38,6 @@ module Lang.Crucible.LLVM.Translation.Instruction
 
 import           Prelude hiding (exp, pred)
 
-import           Control.Lens hiding (op, (:>) )
 import           Control.Monad (MonadPlus(..), forM, unless)
 import           Control.Monad.Except (MonadError(..), runExceptT)
 import           Control.Monad.State.Strict (MonadState(..))
@@ -46,6 +45,7 @@ import           Control.Monad.Trans.Class (MonadTrans(..))
 import           Control.Monad.Trans.Maybe
 import           Data.Foldable (for_, toList)
 import           Data.Functor (void)
+import           Data.Functor.Identity (runIdentity)
 import           Data.Int
 import qualified Data.List as List
 import           Data.List.NonEmpty (NonEmpty((:|)))
@@ -56,6 +56,8 @@ import qualified Data.Sequence as Seq
 import           Data.String
 import qualified Data.Text as Text
 import qualified Data.Vector as V
+import           Lens.Micro
+import           Lens.Micro.Mtl
 import           Numeric.Natural
 import           Prettyprinter (pretty)
 import GHC.Exts ( Proxy#, proxy# )

@@ -52,7 +52,7 @@ module What4.CachedArray
   , initArray
   ) where
 
-import           Control.Lens ( (.~), (&) )
+import           Lens.Micro ( (.~), (&) )
 import           Control.Monad ( foldM, join )
 import           Control.Monad.Trans ( lift )
 import           Data.Functor.Const

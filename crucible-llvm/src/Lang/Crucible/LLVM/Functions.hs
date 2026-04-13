@@ -55,12 +55,12 @@ module Lang.Crucible.LLVM.Functions
   , bindLLVMFunc
   ) where
 
-import           Control.Lens (use)
 import           Control.Monad (foldM)
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import           qualified Data.Text as Text
+import           Lens.Micro.Mtl (use)
 
 import qualified Text.LLVM.AST as L
 

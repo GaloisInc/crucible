@@ -28,7 +28,6 @@ module Lang.Crucible.LLVM.SimpleLoopFixpoint
   , simpleLoopFixpoint
   ) where
 
-import           Control.Lens
 import           Control.Monad (when)
 import           Control.Monad.IO.Class (MonadIO(..))
 import           Control.Monad.Reader (ReaderT(..))
@@ -44,6 +43,7 @@ import qualified Data.Map as Map
 import           Data.Map (Map)
 import qualified Data.Set as Set
 import qualified System.IO
+import           Lens.Micro
 import           Numeric.Natural
 
 import qualified Data.BitVector.Sized as BV

@@ -22,11 +22,10 @@ module Lang.Crucible.Utils.CoreRewrite
 ( annotateCFGStmts
 ) where
 
-import           Control.Lens
-
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Map (Pair(..))
 import           Data.Parameterized.TraversableFC
+import           Lens.Micro
 
 import           Lang.Crucible.CFG.Core
 import           Lang.Crucible.CFG.Extension

@@ -150,7 +150,6 @@ module Lang.Crucible.Simulator.ExecutionTree
   , stateProgramStack
   ) where
 
-import           Control.Lens
 import           Control.Monad.Reader
 import           Data.Kind
 import           Data.Maybe(maybeToList)
@@ -162,6 +161,7 @@ import           Data.Text (Text)
 import           System.Exit (ExitCode)
 import           System.IO
 import           Text.Read(readMaybe)
+import           Lens.Micro
 import qualified Prettyprinter as PP
 
 import           What4.Config (Config)
@@ -205,7 +205,7 @@ gpValue :: Lens (GlobalPair sym u) (GlobalPair sym v) u v
 gpValue = lens _gpValue (\s v -> s { _gpValue = v })
 
 -- | Access the globals stored in the global pair.
-gpGlobals :: Simple Lens (GlobalPair sym u) (SymGlobalState sym)
+gpGlobals :: Lens' (GlobalPair sym u) (SymGlobalState sym)
 gpGlobals = lens _gpGlobals (\s v -> s { _gpGlobals = v })
 
 
@@ -293,7 +293,7 @@ filterCrucibleFrames (SomeFrame (MF f)) = Just (frameProgramLoc f)
 filterCrucibleFrames _ = Nothing
 
 -- | Iterate over frames in the result.
-arFrames :: Simple Traversal (AbortedResult sym ext) (SomeFrame (SimFrame sym ext))
+arFrames :: Traversal' (AbortedResult sym ext) (SomeFrame (SimFrame sym ext))
 arFrames h (AbortedExec e p) =
   (\(SomeFrame f') -> AbortedExec e (p & gpValue .~ f'))
      <$> h (SomeFrame (p ^. gpValue))
@@ -1375,7 +1375,7 @@ withStateBackend st f =
       st ^. stateContext . exceptionContextConfig /= ECCNone
     
 -- | Access the symbolic backend inside a 'SimContext'.
-ctxSymInterface :: Getter (SimContext p sym ext) sym
+ctxSymInterface :: SimpleGetter (SimContext p sym ext) sym
 ctxSymInterface = to (\ctx ->
   case _ctxBackend ctx of
     SomeBackend bak -> backendGetSym bak)
@@ -1492,7 +1492,7 @@ initSimState ctx globals ah ret =
        }
 
 
-stateLocation :: Getter (SimState p sym ext r f a) (Maybe ProgramLoc)
+stateLocation :: SimpleGetter (SimState p sym ext r f a) (Maybe ProgramLoc)
 stateLocation = to f
  where
  f :: SimState p sym ext r f a -> Maybe ProgramLoc
@@ -1503,12 +1503,12 @@ stateLocation = to f
 
 
 -- | Access the 'SimContext' inside a 'SimState'
-stateContext :: Simple Lens (SimState p sym ext r f a) (SimContext p sym ext)
+stateContext :: Lens' (SimState p sym ext r f a) (SimContext p sym ext)
 stateContext = lens _stateContext (\s v -> s { _stateContext = v })
 {-# INLINE stateContext #-}
 
 -- | Access the current abort handler of a state.
-abortHandler :: Simple Lens (SimState p sym ext r f a) (AbortHandler p sym ext r)
+abortHandler :: Lens' (SimState p sym ext r f a) (AbortHandler p sym ext r)
 abortHandler = lens _abortHandler (\s v -> s { _abortHandler = v })
 
 -- | Access the active tree associated with a state.
@@ -1539,19 +1539,19 @@ stateOverrideFrame ::
 stateOverrideFrame = stateTree . actFrame . gpValue . overrideSimFrame
 
 -- | Access the globals inside a 'SimState'
-stateGlobals :: Simple Lens (SimState p sym ext q f args) (SymGlobalState sym)
+stateGlobals :: Lens' (SimState p sym ext q f args) (SymGlobalState sym)
 stateGlobals = stateTree . actFrame . gpGlobals
 
 -- | Get the symbolic interface out of a 'SimState'
-stateSymInterface :: Getter (SimState p sym ext r f a) sym
+stateSymInterface :: SimpleGetter (SimState p sym ext r f a) sym
 stateSymInterface = stateContext . ctxSymInterface
 
 -- | Get the intrinsic type map out of a 'SimState'
-stateIntrinsicTypes :: Getter (SimState p sym ext r f args) (IntrinsicTypes sym)
+stateIntrinsicTypes :: SimpleGetter (SimState p sym ext r f args) (IntrinsicTypes sym)
 stateIntrinsicTypes = stateContext . to ctxIntrinsicTypes
 
 -- | Get the configuration object out of a 'SimState'
-stateConfiguration :: Getter (SimState p sym ext r f args) Config
+stateConfiguration :: SimpleGetter (SimState p sym ext r f args) Config
 stateConfiguration = to (\s -> stateSolverProof s (getConfiguration (s ^. stateSymInterface)))
 
 -- | Provide the 'IsSymInterface' typeclass dictionary from a 'SimState'

@@ -53,7 +53,6 @@ module Lang.Crucible.LLVM.Translation.Constant
   ) where
 
 import qualified Control.Exception as X
-import           Control.Lens( to, (^.) )
 import           Control.Monad
 import           Control.Monad.Except
 import           Data.ByteString (ByteString)
@@ -64,6 +63,7 @@ import           Data.List (intercalate, isPrefixOf)
 import           Data.Traversable
 import           Data.Fixed (mod')
 import qualified Data.Vector as V
+import           Lens.Micro (to, (^.))
 import           Numeric.Natural
 import           GHC.TypeNats
 

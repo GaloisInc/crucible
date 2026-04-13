@@ -35,11 +35,11 @@ module Lang.Crucible.LLVM.MemModel.Type
   , ppType
   )  where
 
-import Control.Lens
 import Control.Monad.State
 import Data.Typeable
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Lens.Micro
 import Numeric.Natural
 import Prettyprinter
 

@@ -23,7 +23,7 @@ module Lang.Crucible.Debug.Style
   , highlighter
   ) where
 
-import Control.Lens qualified as Lens
+import Lens.Micro qualified as Lens
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (MonadReader, ReaderT)
 import Control.Monad.Reader qualified as Reader

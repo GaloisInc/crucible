@@ -38,7 +38,6 @@ module Lang.Crucible.LLVM.TypeContext
   , asMemType
   ) where
 
-import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Except (MonadError(..))
 import           Control.Monad.State (State, runState, modify, gets)
@@ -51,6 +50,7 @@ import qualified Text.LLVM as L
 import qualified Text.LLVM.DebugUtils as L
 import           Prettyprinter
 import           Data.IntMap (IntMap)
+import           Lens.Micro.GHC
 
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.DataLayout
@@ -73,7 +73,8 @@ runTC :: DataLayout
       -> Map Ident IdentStatus
       -> TC a
       -> ([Doc ann], a)
-runTC pdl initMap m = over _1 tcsErrors . view swapped $ runState m tcs0
+runTC pdl initMap m = let (result, tcs) = runState m tcs0
+                      in (tcsErrors tcs, result)
   where tcs0 = TCS { tcsDataLayout = pdl
                    , tcsMap =  initMap
                    , tcsUnsupported = Set.empty
@@ -194,7 +195,7 @@ lookupAlias i =
     Nothing  -> throwError $ unwords ["Unknown type alias", show i]
 
 lookupMetadata :: (?lc :: TypeContext) => L.UnnamedMdIdx -> Maybe L.ValMd
-lookupMetadata x = view (at (L.unnamedMdIdx x)) (llvmMetadataMap ?lc)
+lookupMetadata x = llvmMetadataMap ?lc ^. at (L.unnamedMdIdx x)
 
 -- | If argument corresponds to a @MemType@ possibly via aliases,
 -- then return it.  Otherwise, returns @Nothing@.

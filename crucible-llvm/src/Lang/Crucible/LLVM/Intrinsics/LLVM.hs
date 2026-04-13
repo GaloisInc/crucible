@@ -29,11 +29,11 @@
 module Lang.Crucible.LLVM.Intrinsics.LLVM where
 
 import           GHC.TypeNats (KnownNat)
-import           Control.Lens hiding (op, (:>), Empty)
 import           Control.Monad (foldM, unless)
 import           Control.Monad.IO.Class (MonadIO(..))
 import           Data.Bits ((.&.))
 import qualified Data.Vector as V
+import           Lens.Micro
 import qualified Text.LLVM.AST as L
 
 import qualified Data.BitVector.Sized as BV

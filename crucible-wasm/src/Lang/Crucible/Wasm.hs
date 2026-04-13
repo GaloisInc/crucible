@@ -27,7 +27,6 @@ module Lang.Crucible.Wasm
 , wasmIntrinsicTypes
 ) where
 
-import Control.Lens hiding (Empty, (:>),Index )
 import Control.Monad
 import Control.Monad.Trans
 
@@ -44,6 +43,9 @@ import Data.Parameterized.Some
 
 import qualified Language.Wasm as Wasm
 import qualified Language.Wasm.Structure as Wasm
+
+import Lens.Micro
+import Lens.Micro.Mtl
 
 import Lang.Crucible.Backend
 import Lang.Crucible.FunctionHandle

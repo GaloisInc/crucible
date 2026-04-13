@@ -10,7 +10,7 @@ module Lang.Crucible.LLVM.Debug
   , llvmExtImpl
   ) where
 
-import Control.Lens qualified as Lens
+import Lens.Micro qualified as Lens
 import Data.Parameterized.Classes (knownRepr)
 import Data.Parameterized.Some (Some(Some))
 import Data.Text (Text)

@@ -15,7 +15,7 @@ module Lang.Crucible.Debug.Eval
   , eval
   ) where
 
-import Control.Lens qualified as Lens
+import Lens.Micro qualified as Lens
 import Data.Maybe qualified as Maybe
 import Data.Set qualified as Set
 import Data.Text qualified as Text

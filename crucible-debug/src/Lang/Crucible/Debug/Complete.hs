@@ -23,7 +23,7 @@ module Lang.Crucible.Debug.Complete
   , complete
   ) where
 
-import Control.Lens qualified as Lens
+import Lens.Micro qualified as Lens
 import Control.Monad qualified as Monad
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (MonadReader, ReaderT)

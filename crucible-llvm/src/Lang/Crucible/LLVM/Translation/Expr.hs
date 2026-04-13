@@ -63,7 +63,6 @@ module Lang.Crucible.LLVM.Translation.Expr
   , callStore
   ) where
 
-import Control.Lens hiding ((:>))
 import Control.Monad
 import Control.Monad.Except
 import qualified Data.ByteString as BS
@@ -75,6 +74,8 @@ import Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import Data.String
 import qualified Data.Vector as V
+import Lens.Micro
+import Lens.Micro.Mtl
 import Numeric.Natural
 import GHC.Exts ( Proxy#, proxy# )
 

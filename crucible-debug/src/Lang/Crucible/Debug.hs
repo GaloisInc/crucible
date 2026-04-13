@@ -70,7 +70,7 @@ module Lang.Crucible.Debug
   ) where
 
 import Control.Applicative qualified as Applicative
-import Control.Lens qualified as Lens
+import Lens.Micro qualified as Lens
 import Control.Monad qualified as Monad
 import Data.Function ((&))
 import Data.Maybe qualified as Maybe

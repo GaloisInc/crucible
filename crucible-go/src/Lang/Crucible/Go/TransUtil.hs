@@ -22,7 +22,7 @@ import           Control.Monad.Identity (runIdentity)
 import           Data.BitVector.Sized
 import           Data.Functor.Product
 import           Data.Maybe (fromMaybe)
-import           Data.Text as T hiding (foldl, length, reverse, zip)
+import           Data.Text as T hiding (Empty, foldl, length, reverse, show, zip, (:>))
 import qualified Data.Vector as V
 
 import           Data.Parameterized.Context as Ctx
