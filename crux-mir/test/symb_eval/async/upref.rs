@@ -1,19 +1,10 @@
 extern crate crucible;
 
 use crucible::{Symbolic, crucible_assert, override_};
-use crucible::coroutine::coroutine_field_ref;
+use crucible::coroutine::{coroutine_field_ref, trivial_block_on};
 use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
 use std::future::Future;
-
-fn block_on<F: Future>(mut fut: F) -> F::Output {
-    let mut cx = Context::from_waker(Waker::noop());
-    let mut fut = unsafe { Pin::new_unchecked(&mut fut) };
-    match fut.as_mut().poll(&mut cx) {
-        Poll::Ready(x) => x,
-        Poll::Pending => panic!("unexpected Pending"),
-    }
-}
 
 async fn get_random(x: u32) -> u32 {
     panic!("This should have been overridden in this test");
@@ -41,5 +32,5 @@ fn override_random_poll<F: Future<Output = u32>>(_: F) {
 #[crux::test]
 fn test_get_random() {
     override_random_poll(get_random(0));
-    crucible_assert!(block_on(add_two_random()) < 10);
+    crucible_assert!(trivial_block_on(add_two_random()) < 10);
 }

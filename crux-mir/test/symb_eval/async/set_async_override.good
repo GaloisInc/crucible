@@ -1,0 +1,11 @@
+test set_async_override/<DISAMB>::test_get_random[0]: [Crux] Attempting to prove verification conditions.
+ok
+
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 2
+[Crux]   Proved: 2
+[Crux]   Disproved: 0
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Valid.
