@@ -667,10 +667,11 @@ uniquelyConcRegMap bak fm iFns sFns m = do
                 pure (Const p)
           let RM.RegMap mAssign = m
           preds <- Ctx.zipWithM notEq concM mAssign
+          -- not (modelA_1 == modelB_1) \/ ... \/ not (modelA_n == modelB_n)
           p <-
             foldlMFC
-              (\p (Const p') -> W4I.andPred sym p p')
-              (W4I.truePred sym)
+              (\p (Const p') -> W4I.orPred sym p p')
+              (W4I.falsePred sym)
               preds
 
           frm <- CB.pushAssumptionFrame bak

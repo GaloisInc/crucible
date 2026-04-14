@@ -5,6 +5,8 @@
   into the `crucible-cli` test suite's `Overrides` module. This prevents library
   consumers from having to compile test-specific code. The main CLI applications
   no longer register these overrides by default.
+* **BREAKING:** `setupOverridesHook` now takes a `FloatModeRepr fm` argument
+  (and constrains `fs ~ Flags fm`).
 
 # 0.2 -- 2025-11-09
 

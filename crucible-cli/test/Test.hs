@@ -75,7 +75,7 @@ testSimulator inFile outFile =
      IO.withFile outFile IO.WriteMode $ \outh -> do
        let hooks =
              defaultSimulateProgramHooks
-               { setupOverridesHook = Overrides.setupOverrides
+               { setupOverridesHook = \bak fm ha -> Overrides.setupOverrides bak fm ha
                }
        simulateProgram inFile contents outh Nothing testOptions hooks False []
 

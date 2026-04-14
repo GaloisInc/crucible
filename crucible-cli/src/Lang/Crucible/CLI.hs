@@ -107,13 +107,13 @@ data SimulateProgramHooks ext = SimulateProgramHooks
     --
     -- Used by the LLVM frontend to set up the LLVM global memory variable.
   , setupOverridesHook ::
-      forall p solver sym bak t st fs.
+      forall p solver sym bak t st fm.
       ( IsSymBackend sym bak
-      , sym ~ ExprBuilder t st fs
-      , bak ~ CBO.OnlineBackend solver t st fs
+      , sym ~ ExprBuilder t st (Flags fm)
+      , bak ~ CBO.OnlineBackend solver t st (Flags fm)
       , WPO.OnlineSolver solver
       ) =>
-      bak -> HandleAllocator -> IO [(FnBinding p sym ext,Position)]
+      bak -> FloatModeRepr fm -> HandleAllocator -> IO [(FnBinding p sym ext,Position)]
     -- ^ Action to set up overrides before parsing a program.
   , resolveExternsHook ::
       forall sym t st fs. (IsSymInterface sym, sym ~ ExprBuilder t st fs) =>
@@ -133,7 +133,7 @@ data SimulateProgramHooks ext = SimulateProgramHooks
 defaultSimulateProgramHooks :: SimulateProgramHooks ext
 defaultSimulateProgramHooks = SimulateProgramHooks
   { setupHook = \_sym _ha fds -> liftIO (assertNoForwardDecs fds)
-  , setupOverridesHook = \_sym _ha -> pure []
+  , setupOverridesHook = \_bak _fm _ha -> pure []
   , resolveExternsHook = \_sym externs gst ->
     do assertNoExterns externs
        pure gst
@@ -219,6 +219,7 @@ simulateProgramWithExtension mkExt fn theInput outh profh opts hooks dbg dbgCmds
               hooks
               @(Personality ext (ExprBuilder t EmptyExprBuilderState (Flags FloatIEEE)))
               bak
+              FloatIEEERepr
               ha
             dbgOv <-
               FnBinding
