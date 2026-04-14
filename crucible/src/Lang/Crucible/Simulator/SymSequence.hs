@@ -205,9 +205,7 @@ reverseSymSequence sym = \s -> coerce (evalWithFreshCache f s)
       -> SymSequence sym a -> IO (Const (SymSequence sym a) a)
     f loop = \case
       SymSequenceNil -> pure (coerce SymSequenceNil)
-      SymSequenceCons _ v tl ->
-        do tl' <- coerce (loop tl)
-           coerce (appendSymSequence sym tl' =<< consSymSequence sym v SymSequenceNil)
+      s@(SymSequenceCons{}) -> coerce (reverseConsSpine loop SymSequenceNil s)
       SymSequenceAppend _ xs ys ->
         do xs' <- coerce (loop xs)
            ys' <- coerce (loop ys)
@@ -216,6 +214,21 @@ reverseSymSequence sym = \s -> coerce (evalWithFreshCache f s)
         do xs' <- coerce (loop xs)
            ys' <- coerce (loop ys)
            coerce (muxSymSequence sym p xs' ys')
+
+    -- Walk a cons-spine with an accumulator, producing a flat cons-list.
+    -- Falls back to cached 'loop' when a non-Cons node is reached.
+    reverseConsSpine ::
+      (SymSequence sym a -> IO (Const (SymSequence sym a) a)) ->
+      SymSequence sym a ->
+      SymSequence sym a ->
+      IO (SymSequence sym a)
+    reverseConsSpine loop acc = \case
+      SymSequenceCons _ v tl -> do
+        acc' <- consSymSequence sym v acc
+        reverseConsSpine loop acc' tl
+      other -> do
+        otherReversed <- coerce (loop other)
+        appendSymSequence sym otherReversed acc
 
 -- | Test if a sequence is nil (is empty)
 isNilSymSequence :: forall sym a.
