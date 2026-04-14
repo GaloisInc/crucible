@@ -275,6 +275,7 @@ test-suite helper-tests
   other-modules:
     SymSequence
     SymSequence.Properties
+    SymSequence.Reverse
   main-is: Main.hs
   build-depends: base,
                  hspec >= 2.5,
