@@ -662,6 +662,12 @@ mirRef_agElem_unsized ::
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 mirRef_agElem_unsized off ref = G.extensionStmt $ MirRef_AgElem_Unsized off ref
 
+mirRef_agOffset ::
+  R.Expr MIR s UsizeType ->
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
+mirRef_agOffset off ref = G.extensionStmt $ MirRef_AgOffset off ref
+
 -- | Index into a symbolic @crucible::array::Array<T>@ (_not_ a @[T; N]@)
 mirRef_arrayIndex ::
   R.Expr MIR s UsizeType ->
