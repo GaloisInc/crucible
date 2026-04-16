@@ -119,6 +119,7 @@ import Mir.Intrinsics.Reference
     MirReferenceType,
     dropMirRefIO,
     mirRef_agElemIO,
+    mirRef_agOffsetIO,
     mirRef_aggregateAsChunksIO,
     mirRef_eqIO,
     mirRef_offsetMA,
@@ -217,6 +218,11 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(f UsizeType) ->
      !Word ->
      !(TypeRepr tp) ->
+     !(f MirReferenceType) ->
+     MirStmt f MirReferenceType
+  -- | Given a reference to an aggregate, produce a reference to a 
+  MirRef_AgOffset ::
+     !(f UsizeType) ->
      !(f MirReferenceType) ->
      MirStmt f MirReferenceType
   MirRef_Eq ::
@@ -413,6 +419,7 @@ instance TypeApp MirStmt where
     MirSubindexRef _ _ _ _ -> MirReferenceRepr
     MirSubjustRef _ _ -> MirReferenceRepr
     MirRef_AgElem _ _ _ _ -> MirReferenceRepr
+    MirRef_AgOffset _ _ -> MirReferenceRepr
     MirRef_Eq _ _ -> BoolRepr
     MirRef_Offset _ _ _ -> MirReferenceRepr
     MirRef_OffsetWrap _ _ _ -> MirReferenceRepr
@@ -450,6 +457,7 @@ instance PrettyApp MirStmt where
     MirSubindexRef _ x idx sz -> "subindexRef" <+> pp x <+> pp idx <+> viaShow sz
     MirSubjustRef _ x -> "subjustRef" <+> pp x
     MirRef_AgElem off _ _ ref -> "mirRef_agElem" <+> pp off <+> pp ref
+    MirRef_AgOffset off ref -> "mirRef_agOffset" <+> pp off <+> pp ref
     MirRef_Eq x y -> "mirRef_eq" <+> pp x <+> pp y
     MirRef_Offset p o s -> "mirRef_offset" <+> pp p <+> pp o <+> viaShow s
     MirRef_OffsetWrap p o s -> "mirRef_offsetWrap" <+> pp p <+> pp o <+> viaShow s
@@ -520,6 +528,8 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
          readOnly s $ subjustMirRefIO bak iTypes tpr ref
        MirRef_AgElem (regValue -> off) sz tpr (regValue -> ref) ->
          readOnly s $ mirRef_agElemIO bak iTypes off sz tpr ref
+       MirRef_AgOffset (regValue -> off) (regValue -> ref) ->
+         readOnly s $ mirRef_agOffsetIO bak iTypes off ref
        MirRef_Eq (regValue -> r1) (regValue -> r2) ->
          readOnly s $ mirRef_eqIO bak r1 r2
        MirRef_Offset (regValue -> ref) (regValue -> off) elemSize ->

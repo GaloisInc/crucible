@@ -68,6 +68,8 @@ module Mir.Intrinsics.Reference
     subjustMirRefIO,
     mirRef_agElemLeaf,
     mirRef_agElemIO,
+    mirRef_agOffsetLeaf,
+    mirRef_agOffsetIO,
     refRootEq,
     refPathEq,
     mirRef_eqLeaf,
@@ -290,6 +292,13 @@ data MirReferencePath sym :: CrucibleType -> CrucibleType -> Type where
     !(TypeRepr tp) ->
     !(MirReferencePath sym tp_base MirAggregateType) ->
     MirReferencePath sym tp_base tp
+  -- | Given a reference to an aggregate, shift that reference forward within
+  -- the same aggregate by a number of bytes.
+  AgOffset_RefPath ::
+    -- | How many bytes to shift forward by
+    !(RegValue sym UsizeType) ->
+    !(MirReferencePath sym tp_base MirAggregateType) ->
+    MirReferencePath sym tp_base MirAggregateType
   -- | Reinterpret a portion of a `MirAggregate` as an array of equal-sized
   -- chunks.  This is used to implement @<[T]>::as_chunks@ and several related
   -- methods.  We can get rid of this once `MirAggregate` flattening is
@@ -333,6 +342,7 @@ instance IsSymInterface sym => Show (MirReferencePath sym tp tp') where
     show (VectorIndex_RefPath tpr p idx) = "(VectorIndex_RefPath " ++ show tpr ++ " " ++ show p ++ " " ++ show (printSymExpr idx) ++ ")"
     show (ArrayIndex_RefPath btpr p idx) = "(ArrayIndex_RefPath " ++ show btpr ++ " " ++ show p ++ " " ++ show (printSymExpr idx) ++ ")"
     show (AgElem_RefPath off sz tpr p) = "(AgElem_RefPath " ++ show (printSymExpr off) ++ " " ++ show sz ++ " " ++ show tpr ++ " " ++ show p ++ ")"
+    show (AgOffset_RefPath off p) = "(AgOffset_RefPath " ++ show (printSymExpr off) ++ " " ++ show p ++ ")"
     show (AggregateAsChunks_RefPath off chunkSize numChunks p) = "(AggregateAsChunks_RefPath " ++ show off ++ " " ++ show chunkSize ++ " " ++ show numChunks ++ " " ++ show p ++ ")"
 
 instance IsSymInterface sym => Show (MirReference sym) where
@@ -389,6 +399,10 @@ instance OrdSkel (MirReference sym) where
             compare sz1 sz2 <> compareSkelF tpr1 tpr2 <> cmpPath p1 p2
         cmpPath (AgElem_RefPath _ _ _ _) _ = LT
         cmpPath _ (AgElem_RefPath _ _ _ _) = GT
+        cmpPath (AgOffset_RefPath _off1 p1) (AgOffset_RefPath _off2 p2) =
+            cmpPath p1 p2
+        cmpPath (AgOffset_RefPath _ _) _ = LT
+        cmpPath _ (AgOffset_RefPath _ _) = GT
         cmpPath (AggregateAsChunks_RefPath off1 chunkSize1 numChunks1 p1)
                 (AggregateAsChunks_RefPath off2 chunkSize2 numChunks2 p2) =
             compare off1 off2 <> compare chunkSize1 chunkSize2 <> compare numChunks1 numChunks2
@@ -514,6 +528,10 @@ readRefPath bak iTypes v readSize = \case
   AgElem_RefPath off _sz tpr path -> do
     ag <- readRefPath bak iTypes v All path
     readMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr) off readSize tpr ag
+  AgOffset_RefPath off path -> do
+    ag <- readRefPath bak iTypes v All path
+    let mux = muxRegForType (backendGetSym bak) iTypes MirAggregateRepr
+    readMirAggregateWithSymOffset bak mux off readSize MirAggregateRepr ag
   AggregateAsChunks_RefPath off chunkSize numChunks path -> do
     let sym = backendGetSym bak
     ag <- readRefPath bak iTypes v All path
@@ -556,6 +574,11 @@ writeRefPath bak iTypes v (AgElem_RefPath idx sz tpr path) _writeSize x = do
   adjustRefPath bak iTypes v path (\v' -> do
     writeMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr)
       idx sz tpr x v')
+writeRefPath bak iTypes v (AgOffset_RefPath off path) _writeSize x = do
+  adjustRefPath bak iTypes v path (\v' -> do
+    let mux = muxRegForType (backendGetSym bak) iTypes MirAggregateRepr
+    let MirAggregate sz _ = x
+    writeMirAggregateWithSymOffset bak mux off sz MirAggregateRepr x v')
 writeRefPath bak iTypes v path _writeSize x =
   adjustRefPath bak iTypes v path (\_ -> return x)
 
@@ -597,6 +620,10 @@ adjustRefPath bak iTypes v path0 adj = case path0 of
       adjustRefPath bak iTypes v path (\v' -> do
         adjustMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr)
           idx tpr adj v')
+  AgOffset_RefPath off path -> do
+      adjustRefPath bak iTypes v path (\v' ->
+        let mux = muxRegForType (backendGetSym bak) iTypes MirAggregateRepr
+         in adjustMirAggregateWithSymOffset bak mux off MirAggregateRepr adj v')
   AggregateAsChunks_RefPath off chunkSize numChunks path ->
       adjustRefPath bak iTypes v path $ \ag -> do
         let sym = backendGetSym bak
@@ -655,6 +682,10 @@ muxRefPath sym c path1 path2 = case (path1,path2) of
          do off' <- lift $ bvIte sym c off1 off2
             p' <- muxRefPath sym c p1 p2
             return (AgElem_RefPath off' sz tpr p')
+  (AgOffset_RefPath off1 p1, AgOffset_RefPath off2 p2) ->
+         do off' <- lift $ bvIte sym c off1 off2
+            p' <- muxRefPath sym c p1 p2
+            return (AgOffset_RefPath off' p')
   (AggregateAsChunks_RefPath off chunkSize numChunks p1, AggregateAsChunks_RefPath _ _ _ p2) ->
          do p' <- muxRefPath sym c p1 p2
             return (AggregateAsChunks_RefPath off chunkSize numChunks p')
@@ -666,6 +697,7 @@ muxRefPath sym c path1 path2 = case (path1,path2) of
   (VectorIndex_RefPath {}, _) -> mzero
   (ArrayIndex_RefPath {}, _) -> mzero
   (AgElem_RefPath {}, _) -> mzero
+  (AgOffset_RefPath {}, _) -> mzero
   (AggregateAsChunks_RefPath {}, _) -> mzero
 
 
@@ -1120,6 +1152,31 @@ mirRef_agElemIO bak iTypes off sz tpr ref =
     modifyRefMuxMA bak iTypes (mirRef_agElemLeaf off sz tpr) ref
 
 
+mirRef_agOffsetLeaf ::
+    IsSymInterface sym =>
+    sym ->
+    RegValue sym UsizeType ->
+    MirReference sym ->
+    MuxLeafT sym IO (MirReference sym)
+mirRef_agOffsetLeaf sym off ref =
+  typedLeafOp "MirAggregate offset" MirAggregateRepr ref $ \root path ->
+    case path of
+      AgOffset_RefPath oldOff oldPath -> do
+        newOff <- liftIO $ bvAdd sym off oldOff
+        return $ MirReference MirAggregateRepr root (AgOffset_RefPath newOff oldPath)
+      _ -> return $ MirReference MirAggregateRepr root (AgOffset_RefPath off path)
+
+mirRef_agOffsetIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    RegValue sym UsizeType ->
+    MirReferenceMux sym ->
+    IO (MirReferenceMux sym)
+mirRef_agOffsetIO bak iTypes off ref =
+    modifyRefMuxMA bak iTypes (mirRef_agOffsetLeaf (backendGetSym bak) off) ref
+
+
 refRootEq ::
     IsSymInterface sym =>
     sym ->
@@ -1176,6 +1233,10 @@ refPathEq sym (AgElem_RefPath off1 _sz1 _tpr1 p1) (AgElem_RefPath off2 _sz2 _tpr
     --   different layout sizes.
     pEq <- refPathEq sym p1 p2
     liftIO $ andPred sym offEq pEq
+refPathEq sym (AgOffset_RefPath off1 p1) (AgOffset_RefPath off2 p2) = do
+    offEq <- liftIO $ bvEq sym off1 off2
+    pEq <- refPathEq sym p1 p2
+    liftIO $ andPred sym offEq pEq
 refPathEq sym (AggregateAsChunks_RefPath off1 chunkSize1 numChunks1 p1)
         (AggregateAsChunks_RefPath off2 chunkSize2 numChunks2 p2)
   | off1 == off2, chunkSize1 == chunkSize2, numChunks1 == numChunks2 = do
@@ -1188,6 +1249,7 @@ refPathEq sym (Just_RefPath {}) _ = return $ falsePred sym
 refPathEq sym (VectorIndex_RefPath {}) _ = return $ falsePred sym
 refPathEq sym (ArrayIndex_RefPath {}) _ = return $ falsePred sym
 refPathEq sym (AgElem_RefPath {}) _ = return $ falsePred sym
+refPathEq sym (AgOffset_RefPath {}) _ = return $ falsePred sym
 refPathEq sym (AggregateAsChunks_RefPath {}) _ = return $ falsePred sym
 
 mirRef_eqLeaf ::
@@ -1257,6 +1319,8 @@ reverseRefPath = go RrpNil
         go (ArrayIndex_RefPath btpr Empty_RefPath idx `RrpCons` acc) rp
     go acc (AgElem_RefPath off sz tpr rp) =
         go (AgElem_RefPath off sz tpr Empty_RefPath `RrpCons` acc) rp
+    go acc (AgOffset_RefPath off rp) =
+        go (AgOffset_RefPath off Empty_RefPath `RrpCons` acc) rp
     go acc (AggregateAsChunks_RefPath off chunkSize numChunks rp) =
         go (AggregateAsChunks_RefPath off chunkSize numChunks Empty_RefPath `RrpCons` acc) rp
 
@@ -1347,6 +1411,23 @@ refPathOverlaps sym path1 path2 = do
         pEq <- go rrp1 rrp2
         liftIO $ andPred sym overlaps pEq
 
+    go (AgOffset_RefPath _ _ `RrpCons` rrp1) (AgOffset_RefPath _ _ `RrpCons` rrp2) =
+        go rrp1 rrp2
+    go (AgElem_RefPath offE sz _ _ `RrpCons` rrp2) (AgOffset_RefPath offO _ `RrpCons` rrp1) = do
+        -- These two overlap if `offE + sz > offO`
+        szBv <- wordLit sym sz
+        offESz <- liftIO $ bvAdd sym offE szBv
+        overlaps <- liftIO $ bvUge sym offESz offO
+        pEq <- go rrp1 rrp2
+        liftIO $ andPred sym overlaps pEq
+    go (AgOffset_RefPath offO _ `RrpCons` rrp1) (AgElem_RefPath offE sz _ _ `RrpCons` rrp2) = do
+        -- These two overlap if `offE + sz > offO`
+        szBv <- wordLit sym sz
+        offESz <- liftIO $ bvAdd sym offE szBv
+        overlaps <- liftIO $ bvUge sym offESz offO
+        pEq <- go rrp1 rrp2
+        liftIO $ andPred sym overlaps pEq
+
     go (AggregateAsChunks_RefPath off1 chunkSize1 numChunks1 _ `RrpCons` rrp1)
           (AggregateAsChunks_RefPath off2 chunkSize2 numChunks2 _ `RrpCons` rrp2)
       | (off1, chunkSize1, numChunks1) == (off2, chunkSize2, numChunks2) = do
@@ -1404,6 +1485,7 @@ refPathOverlaps sym path1 path2 = do
     go (VectorIndex_RefPath {} `RrpCons` _) _ = return $ falsePred sym
     go (ArrayIndex_RefPath {} `RrpCons` _) _ = return $ falsePred sym
     go (AgElem_RefPath {} `RrpCons` _) _ = return $ falsePred sym
+    go (AgOffset_RefPath {} `RrpCons` _) _ = return $ falsePred sym
 
 -- | Check whether the memory accessible through `ref1` overlaps the memory
 -- accessible through `ref2`.
@@ -1534,6 +1616,12 @@ mirRef_offsetWrapLeaf bak (MirReference tpr root (AgElem_RefPath elemOff _elemSi
     extraOff <- liftIO $ bvMul sym numElems =<< wordLit sym elemSize
     elemOff' <- liftIO $ bvAdd sym elemOff extraOff
     return $ MirReference tpr root $ AgElem_RefPath elemOff' elemSize tpr' path
+mirRef_offsetWrapLeaf bak (MirReference tpr root (AgOffset_RefPath off path)) numElems elemSize = do
+    let sym = backendGetSym bak
+    -- `wrapping_offset` puts no restrictions on the arithmetic performed.
+    extraOff <- liftIO $ bvMul sym numElems =<< wordLit sym elemSize
+    off' <- liftIO $ bvAdd sym off extraOff
+    return $ MirReference tpr root $ AgOffset_RefPath off' path
 mirRef_offsetWrapLeaf bak ref@(MirReference _ _ _) offset _elemSize = do
     let sym = backendGetSym bak
     isZero <- liftIO $ bvEq sym offset =<< bvZero sym knownNat
@@ -1575,6 +1663,26 @@ mirRef_tryOffsetFromLeaf bak elemSize (MirReference _ root1 path1) (MirReference
             offset <- liftIO $ bvSub sym idx1 idx2
             return $ mkPE similar offset
         (AgElem_RefPath off1 _ _ path1', AgElem_RefPath off2 _ _ path2') -> do
+            -- Use the `elemSize` parameter instead of the element size stored in the
+            -- reference path to avoid using a type-incorrect size when
+            -- operating on a reference that's been cast to a type that doesn't
+            -- match its original representation. (Same rationale as described
+            -- in `mirRef_offsetWrapLeaf`.)
+            pathEq <- refPathEq sym path1' path2'
+            similar <- liftIO $ andPred sym rootEq pathEq
+            byteOffset <- liftIO $ bvSub sym off1 off2
+            elemSize' <- liftIO $ wordLit sym elemSize
+            elemOffset <- liftIO $ bvSdiv sym byteOffset elemSize'
+
+            when (elemSize > 1) $ do
+              byteOffset' <- liftIO $ bvMul sym elemOffset elemSize'
+              byteOffsetIsSizeMultiple <- liftIO $ bvEq sym byteOffset byteOffset'
+              leafAssert bak byteOffsetIsSizeMultiple $
+                GenericSimError $
+                  "offset_from: byte offset not a multiple of `size_of::<T>` (" <> show elemSize <> ")"
+
+            return $ mkPE similar elemOffset
+        (AgOffset_RefPath off1 path1', AgOffset_RefPath off2 path2') -> do
             -- Use the `elemSize` parameter instead of the element size stored in the
             -- reference path to avoid using a type-incorrect size when
             -- operating on a reference that's been cast to a type that doesn't
@@ -1643,6 +1751,18 @@ mirRef_peelIndexLeaf bak _elemSize (MirReference _tpr root (ArrayIndex_RefPath b
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference (UsizeArrayRepr btpr) root path
     return $ Empty :> RV ref :> RV idx
 mirRef_peelIndexLeaf bak elemSize (MirReference _tpr root (AgElem_RefPath off _sz _tpr' path)) = do
+    let sym = backendGetSym bak
+    elemSizeBV <- liftIO $ wordLit sym elemSize
+
+    offModSz <- liftIO $ bvUrem sym off elemSizeBV
+    offModSzIsZero <- liftIO $ bvEq sym offModSz =<< wordLit sym 0
+    leafAssert bak offModSzIsZero $ Unsupported callStack $
+        "expected element offset to be a multiple of element size (" ++ show elemSize ++ ")"
+
+    idx <- liftIO $ bvUdiv sym off elemSizeBV
+    let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
+    return $ Empty :> RV ref :> RV idx
+mirRef_peelIndexLeaf bak elemSize (MirReference _tpr root (AgOffset_RefPath off path)) = do
     let sym = backendGetSym bak
     elemSizeBV <- liftIO $ wordLit sym elemSize
 
@@ -1871,6 +1991,19 @@ mirRef_aggregateAsChunksLeaf ::
     MuxLeafT sym IO (MirReference sym)
 mirRef_aggregateAsChunksLeaf chunkSizeSym numChunksSym
         (MirReference _tpr root (AgElem_RefPath offSym _sz _tpr' path)) = do
+    chunkSize <- requireConcrete "chunk size" chunkSizeSym
+    numChunks <- requireConcrete "number of chunks" numChunksSym
+    off <- requireConcrete "slice offset within parent array" offSym
+    return $ MirReference MirAggregateRepr root
+      (AggregateAsChunks_RefPath off chunkSize numChunks path)
+  where
+    requireConcrete desc symExp =
+      case asBV symExp of
+        Just bv -> return $ fromIntegral $ BV.asUnsigned bv
+        Nothing -> leafAbort $ GenericSimError $
+          "aggregateAsChunks requires " ++ desc ++ " to be concrete"
+mirRef_aggregateAsChunksLeaf chunkSizeSym numChunksSym
+        (MirReference _tpr root (AgOffset_RefPath offSym path)) = do
     chunkSize <- requireConcrete "chunk size" chunkSizeSym
     numChunks <- requireConcrete "number of chunks" numChunksSym
     off <- requireConcrete "slice offset within parent array" offSym
