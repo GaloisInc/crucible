@@ -609,9 +609,11 @@ readMirRef tp tySize refExp = G.extensionStmt (MirReadRef tp tySize refExp)
 writeMirRef ::
   C.TypeRepr tp ->
   R.Expr MIR s MirReferenceType ->
+  -- | The size of the value to write.
+  OpSize ->
   R.Expr MIR s tp ->
   MirGenerator h s ret ()
-writeMirRef tp ref x = void $ G.extensionStmt (MirWriteRef tp ref x)
+writeMirRef tp ref writeSize x = void $ G.extensionStmt (MirWriteRef tp ref writeSize x)
 
 subfieldRef ::
   C.CtxRepr ctx ->

@@ -530,6 +530,7 @@ writeRefPath ::
   IntrinsicTypes sym ->
   RegValue sym tp ->
   MirReferencePath sym tp tp' ->
+  OpSize ->
   RegValue sym tp' ->
   MuxLeafT sym IO (RegValue sym tp)
 -- Special case: when the final path segment is `Just_RefPath`, we can write to
@@ -539,23 +540,23 @@ writeRefPath ::
 --
 -- There is a similar special case above for MirWriteRef with Empty_RefPath,
 -- which allows writing to an uninitialized MirReferenceRoot.
-writeRefPath bak iTypes v (Just_RefPath _tp path) x =
+writeRefPath bak iTypes v (Just_RefPath _tp path) _writeSize x =
   adjustRefPath bak iTypes v path (\_ -> return $ justPartExpr (backendGetSym bak) x)
 -- TODO remove these cases?  should be equivalent to the `adjustRefPath` cases below
-writeRefPath bak iTypes v (VectorIndex_RefPath tp path idx) x = do
+writeRefPath bak iTypes v (VectorIndex_RefPath tp path idx) _writeSize x = do
   adjustRefPath bak iTypes v path (\vec ->
     leafAdjustVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) vec idx (\_ ->
       return x))
-writeRefPath bak iTypes v (ArrayIndex_RefPath _btp path idx) x = do
+writeRefPath bak iTypes v (ArrayIndex_RefPath _btp path idx) _writeSize x = do
   adjustRefPath bak iTypes v path (\arr ->
     liftIO $ arrayUpdate (backendGetSym bak) arr (Empty :> idx) x)
 -- For `MirAggregate`, `writeRefPath` with a concrete index can insert a new
 -- entry into the aggregate.
-writeRefPath bak iTypes v (AgElem_RefPath idx sz tpr path) x = do
+writeRefPath bak iTypes v (AgElem_RefPath idx sz tpr path) _writeSize x = do
   adjustRefPath bak iTypes v path (\v' -> do
     writeMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr)
       idx sz tpr x v')
-writeRefPath bak iTypes v path x =
+writeRefPath bak iTypes v path _writeSize x =
   adjustRefPath bak iTypes v path (\_ -> return x)
 
 adjustRefPath ::
@@ -854,14 +855,15 @@ writeMirRefSim ::
     IsSymInterface sym =>
     TypeRepr tp ->
     MirReferenceMux sym ->
+    OpSize ->
     RegValue sym tp ->
     OverrideSim m sym ext rtp args ret ()
-writeMirRefSim tpr ref x = do
+writeMirRefSim tpr ref writeSize x = do
     s <- get
     let gs0 = s ^. stateTree.actFrame.gpGlobals
     let iTypes = ctxIntrinsicTypes $ s ^. stateContext
     ovrWithBackend $ \bak -> do
-      gs1 <- liftIO $ writeMirRefIO bak gs0 iTypes tpr ref x
+      gs1 <- liftIO $ writeMirRefIO bak gs0 iTypes tpr ref writeSize x
       put $ s & stateTree.actFrame.gpGlobals .~ gs1
 
 writeMirRefIO ::
@@ -871,12 +873,13 @@ writeMirRefIO ::
     IntrinsicTypes sym ->
     TypeRepr tp ->
     MirReferenceMux sym ->
+    OpSize ->
     RegValue sym tp ->
     IO (SymGlobalState sym)
-writeMirRefIO bak gs iTypes tpr (MirReferenceMux ref) x =
+writeMirRefIO bak gs iTypes tpr (MirReferenceMux ref) writeSize x =
     foldFancyMuxTree
         bak
-        (\gs' ref' -> writeMirRefLeaf bak gs' iTypes tpr ref' x)
+        (\gs' ref' -> writeMirRefLeaf bak gs' iTypes tpr ref' writeSize x)
         gs
         ref
 
@@ -887,15 +890,16 @@ writeMirRefLeaf ::
     IntrinsicTypes sym ->
     TypeRepr tp ->
     MirReference sym ->
+    OpSize ->
     RegValue sym tp ->
     MuxLeafT sym IO (SymGlobalState sym)
-writeMirRefLeaf bak gs iTypes tpr ref val =
+writeMirRefLeaf bak gs iTypes tpr ref writeSize val =
   typedLeafOp "write" tpr ref $ \root path ->
     case path of
       Empty_RefPath -> writeRefRoot bak gs iTypes root val
       _ -> do
         x <- readRefRoot bak gs root
-        x' <- writeRefPath bak iTypes x path val
+        x' <- writeRefPath bak iTypes x path writeSize val
         writeRefRoot bak gs iTypes root x'
 
 

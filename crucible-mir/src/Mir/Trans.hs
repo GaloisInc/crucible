@@ -442,7 +442,8 @@ writePlace ty (MirPlace tpr ref NoMeta) (MirExp tpr' val) desc = do
     Refl <- testEqualityOrFail tpr tpr' $
         "ill-typed assignment of " ++ show tpr' ++ " (" ++ show ty
             ++ ") to " ++ show tpr ++ " " ++ desc
-    writeMirRef tpr ref val
+    tySize <- tySizeM ty
+    writeMirRef tpr ref (Width tySize) val
 writePlace ty (MirPlace tpr _ meta) _ desc =
     mirFail $ "don't know how to write to place with metadata " ++ show meta
         ++ " (type " ++ show ty ++ ", repr " ++ show tpr ++ ") " ++ desc
@@ -2232,6 +2233,7 @@ initLocals localVars = forM_ localVars $ \v -> do
     let name = v ^. varname
     let ty = v ^. varty
     Some tpr <- tyToReprM ty
+    tySize <- tySizeM ty
 
     optVal <- initialValue ty >>= \case
         Nothing -> return Nothing
@@ -2244,7 +2246,7 @@ initLocals localVars = forM_ localVars $ \v -> do
     ref <- newMirRef tpr
     case optVal of
         Nothing -> return ()
-        Just val -> writeMirRef tpr ref val
+        Just val -> writeMirRef tpr ref (Width tySize) val
     reg <- G.newReg ref
     let varinfo = Some $ VarInfo tpr reg
     varMap %= Map.insert name varinfo
@@ -2377,7 +2379,8 @@ genFn (M.Fn fname' argvars sig body@(MirBody localvars blocks _)) rettype inputs
                     "type mismatch in initialization of " ++ show (var ^. varname) ++ ": " ++
                         show inputTpr ++ " != " ++ show viTpr
                 ref <- G.readReg viReg
-                writeMirRef viTpr ref inputExpr
+                varSize <- tySizeM (var ^. varty)
+                writeMirRef viTpr ref (Width varSize) inputExpr
                 initArgs inputs' vars'
             _ -> mirFail $ "mismatched argument count for " ++ show fname'
 
@@ -3412,7 +3415,7 @@ ptrCopy tpr src dest len elemSize = do
                      src' <- mirRef_offset src i elemSize
                      dest' <- mirRef_offset dest i elemSize
                      val <- readMirRef tpr (Width elemSize) src'
-                     writeMirRef tpr dest' val
+                     writeMirRef tpr dest' (Width elemSize) val
                      let i' = S.app $ usizeAdd i (S.app $ usizeLit 1)
                      G.writeRef iRef i')
     G.dropRef iRef

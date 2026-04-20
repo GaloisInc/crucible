@@ -174,6 +174,8 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   MirWriteRef ::
      !(TypeRepr tp) ->
      !(f MirReferenceType) ->
+     -- | The size of the value to write.
+     !OpSize ->
      !(f tp) ->
      MirStmt f UnitType
   MirDropRef ::
@@ -403,7 +405,7 @@ instance TypeApp MirStmt where
     MirGlobalRef _ -> MirReferenceRepr
     MirConstRef _ _ -> MirReferenceRepr
     MirReadRef tp _ _ -> tp
-    MirWriteRef _ _ _ -> UnitRepr
+    MirWriteRef _ _ _ _ -> UnitRepr
     MirDropRef _    -> UnitRepr
     MirSubfieldRef _ _ _ -> MirReferenceRepr
     MirSubfieldRef_Untyped _ _ _ -> MirReferenceRepr
@@ -440,7 +442,7 @@ instance PrettyApp MirStmt where
     MirGlobalRef gv -> "globalMirRef" <+> pretty gv
     MirConstRef _ v -> "constMirRef" <+> pp v
     MirReadRef _ sz x  -> "readMirRef" <+> pretty sz <+> pp x
-    MirWriteRef _ x y -> "writeMirRef" <+> pp x <+> "<-" <+> pp y
+    MirWriteRef _ x sz y -> "writeMirRef" <+> pretty sz <+> pp x <+> "<-" <+> pp y
     MirDropRef x    -> "dropMirRef" <+> pp x
     MirSubfieldRef _ x idx -> "subfieldRef" <+> pp x <+> viaShow idx
     MirSubfieldRef_Untyped x fieldNum expectedTy -> "subfieldRef_Untyped" <+> pp x <+> viaShow fieldNum <+> viaShow expectedTy
@@ -502,8 +504,8 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
 
        MirReadRef tpr readSize (regValue -> ref) ->
          readOnly s $ readMirRefMA bak gs iTypes tpr readSize ref
-       MirWriteRef tpr (regValue -> ref) (regValue -> x) ->
-         writeOnly s $ writeMirRefIO bak gs iTypes tpr ref x
+       MirWriteRef tpr (regValue -> ref) writeSize (regValue -> x) ->
+         writeOnly s $ writeMirRefIO bak gs iTypes tpr ref writeSize x
        MirDropRef (regValue -> ref) ->
          writeOnly s $ dropMirRefIO bak gs ref
        MirSubfieldRef ctx0 (regValue -> ref) idx ->

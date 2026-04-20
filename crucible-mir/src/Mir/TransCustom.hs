@@ -647,9 +647,10 @@ ptr_read_impl what substs =
 ptr_write_impl :: String -> CustomRHS
 ptr_write_impl what substs =
   case substs of
-    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+    Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp MirReferenceRepr ptr, MirExp tpr val] -> do
-            writeMirRef tpr ptr val
+            tySize <- tySizeM ty
+            writeMirRef tpr ptr (Width tySize) val
             MirExp MirAggregateRepr <$> mirAggregate_zst
         _ -> mirFail $ "bad arguments for " ++ what ++ ": " ++ show ops
     _ -> Nothing
@@ -662,8 +663,8 @@ ptr_swap = ( ["core", "ptr", "swap"], \substs -> case substs of
             tySize <- tySizeM ty
             x1 <- readMirRef tpr (Width tySize) ptr1
             x2 <- readMirRef tpr (Width tySize) ptr2
-            writeMirRef tpr ptr1 x2
-            writeMirRef tpr ptr2 x1
+            writeMirRef tpr ptr1 (Width tySize) x2
+            writeMirRef tpr ptr2 (Width tySize) x1
             MirExp MirAggregateRepr <$> mirAggregate_zst
         _ -> mirFail $ "bad arguments for ptr::swap: " ++ show ops
     _ -> Nothing)
@@ -1356,8 +1357,8 @@ mem_swap = (["core","mem", "swap"], \substs ->
             tySize <- tySizeM ty
             val1 <- readMirRef tpr (Width tySize) e1
             val2 <- readMirRef tpr (Width tySize) e2
-            writeMirRef tpr e1 val2
-            writeMirRef tpr e2 val1
+            writeMirRef tpr e1 (Width tySize) val2
+            writeMirRef tpr e2 (Width tySize) val1
             MirExp MirAggregateRepr <$> mirAggregate_zst
         _ -> mirFail $ "bad arguments to mem_swap: " ++ show (opTys, ops)
     _ -> Nothing)
@@ -1960,7 +1961,7 @@ allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
             let agSize = R.App (usizeMul sz (R.App (usizeLit (fromIntegral elemSize))))
             ag <- mirAggregate_uninit agSize
             ref <- newMirRef MirAggregateRepr
-            writeMirRef MirAggregateRepr ref ag
+            writeMirRef MirAggregateRepr ref All ag
             -- `subindexRef` doesn't do a bounds check (those happen on deref
             -- instead), so this works even when len is 0.
             ptr <- subindexRef elemTpr ref (R.App $ usizeLit 0) elemSize
@@ -1978,7 +1979,7 @@ allocate_zeroed = (["crucible", "alloc", "allocate_zeroed"], \substs -> case sub
             ag <- mirAggregate_replicate elemSize elemTpr zero len
 
             ref <- newMirRef MirAggregateRepr
-            writeMirRef MirAggregateRepr ref ag
+            writeMirRef MirAggregateRepr ref All ag
             ptr <- subindexRef elemTpr ref (R.App $ usizeLit 0) elemSize
             return $ MirExp MirReferenceRepr ptr
         _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
@@ -2004,7 +2005,7 @@ reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
             oldAg <- readMirRef MirAggregateRepr All agPtr
             let newSize = R.App (usizeMul newLen (R.App (usizeLit (fromIntegral elemSize))))
             newAg <- mirAggregate_resize oldAg newSize
-            writeMirRef MirAggregateRepr agPtr newAg
+            writeMirRef MirAggregateRepr agPtr All newAg
             MirExp MirAggregateRepr <$> mirAggregate_zst
         _ -> mirFail $ "BUG: invalid arguments to reallocate: " ++ show ops
     _ -> Nothing)
@@ -2030,9 +2031,10 @@ makeAtomicIntrinsics name variants rhs =
         | suffix <- "" : map ("_" <>) variants]
 
 atomic_store_impl :: CustomRHS
-atomic_store_impl = \_substs -> Just $ CustomOp $ \_ ops -> case ops of
-    [MirExp MirReferenceRepr ref, MirExp tpr val] -> do
-        writeMirRef tpr ref val
+atomic_store_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
+    ([_, valTy], [MirExp MirReferenceRepr ref, MirExp tpr val]) -> do
+        valSize <- tySizeM valTy
+        writeMirRef tpr ref (Width valSize) val
         MirExp MirAggregateRepr <$> mirAggregate_zst
     _ -> mirFail $ "BUG: invalid arguments to atomic_store: " ++ show ops
 
@@ -2053,7 +2055,7 @@ atomic_cxchg_impl = \_substs -> Just $ CustomOp $ \opTys ops -> case (opTys, ops
         old <- readMirRef tpr (Width tySize) ref
         let eq = R.App $ E.BVEq w old expect
         let new = R.App $ E.BVIte eq w val old
-        writeMirRef tpr ref new
+        writeMirRef tpr ref (Width tySize) new
         -- This `TyTuple` type must exist somewhere in the `Collection` (as
         -- required by `buildTupleM`) because it's the return type of the
         -- function being overridden.
@@ -2092,13 +2094,13 @@ atomic_rmw_impl name rmwBv rmwPtr = \_substs -> Just $ CustomOp $ \opTys ops -> 
         size <- tySizeM ty
         old <- readMirRef tpr (Width size) ref
         new <- rmwBv w old val
-        writeMirRef tpr ref new
+        writeMirRef tpr ref (Width size) new
         return $ MirExp tpr old
       | MirReferenceRepr <- tpr -> do
         size <- tySizeM ty
         old <- readMirRef tpr (Width size) ref
         new <- rmwPtr old val
-        writeMirRef tpr ref new
+        writeMirRef tpr ref (Width size) new
         return $ MirExp tpr old
     _ -> mirFail $ "BUG: invalid arguments to atomic_" ++ name ++ ": " ++ show ops
 
