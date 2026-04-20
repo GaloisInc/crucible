@@ -68,12 +68,13 @@ import GHC.TypeLits
     TypeError,
   )
 
-import Control.Monad (foldM, forM, forM_, liftM, when)
+import Control.Monad (foldM, forM, forM_, liftM, unless, when)
 import Control.Monad.Except (MonadError (..), runExceptT, throwError)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans (lift)
 
 import Data.BitVector.Sized qualified as BV
+import Data.Either (fromRight)
 import Data.IntMap (IntMap)
 import Data.IntMap qualified as IntMap
 import Data.Kind (Type)
@@ -104,7 +105,7 @@ import Lang.Crucible.Types
   )
 
 import What4.Concrete (fromConcreteBV)
-import What4.Interface (IsExprBuilder (..), Pred, SymExpr, asAffineVar, asBV)
+import What4.Interface (IsExprBuilder (..), Pred, SymExpr, asAffineVar, asBV, asConstantPred)
 import What4.Partial (PartExpr, justPartExpr, mergePartial, pattern PE, pattern Unassigned)
 
 import Mir.FancyMuxTree
@@ -116,7 +117,7 @@ import Mir.FancyMuxTree
     subMuxLeafMA,
   )
 import Mir.Intrinsics.Size (UsizeType, wordLit)
-import Mir.Mir (OpSize)
+import Mir.Mir (OpSize (..))
 
 --------------------------------------------------------------
 -- A MirAggregateType is a collection of elements of any type, with each entry
@@ -293,6 +294,8 @@ readMirAggregateWithSymOffset ::
   MirAggregate sym ->
   MuxLeafT sym m (RegValue sym tp)
 readMirAggregateWithSymOffset bak iteFn off readSize tpr ag@(MirAggregate totalSize m)
+  | MirAggregateRepr <- tpr =
+      readSubaggregateWithSymOffset bak iteFn readSize off ag
   | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
       case IntMap.lookup off' m of
         Nothing -> leafAbort $ agNoValueAtOffsetSimError off' totalSize
@@ -333,6 +336,39 @@ readMirAggregateWithSymOffset bak iteFn off readSize tpr ag@(MirAggregate totalS
     offsetLit = wordLit sym
     iteFn' = liftIteFnMaybe sym tpr iteFn
 
+readSubaggregateWithSymOffset ::
+  forall sym bak m.
+  MonadAssert sym bak m =>
+  bak ->
+  (Pred sym -> MirAggregate sym -> MirAggregate sym -> IO (MirAggregate sym)) ->
+  OpSize ->
+  RegValue sym UsizeType ->
+  MirAggregate sym ->
+  MuxLeafT sym m (MirAggregate sym)
+readSubaggregateWithSymOffset bak iteFn readSize off ag@(MirAggregate sz _)
+  | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
+      let err e = leafAbort $ GenericSimError $ "readSubaggregateWithSymOffset: " <> e
+      either err pure (readConcrete off' ag)
+  | otherwise = do
+      liftIO $ foldM
+        (\ag' candidateOff -> do
+          isTheOffset <- bvEq sym off =<< offsetLit candidateOff
+          iteFn isTheOffset (fromRight ag' $ readConcrete candidateOff ag') ag')
+        ag
+        (init [0 .. sz])
+  where
+    snd3 (_, x, _) = x
+    sym = backendGetSym bak
+    offsetLit = wordLit sym
+
+    readConcrete off' ag' = do
+      case readSize of
+        All ->
+          snd <$> mirAggregate_split off' ag'
+        Width width ->
+          snd3 <$> mirAggregate_split3 off' (off' + width) ag'
+
+
 adjustMirAggregateWithSymOffset ::
   forall sym bak tp.
   (IsSymBackend sym bak) =>
@@ -344,6 +380,8 @@ adjustMirAggregateWithSymOffset ::
   MirAggregate sym ->
   MuxLeafT sym IO (MirAggregate sym)
 adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m)
+  | MirAggregateRepr <- tpr =
+      adjustSubaggregateWithSymOffset bak iteFn off f ag
   | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
       MirAggregateEntry sz tpr' rvPart <- case IntMap.lookup off' m of
         Just x -> return x
@@ -398,6 +436,46 @@ adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m
     offsetLit = wordLit sym
     iteFn' = liftIteFnMaybe sym tpr iteFn
 
+adjustSubaggregateWithSymOffset ::
+  forall sym bak.
+  (IsSymBackend sym bak) =>
+  bak ->
+  (Pred sym -> MirAggregate sym -> MirAggregate sym -> IO (MirAggregate sym)) ->
+  RegValue sym UsizeType ->
+  (MirAggregate sym -> MuxLeafT sym IO (MirAggregate sym)) ->
+  MirAggregate sym ->
+  MuxLeafT sym IO (MirAggregate sym)
+adjustSubaggregateWithSymOffset bak iteFn off f ag@(MirAggregate sz _)
+  | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off =
+      adjustConcrete off'
+  | otherwise = do
+      foldM
+        (\ag' candidateOff -> do
+          isTheOffset <- liftIO $ bvEq sym off =<< offsetLit candidateOff
+          subAg <- adjustConcrete candidateOff
+          liftIO $ iteFn isTheOffset subAg ag')
+        ag
+        (init [0 .. sz])
+  where
+    adjustConcrete off' = do
+      case mirAggregate_split off' ag of
+        Right (MirAggregate leftSz leftAg, r@(MirAggregate rightSz _rightAg)) -> do
+          MirAggregate rightSz' rightAg' <- f r
+          let rightAg'' = IntMap.mapKeysMonotonic (\o -> o + fromIntegral off') rightAg'
+          when (rightSz /= rightSz') $
+            panic "adjustSubaggregateWithSymOffset"
+              [ "adjusting function changed aggregate size"
+              , "was " <> show rightSz <> ", became " <> show rightSz'
+              ]
+          unless (IntMap.disjoint leftAg rightAg'') $
+            panic "adjustSubaggregateWithSymOffset"
+              [ "aggregates weren't disjoint" ]
+          pure $ MirAggregate (leftSz + rightSz) (rightAg'' <> leftAg)
+        Left err -> leafAbort $ GenericSimError $
+          "adjustSubaggregateWithSymOffset: " <> err
+
+    sym = backendGetSym bak
+    offsetLit = wordLit sym
 
 -- | Given a list of valid entry spans @(fromOffset, toOffset)@ in this
 -- aggregate, create a predicate that the provided offset appears among their
@@ -565,11 +643,39 @@ mirAggregate_entries :: sym -> MirAggregate sym -> [(Word, MirAggregateEntry sym
 mirAggregate_entries _sym (MirAggregate _totalSize m) =
   [(fromIntegral off, entry) | (off, entry) <- IntMap.toList m]
 
+foldMWithKey :: Monad m => (b -> Int -> a -> m b) -> b -> IntMap a -> m b
+foldMWithKey f z m = IntMap.foldlWithKey' f' (pure z) m
+  where
+    f' accM key val = do
+      acc <- accM
+      f acc key val
+
 mirAggregate_insert ::
+  (IsSymInterface sym) =>
   Word ->
   MirAggregateEntry sym ->
   MirAggregate sym ->
   Either String (MirAggregate sym)
+mirAggregate_insert outerAgOff (MirAggregateEntry entrySz MirAggregateRepr entryP) outerAg = case entryP of
+  Unassigned -> pure outerAg
+  PE p (MirAggregate innerAgSz innerAgEntries) -> case asConstantPred p of
+    _ | innerAgSz /= entrySz -> Left $
+      "mirAggregate_insert: when adding a `MirAggregate` as an entry, " <>
+      "the `MirAggregateEntry`-derived size was " <> show entrySz <> ", " <>
+      "but the `MirAggregate` value had size " <> show innerAgSz
+    Just False ->
+      pure outerAg
+    Just True -> do
+      let addEntry ag (fromIntegral -> entryOff) entry =
+            mirAggregate_insert (outerAgOff + entryOff) entry ag
+      foldMWithKey addEntry outerAg innerAgEntries
+    -- Note: this case doesn't seem to show up in practice, but if it does,
+    -- consider lifting this function to a monadic context in which it can
+    -- manipulate predicates, so that it can add entries the conjunction of
+    -- their own individual predicates and the overarching entry's predicate,
+    -- `entryP`.
+    Nothing -> Left $
+      "mirAggregate_insert: unsupported: `MirAggregate` as entry with symbolic predicate"
 mirAggregate_insert off entry@(MirAggregateEntry sz tpr _) (MirAggregate totalSize m) = do
   -- For now, we require that either there are no entries overlapping the byte
   -- range `off .. off + sz`, or there is an entry covering exactly that range
@@ -943,6 +1049,10 @@ mirAggregate_getIO ::
     TypeRepr tp ->
     MirAggregate sym ->
     IO (RegValue sym tp)
+mirAggregate_getIO bak off sz MirAggregateRepr ag =
+  case mirAggregate_split3 off (off + sz) ag of
+    Right (_toLeft, mid, _toRight) -> pure mid
+    Left err -> addFailedAssertion bak $ GenericSimError $ "mirAggregate_getIO: " <> err
 mirAggregate_getIO bak off sz tpr (MirAggregate _ m) = do
   -- TODO: deduplicate logic between this and readMirAg* concrete case?
   MirAggregateEntry sz' tpr' rvPart <- case IntMap.lookup (fromIntegral off) m of
