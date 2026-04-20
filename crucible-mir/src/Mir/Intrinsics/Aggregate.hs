@@ -913,11 +913,17 @@ mirAggregate_replicateIO bak elemSz elemTpr elemVal lenSym = do
   let sym = backendGetSym bak
   len <- concreteAllocSize bak lenSym
   let totalSize = fromIntegral len * elemSz
+  let ag = MirAggregate totalSize mempty
   let entries =
-        [(fromIntegral i * fromIntegral elemSz,
+        [(fromIntegral i * elemSz,
           MirAggregateEntry elemSz elemTpr (justPartExpr sym elemVal))
         | i <- init [0 .. len]]
-  return $ MirAggregate totalSize (IntMap.fromAscList entries)
+  let insert ag' (off, entry) = mirAggregate_insert off entry ag'
+  case foldM insert ag entries of
+    Right ag' ->
+      pure ag'
+    Left err ->
+      addFailedAssertion bak $ GenericSimError $ "mirAggregate_replicateIO: " <> err
 
 mirAggregate_resizeIO ::
     IsSymBackend sym bak =>
