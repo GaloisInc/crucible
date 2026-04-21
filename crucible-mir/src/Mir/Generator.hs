@@ -725,14 +725,6 @@ mirRef_peelIndex ref elemSize = do
     pair <- G.extensionStmt $ MirRef_PeelIndex ref elemSize
     return (S.getStruct i1of2 pair, S.getStruct i2of2 pair)
 
-mirRef_aggregateAsChunks ::
-  R.Expr MIR s UsizeType ->
-  R.Expr MIR s UsizeType ->
-  R.Expr MIR s MirReferenceType ->
-  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-mirRef_aggregateAsChunks chunkSize numChunks ref =
-    G.extensionStmt $ MirRef_AggregateAsChunks chunkSize numChunks ref
-
 debugPrintMirRef ::
   String ->
   R.Expr MIR s MirReferenceType ->

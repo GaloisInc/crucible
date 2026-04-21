@@ -140,8 +140,6 @@ customOpDefs = Map.fromList $ [
                          , array_from_ref
                          , slice_from_ref
                          , slice_from_mut
-                         , slice_as_chunks_cast_hook
-                         , slice_as_chunks_mut_cast_hook
 
                          , vector_new
                          , vector_replicate
@@ -1521,35 +1519,6 @@ slice_from_ref = slice_from Immut
 
 slice_from_mut ::  (ExplodedDefId, CustomRHS)
 slice_from_mut = slice_from Mut
-
-slice_as_chunks_cast_hook_common :: Mutability -> (ExplodedDefId, CustomRHS)
-slice_as_chunks_cast_hook_common mut = (["core", "slice", "{impl}", hookLoc, "crucible_cast_hook"],
-    \_substs -> Just $ CustomOpNamed $ \fnName ops -> do
-        fn <- findFn fnName
-        -- Expected signature: fn(*const T) -> *const [T; N]
-        case (fn ^. fsig . fsreturn_ty, ops) of
-            (TyRawPtr (TyArray elemTy elemsPerChunk) m,
-              [MirExp MirReferenceRepr elemPtr, MirExp UsizeRepr numChunks])
-              | m == mut -> do
-                elemSize <- tySizeM elemTy
-                let chunkSize = elemSize * fromIntegral elemsPerChunk
-                arrayOfChunksPtr <- mirRef_aggregateAsChunks (R.App $ usizeLit $ fromIntegral chunkSize) numChunks elemPtr
-                firstChunkPtr <- subindexRef MirAggregateRepr arrayOfChunksPtr (R.App $ usizeLit 0) chunkSize
-                pure (MirExp MirReferenceRepr firstChunkPtr)
-            _ -> mirFail $ "bad monomorphization of "
-                ++ Text.unpack hookLoc ++ "::crucible_cast_hook: "
-                ++ show (fnName, fn ^. fsig, ops)
-    )
-    where
-        hookLoc = case mut of
-            Immut -> "as_chunks_unchecked"
-            Mut -> "as_chunks_unchecked_mut"
-
-slice_as_chunks_cast_hook :: (ExplodedDefId, CustomRHS)
-slice_as_chunks_cast_hook = slice_as_chunks_cast_hook_common Immut
-
-slice_as_chunks_mut_cast_hook :: (ExplodedDefId, CustomRHS)
-slice_as_chunks_mut_cast_hook = slice_as_chunks_cast_hook_common Mut
 
 intrinsics_offset :: (ExplodedDefId, CustomRHS)
 intrinsics_offset = (["core", "intrinsics", "offset"], ptr_offset_impl)

@@ -146,7 +146,6 @@ mirPathName p =
     ArrayIndex_RefPath _ p' _ -> mirPathName p'
     AgElem_RefPath _ _ _ p' -> mirPathName p'
     AgOffset_RefPath _ p' -> mirPathName p'
-    AggregateAsChunks_RefPath _ _ _ p' -> mirPathName p'
 
 -- | Match a the name of a polymorphic method with a possible instance by
 -- dropping the last segment

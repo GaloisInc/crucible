@@ -120,7 +120,6 @@ import Mir.Intrinsics.Reference
     dropMirRefIO,
     mirRef_agElemIO,
     mirRef_agOffsetIO,
-    mirRef_aggregateAsChunksIO,
     mirRef_eqIO,
     mirRef_offsetMA,
     mirRef_offsetWrapIO,
@@ -266,16 +265,6 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      -- | The size of the element, in bytes
      !Word ->
      MirStmt f (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType))
-  -- | Given a pointer to an element, return a pointer to an array constructed
-  -- by viewing the next @chunkSize * numChunks@ elements as an array of
-  -- arrays.
-  MirRef_AggregateAsChunks ::
-     -- | Size in bytes of each chunk (must be concrete)
-     !(f UsizeType) ->
-     -- | Number of chunks to produce (must be concrete)
-     !(f UsizeType) ->
-     !(f MirReferenceType) ->
-     MirStmt f MirReferenceType
   -- | Print the internal representation of a `MirReference` for debugging.
   -- This is similar to the behavior of @crucible::dump_rv@, but it's easier to
   -- call an intrinsic from inside `Mir.Trans` / `Mir.TransCustom` cases than
@@ -425,7 +414,6 @@ instance TypeApp MirStmt where
     MirRef_OffsetWrap _ _ _ -> MirReferenceRepr
     MirRef_TryOffsetFrom _ _ _ -> MaybeRepr IsizeRepr
     MirRef_PeelIndex _ _ -> StructRepr (Empty :> MirReferenceRepr :> UsizeRepr)
-    MirRef_AggregateAsChunks _ _ _ -> MirReferenceRepr
     DebugPrintMirRef _ _ -> UnitRepr
     VectorSnoc tp _ _ -> VectorRepr tp
     VectorHead tp _ -> MaybeRepr tp
@@ -463,7 +451,6 @@ instance PrettyApp MirStmt where
     MirRef_OffsetWrap p o s -> "mirRef_offsetWrap" <+> pp p <+> pp o <+> viaShow s
     MirRef_TryOffsetFrom p o s -> "mirRef_tryOffsetFrom" <+> pp p <+> pp o <+> viaShow s
     MirRef_PeelIndex p s -> "mirRef_peelIndex" <+> pp p <+> viaShow s
-    MirRef_AggregateAsChunks chunkSize numChunks p -> "mirRef_aggregateAsChunks" <+> pp chunkSize <+> pp numChunks <+> pp p
     DebugPrintMirRef s p -> "debugPrintMirRef" <+> pp s <+> pp p
     VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
     VectorHead _ v -> "vectorHead" <+> pp v
@@ -540,8 +527,6 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
          readOnly s $ mirRef_tryOffsetFromIO bak iTypes elemSize r1 r2
        MirRef_PeelIndex (regValue -> ref) elemSize -> do
          readOnly s $ mirRef_peelIndexMA bak iTypes ref elemSize
-       MirRef_AggregateAsChunks (regValue -> chunkSize) (regValue -> numChunks) (regValue -> ref) -> do
-         readOnly s $ mirRef_aggregateAsChunksIO bak iTypes chunkSize numChunks ref
        DebugPrintMirRef (regValue -> desc) (regValue -> ref) -> do
          readOnly s $ putStrLn $ "debugPrintMirRef (" ++ show (printSymExpr desc)
            ++ "): " ++ show ref

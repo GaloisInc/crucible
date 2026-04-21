@@ -48,9 +48,7 @@ module Mir.Intrinsics.Aggregate
     mirAggregate_split,
     mirAggregate_split3,
     mirAggregate_chunk,
-    mirAggregate_toChunks,
     mirAggregate_concat,
-    mirAggregate_fromChunks,
     concreteAllocSize,
     mirAggregate_uninitIO,
     mirAggregate_zstSim,
@@ -68,8 +66,7 @@ import GHC.TypeLits
     TypeError,
   )
 
-import Control.Monad (foldM, forM, forM_, liftM, unless, when)
-import Control.Monad.Except (MonadError (..), runExceptT, throwError)
+import Control.Monad (foldM, forM, unless, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans (lift)
 
@@ -106,7 +103,7 @@ import Lang.Crucible.Types
 
 import What4.Concrete (fromConcreteBV)
 import What4.Interface (IsExprBuilder (..), Pred, SymExpr, asAffineVar, asBV, asConstantPred)
-import What4.Partial (PartExpr, justPartExpr, mergePartial, pattern PE, pattern Unassigned)
+import What4.Partial (justPartExpr, mergePartial, pattern PE, pattern Unassigned)
 
 import Mir.FancyMuxTree
   ( MonadAssert,
@@ -868,26 +865,6 @@ mirAggregate_chunk off chunkSize ag@(MirAggregate totalSize _) = do
   (_, chunkAg, _) <- mirAggregate_split3 off (off + chunkSize) ag
   return chunkAg
 
--- | Split a `MirAggregate` into an array of equal-sized chunks.
-mirAggregate_toChunks ::
-  IsSymInterface sym =>
-  sym ->
-  -- | Starting offset within the input aggregate
-  Word ->
-  -- | Size in bytes of each chunk
-  Word ->
-  -- | Number of chunks to produce
-  Word ->
-  -- | Input aggregate
-  MirAggregate sym ->
-  Either String (MirAggregate sym)
-mirAggregate_toChunks sym off chunkSize numChunks ag = do
-  entries <- forM (init [0 .. numChunks]) $ \i -> do
-    chunk <- mirAggregate_chunk (off + i * chunkSize) chunkSize ag
-    return (fromIntegral $ i * chunkSize,
-      MirAggregateEntry chunkSize MirAggregateRepr (justPartExpr sym chunk))
-  return $ MirAggregate (numChunks * chunkSize) (IntMap.fromAscList entries)
-
 -- | Concatenate two `MirAggregate`s, producing a new aggregate with all the
 -- entries of the first followed by all the entries of the second.  The entries
 -- of the second aggregate are offset by the size of the first.
@@ -898,91 +875,6 @@ mirAggregate_concat ::
 mirAggregate_concat (MirAggregate totalSize1 m1) (MirAggregate totalSize2 m2) =
   let m' = m1 <> IntMap.mapKeysMonotonic (+ fromIntegral totalSize1) m2
   in MirAggregate (totalSize1 + totalSize2) m'
-
--- | Merge an array of chunks into a single `MirAggregate`.  Each entry of
--- the input aggregate should be a `MirAggregate`; the entries of that
--- sub-aggregate will be placed in the output starting at an offset computed
--- from the offset of the sub-aggregate.  Returns `Left` if some aggregates in
--- the input would cover overlapping ranges.
---
--- Returns `Left` if any of the sub-aggregates has a zero-sized entry at the
--- end of its range (i.e. with @off == totalSize@).  This check can be removed
--- once we properly enforce the invariant that `MirAggregate`s must not contain
--- zero-sized entries.
-mirAggregate_fromChunks ::
-  forall sym.
-  IsSymInterface sym =>
-  sym ->
-  -- | Input aggregate
-  MirAggregate sym ->
-  IO (Either String (MirAggregate sym))
-mirAggregate_fromChunks sym chunkedAg@(MirAggregate chunkedTotalSize _) = runExceptT $ do
-  let chunkedEntries = mirAggregate_entries sym chunkedAg
-  -- For each initialized chunk, we collect:
-  -- 1. The offset of the chunk within the outer aggregate
-  -- 2. The "outer size" of the chunk, meaning the size of its entry within the
-  --    outer aggregate
-  -- 3. The predicate under which the chunk is initialized (each chunk, like
-  --    any aggregate entry, may be conditionally uninitialized)
-  -- 4. The map of offsets and entries within the aggrgegate.
-  chunkParts <- do
-    let f :: MonadError String m => (Word, MirAggregateEntry sym) ->
-          m (Maybe (Word, Word, Pred sym, IntMap (MirAggregateEntry sym)))
-        f (off, MirAggregateEntry chunkEntrySize tpr rv) = do
-          case tpr of
-            MirAggregateRepr ->
-              case rv of
-                Unassigned -> return Nothing
-                PE outerPred (MirAggregate chunkAgSize m) ->
-                  if chunkEntrySize /= chunkAgSize
-                    then panic "mirAggregate_fromChunks"
-                          ["chunk entry size " <> show chunkEntrySize <> " does not match its aggregate's size " <> show chunkAgSize ]
-                    else return $ Just (off, chunkAgSize, outerPred, m)
-            _ -> throwError $
-              "expected all chunks to be MirAggregateRepr, but got " ++ show tpr
-                ++ " (size " ++ show chunkEntrySize ++ ") at offset " ++ show off
-    liftM Maybe.catMaybes $ mapM f chunkedEntries
-
-  -- Check for disjointness.  `chunkParts` is sorted by starting offset, so we
-  -- can just compare pairs of consecutive elements.
-  forM_ (zip chunkParts (Prelude.drop 1 chunkParts)) $
-    \((off1, sz1, _, _), (off2, sz2, _, _)) -> do
-      when (off1 > off2 || off2 - off1 < sz1) $ panic "mirAggregate_fromChunks"
-        [ "overlapping chunks"
-        , "at " ++ show off1 ++ " .. " ++ show (off1 + sz1)
-        , "and " ++ show off2 ++ " .. " ++ show (off2 + sz2)
-        ]
-
-  ms <- forM chunkParts $ \(off, sz, outerPred, m) -> do
-    -- Check that there are no zero-sized entries at the end.
-    when (IntMap.member (fromIntegral sz) m) $ throwError $
-      "unsupported zero-sized entry at chunk end, in chunk at " ++ show off
-
-    -- Check that the chunk doesn't extend past the expected end of the
-    -- combined aggregate.
-    let start = off
-    let end = start + sz
-    when (end > chunkedTotalSize) $ throwError $
-      "chunk at " ++ show off ++ " extends past end: covers "
-        ++ show start ++ " .. " ++ show end
-        ++ " in output of size " ++ show chunkedTotalSize
-
-    -- Entries within each aggregate are valid only if the outer aggregate is
-    -- itself valid.
-    let restrictPred :: MonadIO m => PartExpr (Pred sym) a ->
-          m (PartExpr (Pred sym) a)
-        restrictPred Unassigned = return Unassigned
-        restrictPred (PE innerPred rv) = do
-          restrictedPred <- liftIO $ andPred sym outerPred innerPred
-          return $ PE restrictedPred rv
-    m' <- forM m $ \(MirAggregateEntry sz' tpr rv) ->
-      MirAggregateEntry sz' tpr <$> restrictPred rv
-
-    -- Adjust offsets.
-    return $ IntMap.mapKeysMonotonic (+ fromIntegral start) m'
-
-  let combinedM = mconcat ms
-  return $ MirAggregate chunkedTotalSize combinedM
 
 concreteAllocSize ::
     IsSymBackend sym bak =>
