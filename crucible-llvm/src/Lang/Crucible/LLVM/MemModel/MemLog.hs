@@ -57,6 +57,7 @@ module Lang.Crucible.LLVM.MemModel.MemLog
   , emptyMem
   , memEndian
   , memInsertArrayBlock
+  , memRemoveArrayBlock
   , memMemberArrayBlock
 
     -- * Pretty printing
@@ -429,6 +430,11 @@ memInsertArrayBlock :: IsExprBuilder sym => SymNat sym -> Mem sym -> Mem sym
 memInsertArrayBlock blk mem = case asNat blk of
   Just blk_no -> mem { memArrayBlocks = Set.insert blk_no (memArrayBlocks mem) }
   Nothing -> mem { memArrayBlocks = Set.empty }
+
+memRemoveArrayBlock :: IsExprBuilder sym => SymNat sym -> Mem sym -> Mem sym
+memRemoveArrayBlock blk mem = case asNat blk of
+  Just blk_no -> mem { memArrayBlocks = Set.delete blk_no (memArrayBlocks mem) }
+  Nothing -> mem
 
 memMemberArrayBlock :: IsExprBuilder sym => SymNat sym -> Mem sym -> Bool
 memMemberArrayBlock blk mem = case asNat blk of

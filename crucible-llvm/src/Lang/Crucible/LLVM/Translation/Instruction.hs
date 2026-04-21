@@ -616,6 +616,14 @@ translateConversion instr op _inty x outty = do
               , Just Refl <- testEquality w' PtrWidth -> return x
            _ -> fail (unlines ["pointer-to-integer conversion failed", showI])
 
+    L.PtrToAddr -> do
+       llvmTypeAsRepr outty $ \outty' ->
+         case (asScalar x, outty') of
+           (Scalar _archProxy (LLVMPointerRepr w) _, LLVMPointerRepr w')
+              | Just Refl <- testEquality w PtrWidth
+              , Just Refl <- testEquality w' PtrWidth -> return x
+           _ -> fail (unlines ["pointer-to-address conversion failed", showI])
+
     L.Trunc nuw nsw -> do
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
@@ -1199,10 +1207,12 @@ atomicRWOp op x y =
               f  = app $ BVSub w xbv one in
           pure $ app $ BVIte c w t f
 
-        L.AtomicFAdd -> nonBvError
-        L.AtomicFSub -> nonBvError
-        L.AtomicFMax -> nonBvError
-        L.AtomicFMin -> nonBvError
+        L.AtomicFAdd     -> nonBvError
+        L.AtomicFSub     -> nonBvError
+        L.AtomicFMax     -> nonBvError
+        L.AtomicFMin     -> nonBvError
+        L.AtomicFMaximum -> nonBvError
+        L.AtomicFMinimum -> nonBvError
       where
         zero, one :: Expr LLVM s (BVType w)
         zero = app $ BVLit w $ BV.zero w
@@ -1234,8 +1244,10 @@ atomicRWOp op x y =
         L.AtomicXchg -> pure yf
         L.AtomicFAdd -> pure $ app $ FloatAdd fi RNE xf yf
         L.AtomicFSub -> pure $ app $ FloatSub fi RNE xf yf
-        L.AtomicFMax -> pure $ app $ FloatMax fi xf yf
-        L.AtomicFMin -> pure $ app $ FloatMin fi xf yf
+        L.AtomicFMax     -> pure $ app $ FloatMax fi xf yf
+        L.AtomicFMin     -> pure $ app $ FloatMin fi xf yf
+        L.AtomicFMaximum -> pure $ app $ FloatMax fi xf yf
+        L.AtomicFMinimum -> pure $ app $ FloatMin fi xf yf
 
         L.AtomicAdd      -> nonFloatingError
         L.AtomicSub      -> nonFloatingError

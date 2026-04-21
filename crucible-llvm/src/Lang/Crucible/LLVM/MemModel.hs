@@ -172,6 +172,7 @@ module Lang.Crucible.LLVM.MemModel
   , G.popStackFrameMem
   , G.asMemAllocationArrayStore
   , G.asMemMatchingArrayStore
+  , ML.memRemoveArrayBlock
   , SomeFnHandle(..)
   , G.SomeAlloc(..)
   , G.possibleAllocs

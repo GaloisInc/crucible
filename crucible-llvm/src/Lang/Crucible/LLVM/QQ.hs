@@ -99,6 +99,8 @@ parsePrimType = AT.choice
   , pure L.Void     <* AT.string "void"
   , pure L.Metadata <* AT.string "metadata"
   , pure L.X86mmx   <* AT.string "x86_mmx"
+  , pure L.X86amx   <* AT.string "x86_amx"
+  , pure L.Token    <* AT.string "token"
   , L.Integer <$> (AT.char 'i' *> AT.decimal)
   , L.FloatType <$> parseFloatType
   ]
@@ -286,6 +288,8 @@ liftTypeRepr t = case t of
     L.FloatType ft -> [| FloatRepr $(liftFloatType ft) |]
     L.Label    -> fail "Cannot lift label type to repr"
     L.X86mmx   -> fail "Cannot lift X86mmx type to repr"
+    L.X86amx   -> fail "Cannot lift X86amx type to repr"
+    L.Token    -> fail "Cannot lift token type to repr"
     L.Metadata -> fail "Cannot lift metatata type to repr"
 
   liftFloatType ft = case ft of
