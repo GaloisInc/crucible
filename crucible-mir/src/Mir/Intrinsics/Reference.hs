@@ -1005,6 +1005,13 @@ subfieldMirRefLeaf ctx ref idx =
 -- | Mimic `subfieldMirRefLeaf`, but infer the appropriate `CtxRepr` and `Index`
 -- at simulation time. If @expectedTy@ is provided, this will assert that it
 -- matches the actual type of the field during simulation.
+
+-- TODO(sc): we'd like to get rid of this intrinsic - as we migrate structs to
+-- use `MirAggregate` representations, it will see reference paths that don't
+-- store sufficient type information for this intrinsic to do what it wants to
+-- do. We needn't have struct field projection be a typed operation in the first
+-- place; we can and should have any necessary type information provided at
+-- read/write time.
 subfieldMirRef_UntypedLeaf ::
     MirReference sym ->
     Int ->
@@ -1037,6 +1044,9 @@ subfieldMirRef_UntypedLeaf ref fieldNum expectedTy =
                       , "did not match actual field type", show fieldRepr ]
             let fieldPath = Field_RefPath structCtx refPath fieldIdx
             pure $ MirReference fieldRepr refRoot fieldPath
+        MirAggregateRepr ->
+          bail $ unwords
+            [ "TODO: replace untyped field references with offset operations"]
         notAStruct ->
           bail $ unwords $
             [ "untyped subfield requires a reference to a struct, but got a reference to"
