@@ -103,7 +103,7 @@ module Mir.Intrinsics.Reference
   )
 where
 
-import GHC.Stack (callStack)
+import GHC.Stack (callStack, HasCallStack)
 import GHC.TypeLits
   ( ErrorMessage (ShowType, Text, (:<>:)),
     TypeError,
@@ -841,6 +841,40 @@ typedLeafOp desc _ (MirReference_Integer _) _ =
     leafAbort $ GenericSimError $
         "attempted " ++ desc ++ " on the result of an integer-to-pointer cast"
 
+typedLeafOp' ::
+    (HasCallStack, Monad m) =>
+    String ->
+    TypeRepr tp ->
+    MirReference sym ->
+    (forall tp0. HasCallStack => MirReferenceRoot sym tp0 -> MirReferencePath sym tp0 tp -> MuxLeafT sym m a) ->
+    MuxLeafT sym m a
+typedLeafOp' desc expectTpr (MirReference tpr root path) k
+  | Just Refl <- testEquality tpr expectTpr =
+      k root path
+  | AgOffset_RefPath off origPath <- path = do
+      -- TODO(sc): there are two options here - one is to replace an existing
+      -- `AgOffset_RefPath` with an `AgElem_RefPath` with a matching offset, and
+      -- the other is to extend such a path with an `AgElem_RefPath` with an
+      -- offset of zero. In either case, we'll also want to handle paths that
+      -- aren't `AgOffset_RefPath` - in which case we'd want to extend the path
+      -- with a zero-offset `AgElem_RefPath`.
+      --
+      -- In either case, it's a bad hack to give the newly-constructed
+      -- `AgElem_RefPath` an artificial size of 0, as is done here. It happens
+      -- to be the case that `k` doesn't tend to use that size, but it would be
+      -- much better to provide a real size, or get rid of the size parameter in
+      -- `AgElem_RefPath` entirely.
+
+      -- let elemPath = AgElem_RefPath zero 0 expectTpr path
+      let elemPath = AgElem_RefPath off 0 expectTpr origPath
+      k root elemPath
+  | otherwise = leafAbort $ GenericSimError $
+      desc ++ " requires a reference to " ++ show expectTpr
+        ++ ", but got a reference to " ++ show tpr
+typedLeafOp' desc _ (MirReference_Integer _) _ =
+    leafAbort $ GenericSimError $
+        "attempted " ++ desc ++ " on the result of an integer-to-pointer cast"
+
 
 readMirRefSim :: IsSymInterface sym =>
     TypeRepr tp ->
@@ -876,7 +910,7 @@ readMirRefLeaf ::
     MirReference sym ->
     MuxLeafT sym m (RegValue sym tp)
 readMirRefLeaf bak gs iTypes tpr readSize ref =
-  typedLeafOp "read" tpr ref $ \root path -> do
+  typedLeafOp' "read" tpr ref $ \root path -> do
     v <- readRefRoot bak gs root
     v' <- readRefPath bak iTypes v readSize path
     return v'
@@ -925,7 +959,7 @@ writeMirRefLeaf ::
     RegValue sym tp ->
     MuxLeafT sym IO (SymGlobalState sym)
 writeMirRefLeaf bak gs iTypes tpr ref writeSize val =
-  typedLeafOp "write" tpr ref $ \root path ->
+  typedLeafOp' "write" tpr ref $ \root path ->
     case path of
       Empty_RefPath -> writeRefRoot bak gs iTypes root val
       _ -> do
@@ -964,7 +998,7 @@ subfieldMirRefLeaf ::
     Index ctx tp ->
     MuxLeafT sym IO (MirReference sym)
 subfieldMirRefLeaf ctx ref idx =
-  typedLeafOp "subfield" (StructRepr ctx) ref $ \root path -> do
+  typedLeafOp' "subfield" (StructRepr ctx) ref $ \root path -> do
     let tpr = ctx ! idx
     return $ MirReference tpr root (Field_RefPath ctx path idx)
 
@@ -1040,7 +1074,7 @@ subvariantMirRefLeaf ::
     Index variantsCtx tp ->
     MuxLeafT sym IO (MirReference sym)
 subvariantMirRefLeaf discrTpr ctx ref idx =
-  typedLeafOp "subvariant" (RustEnumRepr discrTpr ctx) ref $ \root path -> do
+  typedLeafOp' "subvariant" (RustEnumRepr discrTpr ctx) ref $ \root path -> do
     let tpr = ctx ! idx
     return $ MirReference tpr root (Variant_RefPath discrTpr ctx path idx)
 
@@ -1099,7 +1133,12 @@ subindexMirRefLeaf sym elemTpr (MirReference tpr root path) idx elemSize
       return $ MirReference elemTpr root (ArrayIndex_RefPath btpr path idx)
   | Just Refl <- testEquality tpr MirAggregateRepr = do
       offset <- liftIO $ bvMul sym idx =<< wordLit sym elemSize
-      return $ MirReference elemTpr root (AgElem_RefPath offset elemSize elemTpr path)
+      case path of
+        AgOffset_RefPath origOffset origPath -> do
+          newOffset <- liftIO $ bvAdd sym origOffset offset
+          pure $ MirReference MirAggregateRepr root (AgOffset_RefPath newOffset origPath)
+        _ ->
+          pure $ MirReference MirAggregateRepr root (AgOffset_RefPath offset path)
   | otherwise = leafAbort $ GenericSimError $
       "subindex requires a reference to a VectorRepr, a UsizeArrayRepr of " ++
       "a Crucible base type, or a MirAggregateRepr, but got a reference to " ++
