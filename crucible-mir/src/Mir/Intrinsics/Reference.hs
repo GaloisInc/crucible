@@ -279,6 +279,13 @@ data MirReferencePath sym :: CrucibleType -> CrucibleType -> Type where
     !(RegValue sym UsizeType) ->
     MirReferencePath sym tp_base (BaseToType btp)
   -- | Access an entry in a `MirAggregate`.
+
+  -- TODO(sc): it would be awfully nice to remove the size field of this
+  -- variant, since we prefer to have that information provided at use sites
+  -- (e.g. pointer reads/writes). This would, among other things, make
+  -- implementing and adopting a potential `typedLeafOp'` reference path
+  -- constructor easier, since it wouldn't need to be provided a size in order
+  -- to construct an `AgElem_RefPath` path tip. See the note in `typedLeafOp'`.
   AgElem_RefPath ::
     !(RegValue sym UsizeType) ->
     -- | Size in bytes of the entry to access
@@ -783,6 +790,11 @@ typedLeafOp desc _ (MirReference_Integer _) _ =
     leafAbort $ GenericSimError $
         "attempted " ++ desc ++ " on the result of an integer-to-pointer cast"
 
+-- TODO(sc): we likely want to replace all occurrences of `typedLeafOp` with
+-- this, so that we are maximally flexible in converting between aggregate- and
+-- non-aggregate pointee representations by projecting into the aggregate. We
+-- also want to make sure that any projections that don't use this, e.g.
+-- indexing, also account for seeing aggregate pointees.
 typedLeafOp' ::
     (HasCallStack, Monad m) =>
     String ->
@@ -1313,6 +1325,7 @@ popIndex :: MirReferencePath sym tp tp' -> Some (MirReferencePath sym tp)
 popIndex (VectorIndex_RefPath _ p _) = Some p
 popIndex (ArrayIndex_RefPath _ p _) = Some p
 popIndex (AgElem_RefPath _ _ _ p) = Some p
+-- TODO(sc): AgOffset?
 popIndex p = Some p
 
 refRootOverlaps :: IsSymInterface sym => sym ->
@@ -1331,6 +1344,14 @@ refRootOverlaps sym (Const_RefRoot {}) _ = return $ falsePred sym
 
 -- | Check whether two `MirReferencePath`s might reference overlapping memory
 -- regions, when starting from the same `MirReferenceRoot`.
+
+-- TODO(sc): this check is challenging to implement properly for
+-- `AgOffset_RefPath` in particular. We'll likely need to have callers provide
+-- some extra information about how much memory is accessible from the end of a
+-- given `RefPath`, so that we can provide non-overly-conservative answers about
+-- whether two `AgOffset_RefPath`-terminated paths overlap. Without that,
+-- depending on how we add or don't add `AgElem_RefPath`s elsewhere, we may lose
+-- the ability to tell that e.g. two fields of the same struct don't overlap.
 refPathOverlaps :: forall sym tp_base1 tp1 tp_base2 tp2. IsSymInterface sym =>
     sym ->
     MirReferencePath sym tp_base1 tp1 ->

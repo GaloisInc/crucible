@@ -134,6 +134,8 @@ import Mir.Mir (OpSize (..))
 -- to partially overlap old ones - they must either be disjoint from all
 -- existing entries, or fully overwrite an existing entry.  Read operations
 -- must also touch exactly one entry.
+--
+-- TODO(sc): document flattened invariant
 data MirAggregate sym where
   MirAggregate ::
     -- | Total size in bytes.  No entry can extend beyond this limit.
@@ -358,6 +360,12 @@ readSubaggregateWithSymOffset bak iteFn readSize off ag@(MirAggregate sz _)
     sym = backendGetSym bak
     offsetLit = wordLit sym
 
+    -- TODO(sc): is it appropriate to reuse this in the symbolic case, in the case
+    -- where we've found we have the right offset (and size)? Or do we need to
+    -- perform error-free `split`ting?
+    --
+    -- Note that the answer impacts how `adjustSubaggregateWithSymOffset` gets
+    -- implemented, since it does something similar.
     readConcrete off' ag' = do
       case readSize of
         All ->

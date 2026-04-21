@@ -1215,6 +1215,12 @@ size_of = (["core", "intrinsics", "size_of"], \substs -> case substs of
     _ -> Nothing
     )
 
+-- TODO(sc): when we migrate structs to have an aggregate representation, we're
+-- going to need to account for padding between non-last and last fields of
+-- custom DSTs, which (for trait objects) is not known until runtime. At
+-- runtime, we can read the erased type information out of the vtable (possibly
+-- after having stored it there ourselves) to determine the right padding. See
+-- https://github.com/GaloisInc/mir-json/issues/184#issuecomment-3487609992.
 size_of_val :: (ExplodedDefId, CustomRHS)
 size_of_val = (["core", "intrinsics", "size_of_val"], \substs -> case substs of
     Substs [_] -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of

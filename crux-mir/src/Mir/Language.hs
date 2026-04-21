@@ -516,6 +516,12 @@ setSimulatorVerbosity verbosity sym = do
   return ()
 
 -------------------------------------------------------
+
+-- TODO(sc): this needs to be updated to account for `MirAggregate` flattening.
+-- It directly access and manipulates `MirAggregateEntry`s, and can fail if it
+-- incorrectly expects those entries to themselves have aggregate
+-- representations. It probably shouldn't access aggregate internals in a way
+-- that's vulnerable to such changes in representation in the first place.
 showRegEntry :: forall sym arg p rtp args ret
    . C.IsSymInterface sym
   => Collection
