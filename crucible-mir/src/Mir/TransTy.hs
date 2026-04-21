@@ -1457,13 +1457,13 @@ unionInfo unionAdt fieldIdx = do
     Nothing -> die $ "field index " <> show fieldIdx <> " out of range"
 
   Some fieldTpr <- tyToReprM (unionField ^. M.fty)
+  fieldSize <- tySizeM $ unionField ^. M.fty
 
   pure $ UnionInfo unionSize fieldOffset fieldSize fieldTpr
   where
     -- See Note [union representation]
-    unionSize = 1
+    unionSize = unionAdt ^. M.adtSize
     fieldOffset = 0
-    fieldSize = unionSize
 
     die :: String -> MirGenerator h s ret a
     die s =
@@ -1710,16 +1710,15 @@ Note [union representation]
 
 Crucible represents Rust unions as `MirAggregate` values.
 
-A union's `MirAggregate` representation has size 1, regardless of the size (e.g.
-according to the `_adtSize` field) of the `Mir.Mir.Adt` that describes it.
+A union's `MirAggregate` representation has the same size as its `Mir.Mir.Adt`'s
+`_adtSize` field, which is also the same size as it has in the Rust memory
+model.
 
 A union is always initialized with a single expression representing one of the
 union's fields. When interpreting this initialization:
 - We declare that the given field appears at offset 0 in the `MirAggregate`,
   even if the field would appear at a nonzero offset according to Rust's memory
   model.
-- We declare that the given field has size 1, even if the field type's size on
-  its own would be smaller or larger.
 
 When reading from the union, we rely on this initialization behavior, by reading
 the offset-0, size-1 subrange of the `MirAggregate` - that is, the entire
@@ -1991,8 +1990,8 @@ initialValue (M.TyAdt nm _ _) = do
         M.Union ->
             -- Unions are default-initialized to an untyped `MirAggregate` of an
             -- appropriate size, like tuples. See Note [union representation]
-            -- for details, including some regarding this choice of size.
-            let unionSize = 1
+            -- for details.
+            let unionSize = adt ^. M.adtSize
             in Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize unionSize
 initialValue (M.TyFnDef _) = Just . MirExp MirAggregateRepr <$> mirAggregate_zst
 initialValue M.TyNever     = Just . MirExp MirAggregateRepr <$> mirAggregate_zst
