@@ -570,15 +570,14 @@ writeRefPath bak iTypes v (ArrayIndex_RefPath _btp path idx) _writeSize x = do
     liftIO $ arrayUpdate (backendGetSym bak) arr (Empty :> idx) x)
 -- For `MirAggregate`, `writeRefPath` with a concrete index can insert a new
 -- entry into the aggregate.
-writeRefPath bak iTypes v (AgElem_RefPath idx sz tpr path) _writeSize x = do
+writeRefPath bak iTypes v (AgElem_RefPath idx _sz tpr path) writeSize x = do
   adjustRefPath bak iTypes v path (\v' -> do
     writeMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr)
-      idx sz tpr x v')
-writeRefPath bak iTypes v (AgOffset_RefPath off path) _writeSize x = do
+      idx writeSize tpr x v')
+writeRefPath bak iTypes v (AgOffset_RefPath off path) writeSize x = do
   adjustRefPath bak iTypes v path (\v' -> do
     let mux = muxRegForType (backendGetSym bak) iTypes MirAggregateRepr
-    let MirAggregate sz _ = x
-    writeMirAggregateWithSymOffset bak mux off sz MirAggregateRepr x v')
+    writeMirAggregateWithSymOffset bak mux off writeSize MirAggregateRepr x v')
 writeRefPath bak iTypes v path _writeSize x =
   adjustRefPath bak iTypes v path (\_ -> return x)
 

@@ -713,20 +713,26 @@ writeMirAggregateWithSymOffset ::
   bak ->
   (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
   RegValue sym UsizeType ->
-  Word ->
+  OpSize ->
   TypeRepr tp ->
   RegValue sym tp ->
   MirAggregate sym ->
   MuxLeafT sym IO (MirAggregate sym)
-writeMirAggregateWithSymOffset bak iteFn off sz tpr val ag
+writeMirAggregateWithSymOffset bak iteFn off writeSize tpr val ag
   -- Concrete case: insert a new entry or overwrite an existing one with
   -- `mirAggregate_insert`.
   | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
-      let entry = MirAggregateEntry sz tpr $ justPartExpr sym val
-      case mirAggregate_insert off' entry ag of
-        Left err -> leafAbort $ GenericSimError err
-        Right ag' -> return ag'
-
+    entry <- case (writeSize, tpr) of
+      (All, MirAggregateRepr) -> do
+        let MirAggregate subAgSz _ = val
+        pure $ MirAggregateEntry subAgSz tpr $ justPartExpr sym val
+      (All, _) ->
+        die "unsupported: writing non-aggregate value of unknown/unspecified size"
+      (Width w, _) ->
+        pure $ MirAggregateEntry w tpr $ justPartExpr sym val
+    case mirAggregate_insert off' entry ag of
+      Left err -> leafAbort $ GenericSimError err
+      Right ag' -> return ag'
   -- Symbolic case: overwrite an existing entry with `adjustMirAggregateWithSymOffset`.
   -- Creating a new entry at a symbolic offset is not allowed.
   | otherwise = do
@@ -734,6 +740,7 @@ writeMirAggregateWithSymOffset bak iteFn off sz tpr val ag
 
   where
     sym = backendGetSym bak
+    die msg = leafAbort $ GenericSimError $ "writeMirAggregateWithSymOffset: " <> msg
 
 -- | Look up a value in a `MirAggregate`.  This returns @Right maybeVal@ if it
 -- finds a value at the requested offset, @Right Unassigned@ if the offset is
