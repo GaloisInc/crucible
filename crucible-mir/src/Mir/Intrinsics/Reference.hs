@@ -826,9 +826,11 @@ newConstMirRef sym tpr v = MirReferenceMux $ toFancyMuxTree sym $
 -- | Helper for defining a `MuxLeafT` operation that works only for
 -- `MirReference`s with a specific pointee type `tp`.  If the `MirReference`
 -- argument is a valid reference (not `MirReference_Integer`) with pointee type
--- `tp`, this calls `k` on the reference's parts; otherwise, this fails.
--- `desc` is a human-readable description of the operation, which is used in
--- the `leafAbort` error message.
+-- `tp`, this calls `k` on the reference's parts. Otherwise, if the reference
+-- points to an (offset into an) aggregate, this calls `k` on the result of
+-- projecting into the aggregate. Otherwise, this fails. `desc` is a
+-- human-readable description of the operation, which is used in the `leafAbort`
+-- error message.
 typedLeafOp ::
     Monad m =>
     String ->
@@ -837,7 +839,12 @@ typedLeafOp ::
     (forall tp0. MirReferenceRoot sym tp0 -> MirReferencePath sym tp0 tp -> MuxLeafT sym m a) ->
     MuxLeafT sym m a
 typedLeafOp desc expectTpr (MirReference tpr root path) k
-  | Just Refl <- testEquality tpr expectTpr = k root path
+  | Just Refl <- testEquality tpr expectTpr =
+      k root path
+  | AgOffset_RefPath off origPath <- path = do
+      -- TODO: hardcoded size=0
+      let elemPath = AgElem_RefPath off 0 expectTpr origPath
+      k root elemPath
   | otherwise = leafAbort $ GenericSimError $
       desc ++ " requires a reference to " ++ show expectTpr
         ++ ", but got a reference to " ++ show tpr
