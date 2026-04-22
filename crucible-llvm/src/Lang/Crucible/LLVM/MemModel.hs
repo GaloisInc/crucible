@@ -480,7 +480,10 @@ evalStmt bak = eval
            Left lookupErr -> lift $
              do p <- Partial.annotateME sym mop (BadFunctionPointer lookupErr) (falsePred sym)
                 loc <- getCurrentProgramLoc sym
-                let err = SimError loc (AssertFailureSimError "Failed to load function handle" (show (ME.ppFuncLookupError lookupErr)))
+                let estr = "Failed to load function handle: "
+                           <> maybe  "<unidentified>" id gsym
+                let err = SimError loc (AssertFailureSimError estr
+                                        (show (ME.ppFuncLookupError lookupErr)))
                 addProofObligation bak (LabeledPred p err)
                 abortExecBecause (AssertionFailure err)
 
