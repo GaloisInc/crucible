@@ -582,6 +582,8 @@ data VtableItem = VtableItem
 data Vtable = Vtable
     { _vtName :: VtableName
     , _vtItems :: [VtableItem]
+    , _vtSize :: Word
+    , _vtAlign :: Word
     }
     deriving (Show, Eq, Ord, Generic)
 
