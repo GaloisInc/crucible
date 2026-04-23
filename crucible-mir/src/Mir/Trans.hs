@@ -2555,7 +2555,7 @@ mkVtableMap :: (HasCallStack) => Collection -> FH.HandleAllocator -> IO VtableMa
 mkVtableMap col halloc = mapM mkVtable (col ^. vtables)
   where
     mkVtable :: M.Vtable -> IO [MirHandle]
-    mkVtable (M.Vtable name items) = mapM (mkHandle name) items
+    mkVtable (M.Vtable name items _size _align) = mapM (mkHandle name) items
 
     mkHandle :: M.DefId -> M.VtableItem -> IO MirHandle
     mkHandle vtableName (VtableItem fnName _)
@@ -2580,7 +2580,7 @@ transVtable :: forall h. (HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?a
   => CollectionState
   -> M.Vtable
   -> ST h [(Text, Core.AnyCFG MIR)]
-transVtable colState (M.Vtable name items)
+transVtable colState (M.Vtable name items _size _align)
   | Just handles <- Map.lookup name (colState ^. vtableMap) =
     zipWithM (transVtableShim colState name) items handles
   | otherwise = error $ unwords ["no vtableMap entry for", show name]

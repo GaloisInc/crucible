@@ -335,10 +335,12 @@ instance Pretty VtableItem where
       ]
 
 instance Pretty Vtable where
-  pretty (Vtable name items) =
+  pretty (Vtable name items size align_) =
     vcat [pretty "vtable" <+> pretty name <+> lbrace ,
-          indent 3 (vcat (map pretty items)),
+          indent 3 (vcat (sizeItem : alignItem : map pretty items)),
           rbrace]
+    where sizeItem = pretty "size =" <+> pretty size <> semi
+          alignItem = pretty "align =" <+> pretty align_ <> semi
 
 instance Pretty CastKind where
     pretty = viaShow

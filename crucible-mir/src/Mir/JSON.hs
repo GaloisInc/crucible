@@ -468,7 +468,7 @@ instance FromJSON VtableItem where
 
 instance FromJSON Vtable where
     parseJSON = withObject "Vtable" $ \v ->
-        Vtable <$> v .: "name" <*> v .: "items"
+        Vtable <$> v .: "name" <*> v .: "items" <*> v .: "size" <*> v .: "align"
 
 instance FromJSON CastKind where
     parseJSON = withObject "CastKind" $ \v ->
