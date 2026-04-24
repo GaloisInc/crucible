@@ -1301,17 +1301,26 @@ mkTraitObject traitName' vtableName e = do
     handles <- Maybe.fromMaybe (error $ "missing vtable handles for " ++ show vtableName) <$>
         use (cs . vtableMap . at vtableName)
 
+    col <- use $ cs . collection
+    vtable <- case col ^. vtables . at vtableName of
+        Just x -> return x
+        Nothing -> error $ "missing vtable definition for " ++ show vtableName
+
+    let info =
+            [ MirExp UsizeRepr $ R.App $ usizeLit $ fromIntegral $ vtable ^. vtSize
+            , MirExp UsizeRepr $ R.App $ usizeLit $ fromIntegral $ vtable ^. vtAlign
+            ]
+
     let mkEntry :: MirHandle -> MirExp s
         mkEntry (MirHandle _ _ fh) =
             MirExp (C.FunctionHandleRepr (FH.handleArgTypes fh) (FH.handleReturnType fh))
                 (R.App $ E.HandleLit fh)
-    vtable@(MirExp vtableTy _) <- return $ mkStructExp $ map mkEntry handles
+    vtableExp@(MirExp vtableTy _) <- return $ mkStructExp $ info ++ map mkEntry handles
 
     -- Check that the vtable we constructed has the appropriate type for the
     -- trait.  A mismatch would cause runtime errors at calls to trait methods.
     trait <- Maybe.fromMaybe (error $ "unknown trait " ++ show traitName') <$>
         use (cs . collection . M.traits . at traitName')
-    col <- use $ cs . collection
     Some vtableTy' <- case traitVtableType col trait of
                         Left err -> error ("mkTraitObject: " ++ err)
                         Right x -> return x
@@ -1323,7 +1332,7 @@ mkTraitObject traitName' vtableName e = do
 
     return $ mkStructExp
         [ e
-        , packAny vtable -- See Note [Erase vtable types] in Mir.Intrinsics.Dyn
+        , packAny vtableExp -- See Note [Erase vtable types] in Mir.Intrinsics.Dyn
         ]
 
     where
@@ -2975,7 +2984,8 @@ mkVirtCall col dynTraitName methIndex recvTy recvTpr recvExpr argTprs argExprs r
       C.StructRepr ctx -> return $ Some ctx
       _ -> die ["vtable type is not a struct"]
 
-    Some vtableIdx <- case Ctx.intIndex (fromInteger methIndex) (Ctx.size vtableTprs) of
+    let vtableIdxInt = numVtableInfoSlots + fromInteger methIndex
+    Some vtableIdx <- case Ctx.intIndex vtableIdxInt (Ctx.size vtableTprs) of
       Just x -> return x
       Nothing -> die ["method index out of range for vtable:",
         "method =", show methIndex, "; size =", show (Ctx.size vtableTprs)]

@@ -2533,20 +2533,22 @@ callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
       Some vtableCtx <- case vtableStructTpr of
         C.StructRepr ctx -> return $ Some ctx
         _ -> mirFail $ "callOnceVirtShimDef: vtable type is not a struct"
-      Some vtableMethodIdx <- case Ctx.intIndex (fromInteger methodIdx) (Ctx.size vtableCtx) of
+      let methodSlotIdx = numVtableInfoSlots + fromInteger methodIdx
+      Some vtableMethodSlotIdx <- case Ctx.intIndex methodSlotIdx (Ctx.size vtableCtx) of
         Just x -> return x
         Nothing -> mirFail $ "callOnceVirtShimDef: method index out of range for vtable: "
-          ++ "method = " ++ show methodIdx ++ "; size = " ++ show (Ctx.size vtableCtx)
-      let vtableMethodTpr = vtableCtx Ctx.! vtableMethodIdx
+          ++ "method = " ++ show methodIdx ++ "; slot = " ++ show methodSlotIdx
+          ++ "; size = " ++ show (Ctx.size vtableCtx)
+      let vtableMethodTpr = vtableCtx Ctx.! vtableMethodSlotIdx
       Some retTpr <- case vtableMethodTpr of
         C.FunctionHandleRepr _ retTpr -> return $ Some retTpr
-        tpr -> mirFail $ "callOnceVirtShimDef: expected method " ++ show methodIdx
+        tpr -> mirFail $ "callOnceVirtShimDef: expected method " ++ show methodSlotIdx
           ++ " of " ++ show dynTraitName ++ " to have FunctionHandleRepr, but got " ++ show tpr
 
       MirExp retTpr <$> doVirtCall
         col
         dynTraitName
-        methodIdx
+        methodIdx   -- method index, not vtable slot index
         (TyRawPtr recvTy Immut)
         recvTpr
         recv

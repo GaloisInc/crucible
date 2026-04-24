@@ -1899,6 +1899,18 @@ getLayoutFieldAsMirExp opName layoutFieldLens ty =
 
 -- Vtable handling
 
+-- | Non-method fields present at the start of every vtable.
+vtableInfoTys :: [M.Ty]
+vtableInfoTys =
+    -- Size of the erased type
+    [ M.TyUint M.USize
+    -- Alignment of the erased type
+    , M.TyUint M.USize
+    ]
+
+numVtableInfoSlots :: Int
+numVtableInfoSlots = length vtableInfoTys
+
 -- TODO: make mir-json emit trait vtable layouts for all dyns observed in the
 -- crate, then use that info to greatly simplify this function
 traitVtableType :: (HasCallStack) =>
@@ -1910,7 +1922,7 @@ traitVtableType col trait = vtableTy
     methodSigs = map (\(M.TraitMethod _name sig) -> sig) (trait ^. M.traitItems)
     shimSigs = map convertShimSig methodSigs
 
-    vtableTy = tyListToCtx col (map M.TyFnPtr shimSigs) $ \ctx ->
+    vtableTy = tyListToCtx col (vtableInfoTys ++ map M.TyFnPtr shimSigs) $ \ctx ->
         Right (Some (C.StructRepr ctx))
 
 eraseSigReceiver :: M.FnSig -> M.FnSig
