@@ -2515,26 +2515,12 @@ callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
         in itraverseFC (\idx tpr -> go argTupleTy argTupleExp idx tpr) argCtx
 
       -- Look up `methodIdx` return type.
-      -- This unfortunately duplicates some of the logic from `mkVirtCall`.
-      dynTrait <- case col ^. traits . at dynTraitName of
-        Just x -> return x
-        Nothing -> mirFail $ "callOnceVirtShimDef: undefined trait " ++ show dynTraitName
-      Some vtableStructTpr <- case traitVtableType col dynTrait of
-        Left err -> mirFail $ "callOnceVirtShimDef: traitVtableType: " ++ err
-        Right x -> return x
-      Some vtableCtx <- case vtableStructTpr of
-        C.StructRepr ctx -> return $ Some ctx
-        _ -> mirFail $ "callOnceVirtShimDef: vtable type is not a struct"
-      let methodSlotIdx = numVtableInfoSlots + fromInteger methodIdx
-      Some vtableMethodSlotIdx <- case Ctx.intIndex methodSlotIdx (Ctx.size vtableCtx) of
-        Just x -> return x
-        Nothing -> mirFail $ "callOnceVirtShimDef: method index out of range for vtable: "
-          ++ "method = " ++ show methodIdx ++ "; slot = " ++ show methodSlotIdx
-          ++ "; size = " ++ show (Ctx.size vtableCtx)
-      let vtableMethodTpr = vtableCtx Ctx.! vtableMethodSlotIdx
+      Some (VtableInfo vtableCtx vtableSlotIdx) <-
+        vtableMethodInfo' dynTraitName (fromInteger methodIdx)
+      let vtableMethodTpr = vtableCtx Ctx.! vtableSlotIdx
       Some retTpr <- case vtableMethodTpr of
         C.FunctionHandleRepr _ retTpr -> return $ Some retTpr
-        tpr -> mirFail $ "callOnceVirtShimDef: expected method " ++ show methodSlotIdx
+        tpr -> mirFail $ "callOnceVirtShimDef: expected method " ++ show methodIdx
           ++ " of " ++ show dynTraitName ++ " to have FunctionHandleRepr, but got " ++ show tpr
 
       MirExp retTpr <$> doVirtCall

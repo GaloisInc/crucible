@@ -1911,6 +1911,10 @@ vtableInfoTys =
 numVtableInfoSlots :: Int
 numVtableInfoSlots = length vtableInfoTys
 
+-- | Convert a method index to a slot index.
+vtableMethodSlotIdx :: Int -> Int
+vtableMethodSlotIdx methodIdx = numVtableInfoSlots + methodIdx
+
 -- TODO: make mir-json emit trait vtable layouts for all dyns observed in the
 -- crate, then use that info to greatly simplify this function
 traitVtableType :: (HasCallStack) =>
@@ -1940,6 +1944,16 @@ data VtableInfo tp = forall ctx. VtableInfo
 
 vtableInfo :: M.TraitName -> Int -> C.TypeRepr tp -> MirGenerator h s ret (VtableInfo tp)
 vtableInfo dynTraitName slotIdx slotTpr = do
+  Some vt@(VtableInfo ctx idx) <- vtableInfo' dynTraitName slotIdx
+  let tpr = ctx Ctx.! idx
+  Refl <- testEqualityOrFail tpr slotTpr $
+    dieMsg $ "expected slot to contain " ++ show slotTpr ++ ", but got " ++ show tpr
+  return vt
+  where
+    dieMsg s = "vtableInfo: trait" ++ show dynTraitName ++ ", slot " ++ show slotIdx ++ ": " ++ s
+
+vtableInfo' :: M.TraitName -> Int -> MirGenerator h s ret (Some VtableInfo)
+vtableInfo' dynTraitName slotIdx = do
   col <- use $ cs . collection
 
   dynTrait <- case col ^. M.traits . at dynTraitName of
@@ -1956,17 +1970,17 @@ vtableInfo dynTraitName slotIdx slotTpr = do
     Just x -> return x
     Nothing -> die "slot index out of range for trait"
 
-  let tpr = vtableTprs Ctx.! slotIdx'
-  Refl <- testEqualityOrFail tpr slotTpr $
-    dieMsg $ "expected slot to contain " ++ show slotTpr ++ ", but got " ++ show tpr
-
-  return $ VtableInfo vtableTprs slotIdx'
+  return $ Some (VtableInfo vtableTprs slotIdx')
 
   where
     die :: String -> MirGenerator h s ret a
     die s = mirFail $ dieMsg s
 
     dieMsg s = "vtableInfo': trait" ++ show dynTraitName ++ ", slot " ++ show slotIdx ++ ": " ++ s
+
+vtableMethodInfo' :: M.TraitName -> Int -> MirGenerator h s ret (Some VtableInfo)
+vtableMethodInfo' dynTraitName methodIdx = do
+  vtableInfo' dynTraitName (vtableMethodSlotIdx methodIdx)
 
 -- | Read a value from a vtable slot.
 getVtableSlot ::
@@ -1994,7 +2008,7 @@ getVtableMethod ::
   R.Expr MIR s C.AnyType ->
   MirGenerator h s ret (R.Expr MIR s (C.FunctionHandleType (C.AnyType :<: argTps) retTp))
 getVtableMethod dynTraitName methodIdx argTprs retTpr vtableExp = do
-  let slotIdx = numVtableInfoSlots + methodIdx
+  let slotIdx = vtableMethodSlotIdx methodIdx
   let slotTpr = C.FunctionHandleRepr (C.AnyRepr <: argTprs) retTpr
   getVtableSlot dynTraitName slotIdx slotTpr vtableExp
 
