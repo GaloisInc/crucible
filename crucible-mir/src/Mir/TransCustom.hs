@@ -720,7 +720,6 @@ drop_in_place_dyn =
 
                 callExpr <-
                     doVirtCall
-                        col
                         traitName'
                         dropMethodIndex
                         selfTy
@@ -1213,43 +1212,11 @@ size_of = (["core", "intrinsics", "size_of"], \substs -> case substs of
     )
 
 -- | Read a @usize@ value from slot @idx@ of a vtable.
-getVtableUsize :: TraitName -> Int -> R.Expr MIR s C.AnyType -> MirGenerator h s ret (MirExp s)
-getVtableUsize dynTraitName idx vtable = do
-  col <- use $ cs . collection
-
-  -- Unpack vtable type
-  dynTrait <- case col ^. traits . at dynTraitName of
-    Just x -> return x
-    Nothing -> die ["undefined trait " ++ show dynTraitName]
-  Some vtableStructTpr <- case traitVtableType col dynTrait of
-    Left err -> die ["traitVtableType: " ++ err]
-    Right x -> return x
-  Some vtableTprs <- case vtableStructTpr of
-    C.StructRepr ctx -> return $ Some ctx
-    _ -> die ["vtable type is not a struct"]
-
-  let vtableIdxInt = idx
-  Some vtableIdx <- case Ctx.intIndex vtableIdxInt (Ctx.size vtableTprs) of
-    Just x -> return x
-    Nothing -> die ["slot index out of range for vtable:",
-      "idx =", show idx, "; size =", show (Ctx.size vtableTprs)]
-
-  let slotTpr = vtableTprs Ctx.! vtableIdx
-  Refl <- testEqualityOrFail slotTpr UsizeRepr $
-    "expected trait " ++ show dynTraitName ++ " vtable slot " ++ show idx
-      ++ " to contain a `usize`, but got " ++ show slotTpr
-
-  let vtableStructTpr' = C.StructRepr vtableTprs
-  vtableDowncast <- G.fromJustExpr (R.App $ E.UnpackAny vtableStructTpr' vtable)
-      (R.App $ E.StringLit $ fromString $ "bad vtable type for " ++ show dynTraitName)
-
-  let usize = R.App $ E.GetStruct vtableDowncast vtableIdx UsizeRepr
-  return $ MirExp UsizeRepr usize
-
-  where
-    die :: HasCallStack => [String] -> a
-    die words' = error $ unwords $
-      ["failed to get usize from slot", show idx, "of trait", show dynTraitName] ++ words'
+getVtableUsize :: TraitName -> Int -> R.Expr MIR s DynRefType -> MirGenerator h s ret (MirExp s)
+getVtableUsize dynTraitName idx dynRef = do
+  let vtable = S.getStruct dynRefVtableIndex dynRef
+  usizeExp <- getVtableSlot dynTraitName idx UsizeRepr vtable
+  return $ MirExp UsizeRepr usizeExp
 
 size_of_val :: (ExplodedDefId, CustomRHS)
 size_of_val = (["core", "intrinsics", "size_of_val"], \substs -> case substs of
@@ -1273,9 +1240,7 @@ size_of_val = (["core", "intrinsics", "size_of_val"], \substs -> case substs of
             -- do here is make an effort to give a descriptive error message.
             -- TODO(#1614): Support trait objects and custom DSTs here.
             DynRefRepr -> case ty of
-                TyDynamic dynTraitName -> do
-                    let vtable = S.getStruct dynRefVtableIndex e
-                    getVtableUsize dynTraitName 0 vtable
+                TyDynamic dynTraitName -> getVtableUsize dynTraitName 0 e
                 TyAdt {} -> unsupportedCustomDst ty
                 _ -> panic "size_of_val"
                        ["Unexpected DynRefRepr type", show (PP.pretty ty)]
@@ -1343,9 +1308,7 @@ align_of_val = (["core", "intrinsics", "align_of_val"], \substs -> case substs o
             -- do here is make an effort to give a descriptive error message.
             -- TODO(#1614): Support trait objects and custom DSTs here.
             DynRefRepr -> case ty of
-                TyDynamic dynTraitName -> do
-                    let vtable = S.getStruct dynRefVtableIndex e
-                    getVtableUsize dynTraitName 1 vtable
+                TyDynamic dynTraitName -> getVtableUsize dynTraitName 1 e
                 TyAdt {} -> unsupportedCustomDst ty
                 _ -> panic "align_of_val"
                        ["Unexpected DynRefRepr type", show (PP.pretty ty)]
@@ -2575,7 +2538,6 @@ callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
           ++ " of " ++ show dynTraitName ++ " to have FunctionHandleRepr, but got " ++ show tpr
 
       MirExp retTpr <$> doVirtCall
-        col
         dynTraitName
         methodIdx   -- method index, not vtable slot index
         (TyRawPtr recvTy Immut)

@@ -2731,11 +2731,6 @@ splitMethodArgs args argsSize =
     (R.AtomExpr arg0, fmapFC R.AtomExpr args')
 
 
-type (x :: k) :<: (xs :: Ctx.Ctx k) = Ctx.SingleCtx x Ctx.<+> xs
-
-(<:) :: forall f tp ctx. f tp -> Ctx.Assignment f ctx -> Ctx.Assignment f (tp :<: ctx)
-x <: xs = Ctx.singleton x Ctx.<++> xs
-
 data AssignUncons (f :: k -> Type) :: Ctx.Ctx k -> Type where
   AssignUncons :: f x -> Ctx.Assignment f y -> AssignUncons f (Ctx.SingleCtx x Ctx.<+> y)
 
@@ -2752,16 +2747,6 @@ assignUncons (xs Ctx.:> x) =
   case assignUncons xs of
     Right (AssignUncons y ys) -> Right $ AssignUncons y (ys Ctx.:> x)
     Left Refl -> Right $ AssignUncons x Ctx.Empty
-
-data AsFunctionHandleRepr :: C.CrucibleType -> Type where
-  AsFunctionHandleRepr ::
-    C.CtxRepr args ->
-    C.TypeRepr ret ->
-    AsFunctionHandleRepr (C.FunctionHandleType args ret)
-
-asFunctionHandleRepr :: C.TypeRepr tp -> Maybe (AsFunctionHandleRepr tp)
-asFunctionHandleRepr (C.FunctionHandleRepr args ret) = Just $ AsFunctionHandleRepr args ret
-asFunctionHandleRepr _ = Nothing
 
 unappendAssignment :: forall k f (xs :: Ctx.Ctx k) (ys :: Ctx.Ctx k).
     Ctx.Size ys ->
@@ -2960,8 +2945,7 @@ dispatchFromDyn dynTraitName recvTy recvExp die = do
 -- function.
 mkVirtCall
   :: HasCallStack
-  => M.Collection
-  -> M.TraitName
+  => M.TraitName
   -> Integer -- ^ The method index
   -> M.Ty -- ^ The MIR type of the method receiver
   -> C.TypeRepr recvTy -- ^ The Crucible type of the method receiver
@@ -2972,65 +2956,11 @@ mkVirtCall
   -> MirGenerator h s ret
     ( R.Expr MIR s (C.FunctionHandleType (C.AnyType :<: argTys) retTy)
     , Ctx.Assignment (R.Expr MIR s) (C.AnyType :<: argTys))
-mkVirtCall col dynTraitName methIndex recvTy recvTpr recvExpr argTprs argExprs retTpr = do
-    -- Unpack vtable type
-    dynTrait <- case col ^. M.traits . at dynTraitName of
-      Just x -> return x
-      Nothing -> die ["undefined trait " ++ show dynTraitName]
-    Some vtableStructTpr <- case traitVtableType col dynTrait of
-      Left err -> die ["traitVtableType: " ++ err]
-      Right x -> return x
-    Some vtableTprs <- case vtableStructTpr of
-      C.StructRepr ctx -> return $ Some ctx
-      _ -> die ["vtable type is not a struct"]
-
-    let vtableIdxInt = numVtableInfoSlots + fromInteger methIndex
-    Some vtableIdx <- case Ctx.intIndex vtableIdxInt (Ctx.size vtableTprs) of
-      Just x -> return x
-      Nothing -> die ["method index out of range for vtable:",
-        "method =", show methIndex, "; size =", show (Ctx.size vtableTprs)]
-
-    -- Check that the vtable entry has the correct signature.
-    AsFunctionHandleRepr vtsArgTprs vtsRetTpr <-
-      case asFunctionHandleRepr (vtableTprs Ctx.! vtableIdx) of
-        Just x -> return x
-        _ -> die ["vtable entry is not a function"]
-    AssignUncons vtsRecvTpr vtsArgTprs' <- case assignUncons vtsArgTprs of
-      Right x -> return x
-      Left _ -> die ["vtable shim has no arguments"]
-
-    Refl <- case testEquality vtsRecvTpr C.AnyRepr of
-      Just x -> return x
-      Nothing -> die ["vtable shim receiver is not Any"]
-    Refl <- case testEquality vtsArgTprs' argTprs of
-      Just x -> return x
-      Nothing -> die ["vtable shim arguments don't match method; vtable shim =",
-        show vtsArgTprs', "; method =", show argTprs]
-    Refl <- case testEquality vtsRetTpr retTpr of
-      Just x -> return x
-      Nothing -> die ["vtable shim return type doesn't match method; vtable shim =",
-        show vtsRetTpr, "; method =", show retTpr]
-
+mkVirtCall dynTraitName methIndex recvTy recvTpr recvExpr argTprs argExprs retTpr = do
     (MirExp recvTpr' recvExpr', recvVtable) <-
       dispatchFromDyn dynTraitName recvTy (MirExp recvTpr recvExpr) die
 
-    -- Downcast the vtable to its proper struct type
-    errBlk <- G.newLabel
-    G.defineBlock errBlk $ do
-        G.reportError $ R.App $ E.StringLit $ fromString $
-            unwords ["bad vtable downcast:", show dynTraitName,
-                "to", show vtableTprs]
-
-    let vtableStructTpr' = C.StructRepr vtableTprs
-    okBlk <- G.newLambdaLabel' vtableStructTpr'
-    -- See Note [Erase vtable types] in Mir.Intrinsics.Dyn for why we need to
-    -- unpack an Any type here.
-    vtable <- G.continueLambda okBlk $ do
-        G.branchMaybe (R.App $ E.UnpackAny vtableStructTpr' recvVtable) okBlk errBlk
-
-    -- Extract the function handle from the vtable
-    let vtsFH = R.App $ E.GetStruct vtable vtableIdx
-            (C.FunctionHandleRepr (C.AnyRepr <: argTprs) vtsRetTpr)
+    vtsFH <- getVtableMethod dynTraitName (fromInteger methIndex) argTprs retTpr recvVtable
 
     pure (vtsFH, (R.App (E.PackAny recvTpr' recvExpr') <: argExprs))
 
@@ -3045,8 +2975,7 @@ mkVirtCall col dynTraitName methIndex recvTy recvTpr recvExpr argTprs argExprs r
 -- then tail-call that function on those arguments.
 doVirtTailCall
   :: HasCallStack
-  => M.Collection
-  -> M.TraitName
+  => M.TraitName
   -> Integer -- ^ The method index
   -> M.Ty -- ^ The MIR type of the method receiver
   -> C.TypeRepr recvTy -- ^ The Crucible type of the method receiver
@@ -3055,8 +2984,8 @@ doVirtTailCall
   -> Ctx.Assignment (R.Expr MIR s) argTys -- ^ The arguments (excluding the receiver)
   -> C.TypeRepr retTy -- ^ The return type
   -> MirGenerator h s retTy a
-doVirtTailCall col dynTraitName methodIndex recvTy recvTpr recvExpr argTprs argExprs retTpr = do
-  (fnHandle, args) <- mkVirtCall col dynTraitName methodIndex
+doVirtTailCall dynTraitName methodIndex recvTy recvTpr recvExpr argTprs argExprs retTpr = do
+  (fnHandle, args) <- mkVirtCall dynTraitName methodIndex
     recvTy recvTpr recvExpr argTprs argExprs retTpr
   G.tailCall fnHandle args
 
@@ -3074,8 +3003,7 @@ doVirtTailCall col dynTraitName methodIndex recvTy recvTpr recvExpr argTprs argE
 -- > G.Generator MIR s t retTpr    (ST h) (R.Expr MIR s retTpr)
 doVirtCall
   :: HasCallStack
-  => M.Collection
-  -> M.TraitName
+  => M.TraitName
   -> Integer -- ^ The method index
   -> M.Ty -- ^ The MIR type of the method receiver
   -> C.TypeRepr recvTy -- ^ The Crucible type of the method receiver
@@ -3084,8 +3012,8 @@ doVirtCall
   -> Ctx.Assignment (R.Expr MIR s) argTys -- ^ The arguments (excluding the receiver)
   -> C.TypeRepr retTy -- ^ The return type
   -> MirGenerator h s anyRetTy (R.Expr MIR s retTy)
-doVirtCall col dynTraitName methodIndex recvTy recvTpr recvExpr argTprs argExprs retTpr = do
-  (fnHandle, args) <- mkVirtCall col dynTraitName methodIndex
+doVirtCall dynTraitName methodIndex recvTy recvTpr recvExpr argTprs argExprs retTpr = do
+  (fnHandle, args) <- mkVirtCall dynTraitName methodIndex
     recvTy recvTpr recvExpr argTprs argExprs retTpr
   G.call fnHandle args
 
@@ -3131,7 +3059,6 @@ transVirtCall colState intrName' methName dynTraitName methIndex
         label <- G.newLabel
         G.defineBlock label $
           doVirtTailCall
-            (colState ^. collection)
             dynTraitName
             methIndex
             recvTy
