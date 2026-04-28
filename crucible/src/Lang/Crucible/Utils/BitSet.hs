@@ -12,6 +12,7 @@
 -- built on top of GHC-native Integers.
 ------------------------------------------------------------------------
 module Lang.Crucible.Utils.BitSet
+{-# DEPRECATED "This module is deprecated" #-}
 ( BitSet
 , getBits
 , empty
