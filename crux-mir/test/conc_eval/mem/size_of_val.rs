@@ -1,4 +1,4 @@
-// use std::fmt::Debug;
+use std::fmt::Debug;
 
 // pub struct C<T: ?Sized> {
 //     pub x: u32,
@@ -21,10 +21,11 @@ fn crux_test() {
     assert_eq!(4, size_of_val::<str>(&"roș")); // Note that ș occupies two bytes, not one!
     assert_eq!(5, size_of_val::<str>(&"roșu"));
 
-    // TODO(#1614): The following are not currently supported:
-
     // Trait objects
-    // crucible_assert!(0 == size_of_val::<dyn Debug>(x));
+    assert_eq!(0, size_of_val::<dyn Debug>(&()));
+    assert_eq!(4, size_of_val::<dyn Debug>(&123_i32));
+
+    // TODO(#1614): The following are not currently supported:
 
     // Custom DSTs with a slice as the last field
     // let sized: C<[u8; 8]> = C {

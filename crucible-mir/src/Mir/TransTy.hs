@@ -1897,7 +1897,46 @@ getLayoutFieldAsMirExp opName layoutFieldLens ty =
   MirExp UsizeRepr <$> getLayoutFieldAsExpr opName layoutFieldLens ty
 
 
--- Vtable handling
+-- Vtable layout helpers
+
+-- | Collection of pieces that go into constructing a vtable.  We use this to
+-- avoid hardcoding indices or orderings in various places throughout the code.
+data VtableParts s = VtableParts
+  { vtpMethods :: [MirExp s]
+  , vtpSize :: R.Expr MIR s UsizeType
+  , vtpAlign :: R.Expr MIR s UsizeType
+  }
+
+vtablePartsToEntries :: VtableParts s -> [MirExp s]
+vtablePartsToEntries vtp =
+  MirExp UsizeRepr (vtpSize vtp) :
+  MirExp UsizeRepr (vtpAlign vtp) :
+  vtpMethods vtp
+
+-- | Non-method fields present at the start of every vtable.
+vtableInfoTys :: [M.Ty]
+vtableInfoTys =
+    -- Size of the erased type
+    [ M.TyUint M.USize
+    -- Alignment of the erased type
+    , M.TyUint M.USize
+    ]
+
+numVtableInfoSlots :: Int
+numVtableInfoSlots = length vtableInfoTys
+
+vtableSizeSlotIdx :: Int
+vtableSizeSlotIdx = 0
+
+vtableAlignSlotIdx :: Int
+vtableAlignSlotIdx = 1
+
+-- | Convert a method index to a slot index.
+vtableMethodSlotIdx :: Int -> Int
+vtableMethodSlotIdx methodIdx = numVtableInfoSlots + methodIdx
+
+
+-- Vtable construction and use
 
 -- TODO: make mir-json emit trait vtable layouts for all dyns observed in the
 -- crate, then use that info to greatly simplify this function
@@ -1910,13 +1949,97 @@ traitVtableType col trait = vtableTy
     methodSigs = map (\(M.TraitMethod _name sig) -> sig) (trait ^. M.traitItems)
     shimSigs = map convertShimSig methodSigs
 
-    vtableTy = tyListToCtx col (map M.TyFnPtr shimSigs) $ \ctx ->
+    vtableTy = tyListToCtx col (vtableInfoTys ++ map M.TyFnPtr shimSigs) $ \ctx ->
         Right (Some (C.StructRepr ctx))
 
 eraseSigReceiver :: M.FnSig -> M.FnSig
 eraseSigReceiver sig = sig & M.fsarg_tys %~ \xs -> case xs of
     [] -> error $ unwords ["dynamic trait method has no receiver", show sig]
     (_ : tys) -> M.TyErased : tys
+
+-- | Info about a specific slot in a trait vtable.  @tp@ is the type of the
+-- slot.
+data VtableInfo tp = forall ctx. VtableInfo
+  -- | The fields of the vtable's `StructType`.
+  (C.CtxRepr ctx)
+  -- | The `Ctx.Index` of the requested slot of the vtable.
+  (Ctx.Index ctx tp)
+
+vtableInfo :: M.TraitName -> Int -> C.TypeRepr tp -> MirGenerator h s ret (VtableInfo tp)
+vtableInfo dynTraitName slotIdx slotTpr = do
+  Some vt@(VtableInfo ctx idx) <- vtableInfo' dynTraitName slotIdx
+  let tpr = ctx Ctx.! idx
+  Refl <- testEqualityOrFail tpr slotTpr $
+    dieMsg $ "expected slot to contain " ++ show slotTpr ++ ", but got " ++ show tpr
+  return vt
+  where
+    dieMsg s = "vtableInfo: trait" ++ show dynTraitName ++ ", slot " ++ show slotIdx ++ ": " ++ s
+
+vtableInfo' :: M.TraitName -> Int -> MirGenerator h s ret (Some VtableInfo)
+vtableInfo' dynTraitName slotIdx = do
+  col <- use $ cs . collection
+
+  dynTrait <- case col ^. M.traits . at dynTraitName of
+    Just x -> return x
+    Nothing -> die "undefined trait"
+  Some vtableStructTpr <- case traitVtableType col dynTrait of
+    Left err -> die $ "traitVtableType: " ++ err
+    Right x -> return x
+  Some vtableTprs <- case vtableStructTpr of
+    C.StructRepr ctx -> return $ Some ctx
+    _ -> die "vtable type is not a struct"
+
+  Some slotIdx' <- case Ctx.intIndex slotIdx (Ctx.size vtableTprs) of
+    Just x -> return x
+    Nothing -> die "slot index out of range for trait"
+
+  return $ Some (VtableInfo vtableTprs slotIdx')
+
+  where
+    die :: String -> MirGenerator h s ret a
+    die s = mirFail $ dieMsg s
+
+    dieMsg s = "vtableInfo': trait" ++ show dynTraitName ++ ", slot " ++ show slotIdx ++ ": " ++ s
+
+vtableMethodInfo' :: M.TraitName -> Int -> MirGenerator h s ret (Some VtableInfo)
+vtableMethodInfo' dynTraitName methodIdx = do
+  vtableInfo' dynTraitName (vtableMethodSlotIdx methodIdx)
+
+-- | Read a value from a vtable slot.
+getVtableSlot ::
+  M.TraitName ->
+  Int ->
+  C.TypeRepr tp ->
+  R.Expr MIR s C.AnyType ->
+  MirGenerator h s ret (R.Expr MIR s tp)
+getVtableSlot dynTraitName slotIdx slotTpr vtableExp = do
+  VtableInfo vtableCtx slotIdx' <- vtableInfo dynTraitName slotIdx slotTpr
+
+  let vtableStructTpr = C.StructRepr vtableCtx
+  vtableDowncast <- G.fromJustExpr (R.App $ E.UnpackAny vtableStructTpr vtableExp)
+    (R.App $ E.StringLit $ fromString $ "bad vtable type for " ++ show dynTraitName)
+
+  return $ R.App $ E.GetStruct vtableDowncast slotIdx' slotTpr
+
+-- | Retrieve a method `C.FunctionHandleType` from a vtable.  Note the index is
+-- a method index, not a slot index.
+getVtableMethod ::
+  M.TraitName ->
+  Int ->
+  C.CtxRepr argTps ->
+  C.TypeRepr retTp ->
+  R.Expr MIR s C.AnyType ->
+  MirGenerator h s ret (R.Expr MIR s (C.FunctionHandleType (C.AnyType :<: argTps) retTp))
+getVtableMethod dynTraitName methodIdx argTprs retTpr vtableExp = do
+  let slotIdx = vtableMethodSlotIdx methodIdx
+  let slotTpr = C.FunctionHandleRepr (C.AnyRepr <: argTprs) retTpr
+  getVtableSlot dynTraitName slotIdx slotTpr vtableExp
+
+type (x :: k) :<: (xs :: Ctx.Ctx k) = Ctx.SingleCtx x Ctx.<+> xs
+
+(<:) :: forall f tp ctx. f tp -> Ctx.Assignment f ctx -> Ctx.Assignment f (tp :<: ctx)
+x <: xs = Ctx.singleton x Ctx.<++> xs
+
 
 ---- "Allocation"
 --

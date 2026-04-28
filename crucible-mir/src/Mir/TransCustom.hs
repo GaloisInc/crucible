@@ -720,7 +720,6 @@ drop_in_place_dyn =
 
                 callExpr <-
                     doVirtCall
-                        col
                         traitName'
                         dropMethodIndex
                         selfTy
@@ -1212,6 +1211,13 @@ size_of = (["core", "intrinsics", "size_of"], \substs -> case substs of
     _ -> Nothing
     )
 
+-- | Read a @usize@ value from slot @idx@ of a vtable.
+getVtableUsize :: TraitName -> Int -> R.Expr MIR s DynRefType -> MirGenerator h s ret (MirExp s)
+getVtableUsize dynTraitName idx dynRef = do
+  let vtable = S.getStruct dynRefVtableIndex dynRef
+  usizeExp <- getVtableSlot dynTraitName idx UsizeRepr vtable
+  return $ MirExp UsizeRepr usizeExp
+
 size_of_val :: (ExplodedDefId, CustomRHS)
 size_of_val = (["core", "intrinsics", "size_of_val"], \substs -> case substs of
     Substs [_] -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
@@ -1229,12 +1235,11 @@ size_of_val = (["core", "intrinsics", "size_of_val"], \substs -> case substs of
                        ["Unexpected MirSliceRepr type", show (PP.pretty ty)]
 
             -- Trait objects (e.g., `&dyn Debug` and custom DSTs whose last
-            -- field contains a trait object) are unsized. This override
-            -- currently does not support any kind of trait object, so all we
-            -- do here is make an effort to give a descriptive error message.
-            -- TODO(#1614): Support trait objects and custom DSTs here.
+            -- field contains a trait object) are unsized.  We currently
+            -- support computing the size of trait objects that aren't embedded
+            -- in a custom DST. TODO(#1614): Lift this restriction.
             DynRefRepr -> case ty of
-                TyDynamic {} -> unsupportedTraitObject ty
+                TyDynamic dynTraitName -> getVtableUsize dynTraitName vtableSizeSlotIdx e
                 TyAdt {} -> unsupportedCustomDst ty
                 _ -> panic "size_of_val"
                        ["Unexpected DynRefRepr type", show (PP.pretty ty)]
@@ -1260,13 +1265,6 @@ size_of_val = (["core", "intrinsics", "size_of_val"], \substs -> case substs of
         sz <- getLayoutFieldAsExpr "size_of_val" laySize ty
         pure $ MirExp UsizeRepr $ R.App $ usizeMul len sz
 
-    unsupportedTraitObject :: Ty -> MirGenerator h s ret a
-    unsupportedTraitObject ty =
-        mirFail $ unlines
-            [ "size_of_val does not currently support trait objects"
-            , "In the type " ++ show (PP.pretty ty)
-            ]
-
     unsupportedCustomDst :: Ty -> MirGenerator h s ret a
     unsupportedCustomDst ty =
         mirFail $ unlines
@@ -1285,7 +1283,7 @@ align_of_val :: (ExplodedDefId, CustomRHS)
 align_of_val = (["core", "intrinsics", "align_of_val"], \substs -> case substs of
     Substs [_] -> Just $ CustomOp $ \opTys ops -> case (opTys, ops) of
         -- We first check whether the underlying type is sized or not.
-        ([TyRawPtr ty _], [MirExp tpr _]) -> case tpr of
+        ([TyRawPtr ty _], [MirExp tpr e]) -> case tpr of
             -- Slices (e.g., `&[u8]`, `&str`, and custom DSTs whose last field
             -- contains a slice) are unsized. We currently support computing
             -- the alignment of slice values that aren't embedded in a custom
@@ -1304,12 +1302,11 @@ align_of_val = (["core", "intrinsics", "align_of_val"], \substs -> case substs o
                        ["Unexpected MirSliceRepr type", show (PP.pretty ty)]
 
             -- Trait objects (e.g., `&dyn Debug` and custom DSTs whose last
-            -- field contains a trait object) are unsized. This override
-            -- currently does not support any kind of trait object, so all we
-            -- do here is make an effort to give a descriptive error message.
-            -- TODO(#1614): Support trait objects and custom DSTs here.
+            -- field contains a trait object) are unsized.  We currently
+            -- support computing the alignment of trait objects that aren't
+            -- embedded in a custom DST. TODO(#1614): Lift this restriction.
             DynRefRepr -> case ty of
-                TyDynamic {} -> unsupportedTraitObject ty
+                TyDynamic dynTraitName -> getVtableUsize dynTraitName vtableAlignSlotIdx e
                 TyAdt {} -> unsupportedCustomDst ty
                 _ -> panic "align_of_val"
                        ["Unexpected DynRefRepr type", show (PP.pretty ty)]
@@ -1325,13 +1322,6 @@ align_of_val = (["core", "intrinsics", "align_of_val"], \substs -> case substs o
     _ -> Nothing
     )
   where
-    unsupportedTraitObject :: Ty -> MirGenerator h s ret a
-    unsupportedTraitObject ty =
-        mirFail $ unlines
-            [ "align_of_val does not currently support trait objects"
-            , "In the type " ++ show (PP.pretty ty)
-            ]
-
     unsupportedCustomDst :: Ty -> MirGenerator h s ret a
     unsupportedCustomDst ty =
         mirFail $ unlines
@@ -2523,30 +2513,17 @@ callOnceVirtShimDef methodIdx = CustomMirOp $ \ops ->
         in itraverseFC (\idx tpr -> go argTupleTy argTupleExp idx tpr) argCtx
 
       -- Look up `methodIdx` return type.
-      -- This unfortunately duplicates some of the logic from `mkVirtCall`.
-      dynTrait <- case col ^. traits . at dynTraitName of
-        Just x -> return x
-        Nothing -> mirFail $ "callOnceVirtShimDef: undefined trait " ++ show dynTraitName
-      Some vtableStructTpr <- case traitVtableType col dynTrait of
-        Left err -> mirFail $ "callOnceVirtShimDef: traitVtableType: " ++ err
-        Right x -> return x
-      Some vtableCtx <- case vtableStructTpr of
-        C.StructRepr ctx -> return $ Some ctx
-        _ -> mirFail $ "callOnceVirtShimDef: vtable type is not a struct"
-      Some vtableMethodIdx <- case Ctx.intIndex (fromInteger methodIdx) (Ctx.size vtableCtx) of
-        Just x -> return x
-        Nothing -> mirFail $ "callOnceVirtShimDef: method index out of range for vtable: "
-          ++ "method = " ++ show methodIdx ++ "; size = " ++ show (Ctx.size vtableCtx)
-      let vtableMethodTpr = vtableCtx Ctx.! vtableMethodIdx
+      Some (VtableInfo vtableCtx vtableSlotIdx) <-
+        vtableMethodInfo' dynTraitName (fromInteger methodIdx)
+      let vtableMethodTpr = vtableCtx Ctx.! vtableSlotIdx
       Some retTpr <- case vtableMethodTpr of
         C.FunctionHandleRepr _ retTpr -> return $ Some retTpr
         tpr -> mirFail $ "callOnceVirtShimDef: expected method " ++ show methodIdx
           ++ " of " ++ show dynTraitName ++ " to have FunctionHandleRepr, but got " ++ show tpr
 
       MirExp retTpr <$> doVirtCall
-        col
         dynTraitName
-        methodIdx
+        methodIdx   -- method index, not vtable slot index
         (TyRawPtr recvTy Immut)
         recvTpr
         recv
