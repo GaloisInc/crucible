@@ -153,6 +153,26 @@ pattern CTyMethodSpec <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "method_spe
 pattern CTyMethodSpecBuilder :: M.Ty
 pattern CTyMethodSpecBuilder <- M.TyAdt _ $(M.explodedDefIdPat ["crucible", "method_spec", "raw", "MethodSpecBuilder"]) (M.Substs [])
 
+-- | Pin<T> is a transparent wrapper around T in MIR.  We erase it during
+-- type translation so that async poll functions using Pin<&mut Self> are
+-- treated identically to &mut Self.
+pattern CTyPin :: M.Ty -> M.Ty
+pattern CTyPin t <- M.TyAdt _ $(M.explodedDefIdPat ["core", "pin", "Pin"]) (M.Substs [t])
+
+-- | Arc<T> is modeled transparently as T for verification purposes.
+-- The reference counting is abstracted away.
+pattern CTyArc :: M.Ty -> M.Ty
+pattern CTyArc t <- M.TyAdt _ $(M.explodedDefIdPat ["alloc", "sync", "Arc"]) (M.Substs [t])
+
+-- | Mutex<T> is modeled transparently as T for verification purposes.
+-- The locking semantics are abstracted away.
+pattern CTyMutex :: M.Ty -> M.Ty
+pattern CTyMutex t <- M.TyAdt _ $(M.explodedDefIdPat ["std", "sync", "mutex", "Mutex"]) (M.Substs [t])
+
+-- | RwLock<T> is modeled transparently as T for verification purposes.
+-- The read/write locking semantics are abstracted away.
+pattern CTyRwLock :: M.Ty -> M.Ty
+pattern CTyRwLock t <- M.TyAdt _ $(M.explodedDefIdPat ["std", "sync", "rwlock", "RwLock"]) (M.Substs [t])
 
 -- These don't have custom representation, but are referenced in various
 -- places.
@@ -191,6 +211,12 @@ tyToRepr col t0 = case t0 of
         C.AsBaseType btr ->
             Right (Some (C.SymbolicArrayRepr (Ctx.Empty Ctx.:> C.BaseBVRepr (knownNat @SizeBits)) btr))
         C.NotBaseType -> Left "unsupported: crucible arrays of non-base type"
+  -- Pin<T> is a transparent wrapper; erase it to just T
+  CTyPin t -> tyToRepr col t
+  -- Arc<T>, Mutex<T>, RwLock<T> are modeled transparently for verification
+  CTyArc t -> tyToRepr col t
+  CTyMutex t -> tyToRepr col t
+  CTyRwLock t -> tyToRepr col t
   CTyAny -> Right (Some C.AnyRepr)
   CTyMethodSpec -> Right (Some MethodSpecRepr)
   CTyMethodSpecBuilder -> Right (Some MethodSpecBuilderRepr)
