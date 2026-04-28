@@ -1239,7 +1239,7 @@ size_of_val = (["core", "intrinsics", "size_of_val"], \substs -> case substs of
             -- support computing the size of trait objects that aren't embedded
             -- in a custom DST. TODO(#1614): Lift this restriction.
             DynRefRepr -> case ty of
-                TyDynamic dynTraitName -> getVtableUsize dynTraitName 0 e
+                TyDynamic dynTraitName -> getVtableUsize dynTraitName vtableSizeSlotIdx e
                 TyAdt {} -> unsupportedCustomDst ty
                 _ -> panic "size_of_val"
                        ["Unexpected DynRefRepr type", show (PP.pretty ty)]
@@ -1306,7 +1306,7 @@ align_of_val = (["core", "intrinsics", "align_of_val"], \substs -> case substs o
             -- support computing the alignment of trait objects that aren't
             -- embedded in a custom DST. TODO(#1614): Lift this restriction.
             DynRefRepr -> case ty of
-                TyDynamic dynTraitName -> getVtableUsize dynTraitName 1 e
+                TyDynamic dynTraitName -> getVtableUsize dynTraitName vtableAlignSlotIdx e
                 TyAdt {} -> unsupportedCustomDst ty
                 _ -> panic "align_of_val"
                        ["Unexpected DynRefRepr type", show (PP.pretty ty)]

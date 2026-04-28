@@ -1897,7 +1897,21 @@ getLayoutFieldAsMirExp opName layoutFieldLens ty =
   MirExp UsizeRepr <$> getLayoutFieldAsExpr opName layoutFieldLens ty
 
 
--- Vtable handling
+-- Vtable layout helpers
+
+-- | Collection of pieces that go into constructing a vtable.  We use this to
+-- avoid hardcoding indices or orderings in various places throughout the code.
+data VtableParts s = VtableParts
+  { vtpMethods :: [MirExp s]
+  , vtpSize :: R.Expr MIR s UsizeType
+  , vtpAlign :: R.Expr MIR s UsizeType
+  }
+
+vtablePartsToEntries :: VtableParts s -> [MirExp s]
+vtablePartsToEntries vtp =
+  MirExp UsizeRepr (vtpSize vtp) :
+  MirExp UsizeRepr (vtpAlign vtp) :
+  vtpMethods vtp
 
 -- | Non-method fields present at the start of every vtable.
 vtableInfoTys :: [M.Ty]
@@ -1911,9 +1925,18 @@ vtableInfoTys =
 numVtableInfoSlots :: Int
 numVtableInfoSlots = length vtableInfoTys
 
+vtableSizeSlotIdx :: Int
+vtableSizeSlotIdx = 0
+
+vtableAlignSlotIdx :: Int
+vtableAlignSlotIdx = 1
+
 -- | Convert a method index to a slot index.
 vtableMethodSlotIdx :: Int -> Int
 vtableMethodSlotIdx methodIdx = numVtableInfoSlots + methodIdx
+
+
+-- Vtable construction and use
 
 -- TODO: make mir-json emit trait vtable layouts for all dyns observed in the
 -- crate, then use that info to greatly simplify this function

@@ -1306,16 +1306,16 @@ mkTraitObject traitName' vtableName e = do
         Just x -> return x
         Nothing -> error $ "missing vtable definition for " ++ show vtableName
 
-    let info =
-            [ MirExp UsizeRepr $ R.App $ usizeLit $ fromIntegral $ vtable ^. vtSize
-            , MirExp UsizeRepr $ R.App $ usizeLit $ fromIntegral $ vtable ^. vtAlign
-            ]
-
     let mkEntry :: MirHandle -> MirExp s
         mkEntry (MirHandle _ _ fh) =
             MirExp (C.FunctionHandleRepr (FH.handleArgTypes fh) (FH.handleReturnType fh))
                 (R.App $ E.HandleLit fh)
-    vtableExp@(MirExp vtableTy _) <- return $ mkStructExp $ info ++ map mkEntry handles
+    let vtParts = VtableParts
+            { vtpMethods = map mkEntry handles
+            , vtpSize = R.App $ usizeLit $ fromIntegral $ vtable ^. vtSize
+            , vtpAlign = R.App $ usizeLit $ fromIntegral $ vtable ^. vtAlign
+            }
+    vtableExp@(MirExp vtableTy _) <- return $ mkStructExp $ vtablePartsToEntries vtParts
 
     -- Check that the vtable we constructed has the appropriate type for the
     -- trait.  A mismatch would cause runtime errors at calls to trait methods.
