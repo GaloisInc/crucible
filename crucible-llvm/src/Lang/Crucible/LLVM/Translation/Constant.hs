@@ -85,7 +85,7 @@ import           Lang.Crucible.LLVM.TypeContext
 
 -- | Pretty print an LLVM instruction
 showInstr :: L.Instr -> String
-showInstr i = show (L.ppLLVM38 (L.ppInstr i))
+showInstr i = show (LPP.ppLLVMLatest (L.ppInstr i))
 
 -- | Intermediate representation of a GEP.
 --   A @GEP n expr@ is a representation of a GEP with
