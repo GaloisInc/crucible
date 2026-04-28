@@ -1235,10 +1235,9 @@ size_of_val = (["core", "intrinsics", "size_of_val"], \substs -> case substs of
                        ["Unexpected MirSliceRepr type", show (PP.pretty ty)]
 
             -- Trait objects (e.g., `&dyn Debug` and custom DSTs whose last
-            -- field contains a trait object) are unsized. This override
-            -- currently does not support any kind of trait object, so all we
-            -- do here is make an effort to give a descriptive error message.
-            -- TODO(#1614): Support trait objects and custom DSTs here.
+            -- field contains a trait object) are unsized.  We currently
+            -- support computing the size of trait objects that aren't embedded
+            -- in a custom DST. TODO(#1614): Lift this restriction.
             DynRefRepr -> case ty of
                 TyDynamic dynTraitName -> getVtableUsize dynTraitName 0 e
                 TyAdt {} -> unsupportedCustomDst ty
@@ -1303,10 +1302,9 @@ align_of_val = (["core", "intrinsics", "align_of_val"], \substs -> case substs o
                        ["Unexpected MirSliceRepr type", show (PP.pretty ty)]
 
             -- Trait objects (e.g., `&dyn Debug` and custom DSTs whose last
-            -- field contains a trait object) are unsized. This override
-            -- currently does not support any kind of trait object, so all we
-            -- do here is make an effort to give a descriptive error message.
-            -- TODO(#1614): Support trait objects and custom DSTs here.
+            -- field contains a trait object) are unsized.  We currently
+            -- support computing the alignment of trait objects that aren't
+            -- embedded in a custom DST. TODO(#1614): Lift this restriction.
             DynRefRepr -> case ty of
                 TyDynamic dynTraitName -> getVtableUsize dynTraitName 1 e
                 TyAdt {} -> unsupportedCustomDst ty
