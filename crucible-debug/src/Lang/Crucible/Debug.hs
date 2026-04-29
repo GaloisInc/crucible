@@ -70,7 +70,6 @@ module Lang.Crucible.Debug
   ) where
 
 import Control.Applicative qualified as Applicative
-import Control.Lens qualified as Lens
 import Control.Monad qualified as Monad
 import Data.Function ((&))
 import Data.Maybe qualified as Maybe
@@ -116,6 +115,7 @@ import Lang.Crucible.Simulator.ExecutionTree qualified as C
 import Lang.Crucible.Simulator qualified as C
 import Lang.Crucible.Syntax.Concrete qualified as C
 import Lang.Crucible.Types qualified as C
+import Lens.Micro qualified as Lens
 import Prettyprinter qualified as PP
 import Prettyprinter.Render.Text qualified as PP
 import System.Exit qualified as Exit

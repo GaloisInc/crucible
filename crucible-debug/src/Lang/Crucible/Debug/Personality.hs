@@ -15,13 +15,13 @@ module Lang.Crucible.Debug.Personality
   , stop
   ) where
 
-import Control.Lens qualified as Lens
 import Data.Function ((&))
 import Lang.Crucible.Debug.Context (Context)
 import Lang.Crucible.Debug.Context qualified as Ctxt
 import Lang.Crucible.Debug.Inputs qualified as Inps
 import Lang.Crucible.Debug.Statement (Statement)
 import Lang.Crucible.Simulator.ExecutionTree qualified as C
+import Lens.Micro qualified as Lens
 
 -- | A class for Crucible personality types @p@ (see
 -- 'Lang.Crucible.Simulator.ExecutionTree.cruciblePersonality') which contain a

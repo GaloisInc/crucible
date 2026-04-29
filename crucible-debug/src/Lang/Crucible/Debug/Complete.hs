@@ -23,7 +23,6 @@ module Lang.Crucible.Debug.Complete
   , complete
   ) where
 
-import Control.Lens qualified as Lens
 import Control.Monad qualified as Monad
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (MonadReader, ReaderT)
@@ -51,6 +50,7 @@ import Lang.Crucible.Debug.Command (CommandExt)
 import Lang.Crucible.Debug.Command qualified as Cmd
 import Lang.Crucible.FunctionHandle qualified as C
 import Lang.Crucible.Simulator.ExecutionTree qualified as C
+import Lens.Micro qualified as Lens
 import Prettyprinter qualified as PP
 import System.Directory qualified as Dir
 import System.FilePath qualified as FilePath
