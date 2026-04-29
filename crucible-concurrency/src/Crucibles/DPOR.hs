@@ -20,17 +20,21 @@ E. That's it! We use clockvectors to quickly compute the happens-before relation
 {-# LANGUAGE FlexibleContexts #-}
 module Crucibles.DPOR (DPOR, ppSchedExecutionsDPOR) where
 
-import           Control.Lens
 import           Control.Monad (foldM_, forM_, when)
 import           Control.Monad.State (gets)
+import           Data.Foldable (traverse_)
+import           Data.Function ((&))
+import qualified Data.IntMap.Strict as IntMap
 import           Data.List (intercalate)
 import           Data.Map.Strict (Map)
+import           Data.Maybe (fromMaybe)
 import qualified Data.Set as Set
 import           Data.Text (Text)
-import qualified Data.IntMap.Strict as IntMap
-import           Data.Maybe (fromMaybe)
 import           GHC.Stack
-import           Data.Foldable (traverse_)
+import           Lens.Micro (Lens', lens, (^.), (.~), (%~), to)
+import           Lens.Micro.GHC (at)
+import           Lens.Micro.Mtl (use, view, (.=), (%=))
+import           Lens.Micro.TH (makeLenses)
 
 import           Crucibles.Common
 import           Crucibles.Execution

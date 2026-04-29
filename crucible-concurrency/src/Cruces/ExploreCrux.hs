@@ -24,10 +24,12 @@ module Cruces.ExploreCrux
 
 import           Control.Monad.IO.Class
 import           Control.Monad (when)
-import           Control.Lens
-import qualified Data.Vector as V
 import qualified Data.Map.Strict as Map
 import           Data.Void (Void)
+import qualified Data.Vector as V
+import           Lens.Micro (over, set)
+import           Lens.Micro.Mtl (use, (.=), (%=))
+import           Lens.Micro.TH (makeLenses)
 import           System.IO (Handle)
 
 import           What4.Interface

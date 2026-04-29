@@ -18,11 +18,11 @@ last event of q that happened before p.
 {-# LANGUAGE RankNTypes #-}
 module Crucibles.ClockVector where
 
-import           Control.Lens
-import           Data.Foldable
+import           Data.Foldable (foldl')
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
+import           Lens.Micro (Lens', lens)
 
 newtype ClockVector p v = CV { getCV :: Map p v }
   deriving (Show)

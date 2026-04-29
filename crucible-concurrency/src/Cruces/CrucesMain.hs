@@ -13,13 +13,13 @@ Maintainer       : Alexander Bakst <abakst@galois.com>
 {-# LANGUAGE ViewPatterns #-}
 module Cruces.CrucesMain (run, defaultCrucesOptions, cruciblesConfig) where
 
-import Control.Lens
 import Control.Monad (unless)
 import Data.Foldable (toList)
 import Data.List (find)
 import qualified Data.Map as Map
 import Data.Text (pack)
 import Data.String (IsString(..))
+import Lens.Micro.Extras (view)
 import qualified Prettyprinter as PP
 import System.Exit
 import Text.Megaparsec as MP

@@ -40,7 +40,7 @@ opportunity to learn the @lens@ library.
 {-# Language TemplateHaskell #-}
 module Crucibles.Execution where
 
-import           Control.Lens
+import           Data.Function ((&))
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Set (Set)
@@ -52,6 +52,9 @@ import qualified Data.IntSet as IntSet
 import           Data.Text (Text)
 import           Data.Maybe (fromMaybe)
 import           GHC.Stack
+import           Lens.Micro ((^.), (.~), (?~), SimpleGetter, to)
+import           Lens.Micro.GHC (at)
+import           Lens.Micro.TH (makeLenses)
 
 type EventID    = Int
 type EventIDMap = IntMap
@@ -122,14 +125,14 @@ maximalExecution e = IntSet.member (e ^. currentEventID) (e ^. maximalEvents)
 
 -- | Lens for extracting an event given its eventID. Will fail with an error if
 -- the eventID is not mapped.
-event :: HasCallStack => EventID -> Getter (Executions e) e
+event :: HasCallStack => EventID -> SimpleGetter (Executions e) e
 event eid = to (fromMaybe err . IntMap.lookup eid . _eventMap)
   where
     err = error ("Executions with unknown current event: " ++ show eid)
 
 -- | Convenience lens for looking up the current event. Fails if the current
 -- event is not actually mapped.
-currentEvent :: Getter (Executions e) e
+currentEvent :: SimpleGetter (Executions e) e
 currentEvent = to getter
   where
     getter e = fromMaybe (err e) (IntMap.lookup (_currentEventID e) (_eventMap e))
@@ -137,7 +140,7 @@ currentEvent = to getter
 
 -- | Convenience lens for looking up the current event's previous event. Fails
 -- if the current event is not actually mapped.
-prevEventID :: Getter (Executions (ScheduleEvent i)) EventID
+prevEventID :: SimpleGetter (Executions (ScheduleEvent i)) EventID
 prevEventID = to getter
   where
     getter e = fromMaybe (err e) $ e ^. prevEvent.at (e ^. currentEvent.eventID)
