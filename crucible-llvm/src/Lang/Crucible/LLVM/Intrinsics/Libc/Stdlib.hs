@@ -50,9 +50,9 @@ module Lang.Crucible.LLVM.Intrinsics.Libc.Stdlib
   , CheckAbsIntMin(..)
   ) where
 
-import           Control.Lens ((^.))
 import           Control.Monad (when)
 import           Control.Monad.IO.Class (liftIO)
+import           Lens.Micro ((^.))
 
 import qualified Data.BitVector.Sized as BV
 import qualified Data.Parameterized.Context as Ctx

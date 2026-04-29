@@ -33,15 +33,15 @@ import qualified Test.Tasty.Runners as TR
 import qualified Test.Tasty.Sugar as TS
 
 -- General
-import           Control.Lens (view)
 import           Control.Monad
 import           Data.Either ( fromRight )
 import           Data.Functor.Classes ( Eq1(liftEq) )
 import           Data.Functor.Identity ( Identity(..) )
-import           Data.Maybe ( catMaybes )
-import           GHC.TypeLits
 import qualified Data.Map.Strict as Map
+import           Data.Maybe ( catMaybes )
 import           Data.Proxy ( Proxy(..) )
+import           GHC.TypeLits
+import           Lens.Micro.Extras (view)
 import qualified System.Directory as Dir
 import           System.Environment ( lookupEnv )
 import           System.Exit ( ExitCode(..) )

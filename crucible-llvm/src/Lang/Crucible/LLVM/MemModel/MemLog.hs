@@ -79,10 +79,10 @@ module Lang.Crucible.LLVM.MemModel.MemLog
   ) where
 
 import           Control.Applicative ((<|>))
-import           Control.Lens
 import           Control.Monad.State
 import           Control.Monad.Trans.Maybe
 import           Data.Foldable
+import           Data.Function ((&))
 import           Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import qualified Data.List.Extra as List
@@ -92,6 +92,7 @@ import           Data.Maybe (mapMaybe)
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import           Data.Text (Text)
+import           Lens.Micro (Lens', lens, (^.), (.~))
 import           Numeric.Natural
 import           Prettyprinter
 
