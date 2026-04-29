@@ -64,7 +64,7 @@ common bldflags
                   , crux
                   , directory
                   , filepath
-                  , lens
+                  , microlens
                   , process
                   , text
                   , what4
@@ -190,6 +190,7 @@ library
     logict,
     llvm-pretty,
     llvm-pretty-bc-parser >= 0.5,
+    microlens-mtl,
     mtl,
     parameterized-utils,
     prettyprinter >= 1.7.0
@@ -223,6 +224,7 @@ executable crux-llvm-for-ide
     aeson,
     crux-llvm,
     lumberjack,
+    microlens-th,
     websockets >= 0.12
 
   main-is: Main.hs

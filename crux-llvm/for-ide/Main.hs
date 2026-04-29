@@ -4,7 +4,6 @@
 
 module Main (main) where
 
-import Control.Lens (makeLenses, set, view)
 import Crux (OutputConfig)
 import qualified Crux
 import Crux.Config.Common (OutputOptions)
@@ -16,6 +15,9 @@ import CruxLLVMMain
   )
 import qualified Data.Aeson as JSON
 import Data.Text as Text (Text, unpack)
+import Lens.Micro (set)
+import Lens.Micro.Extras (view)
+import Lens.Micro.TH (makeLenses)
 import qualified Lumberjack as LJ
 import qualified Network.WebSockets as WS
 import Paths_crux_llvm (version)
