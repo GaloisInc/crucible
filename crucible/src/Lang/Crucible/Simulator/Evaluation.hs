@@ -35,14 +35,15 @@ module Lang.Crucible.Simulator.Evaluation
 import           Prelude hiding (pred)
 
 import qualified Control.Exception as Ex
-import           Control.Lens
 import           Control.Monad
 import qualified Data.BitVector.Sized as BV
+import           Data.Function ((&))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe
 import qualified Data.Text as Text
 import qualified Data.Vector as V
 import           Data.Word
+import           Lens.Micro ((.~))
 import           Numeric ( showHex )
 import           Numeric.Natural
 import           GHC.Stack

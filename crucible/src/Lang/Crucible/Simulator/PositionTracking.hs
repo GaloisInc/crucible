@@ -21,8 +21,8 @@ module Lang.Crucible.Simulator.PositionTracking
   ( positionTrackingFeature
   ) where
 
-import Control.Lens ((^.), to)
 import Control.Monad.IO.Class
+import Lens.Micro ((^.), to)
 
 import Lang.Crucible.Backend
 import Lang.Crucible.Simulator.CallFrame

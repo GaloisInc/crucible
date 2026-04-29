@@ -46,7 +46,7 @@ library
     lens,
     libBF >= 0.6 && < 0.7,
     lumberjack >= 1.0 && < 1.1,
-    parameterized-utils >= 1.0 && < 2.2,
+    parameterized-utils >= 2.3 && < 2.4,
     prettyprinter >= 1.7.0,
     split >= 0.2,
     terminal-size,

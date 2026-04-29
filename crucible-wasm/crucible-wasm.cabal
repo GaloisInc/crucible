@@ -136,7 +136,7 @@ library
     lens,
     mtl >= 2.1,
     panic >= 0.3,
-    parameterized-utils >= 1.0 && < 2.2,
+    parameterized-utils >= 2.3 && < 2.4,
     prettyprinter >= 1.7.0 && < 1.8,
     text,
     transformers >= 0.3,

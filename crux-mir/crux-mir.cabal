@@ -127,7 +127,7 @@ library
                  crucible-concurrency,
                  crucible-debug,
                  crucible-mir,
-                 parameterized-utils >= 1.0.8,
+                 parameterized-utils >= 2.3,
                  containers,
                  lens,
                  mtl,

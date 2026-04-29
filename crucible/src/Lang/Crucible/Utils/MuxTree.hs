@@ -34,11 +34,10 @@ module Lang.Crucible.Utils.MuxTree
   , muxTreeGt
   ) where
 
-import           Control.Lens (folded)
-
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Map.Merge.Strict as Map
+import           Lens.Micro (folded)
 
 import           What4.Interface
 import           Lang.Crucible.Panic
