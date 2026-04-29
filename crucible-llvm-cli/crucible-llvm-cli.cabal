@@ -120,7 +120,7 @@ library
     crucible-llvm,
     crucible-llvm-syntax,
     crucible-syntax,
-    lens,
+    microlens,
     mtl,
     parameterized-utils >= 2.3,
     prettyprinter,
