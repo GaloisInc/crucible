@@ -6,9 +6,10 @@
 {-# LANGUAGE GADTs #-}
 module Mir.Concurrency where
 
-import           Control.Lens
 import qualified Data.BitVector.Sized as BV
+import           Data.Type.Equality ((:~:)(..))
 import qualified Data.Text as Text
+import           Lens.Micro ((^.))
 
 import qualified Data.Parameterized.Context            as Ctx
 

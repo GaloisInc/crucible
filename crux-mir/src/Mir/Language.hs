@@ -41,10 +41,10 @@ import qualified Data.List       as List
 import           Data.Text (Text)
 import qualified Data.Text       as Text
 import           Data.Type.Equality ((:~:)(..),TestEquality(..))
+import           Data.Function ((&))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
 import qualified Data.Sequence   as Seq
-import           Data.Function ((&))
 import           GHC.Generics (Generic)
 import           Lens.Micro ((^.), (^?), (^..), (.~), each, _Just)
 import           Lens.Micro.Extras (view)
