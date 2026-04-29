@@ -1,5 +1,12 @@
 # next
 
+- **Breaking:** Drop the `Generic` instances from `ColorOptions`, `CruxOptions`,
+  `EarlyConfig`, and `OutputOptions`.
+- The following `Lens'` functions are now exported: `outputOptionsL`,
+  `colorOptionsL`, `simVerboseL`, `printFailuresL`, `quietModeL` (from
+  `Crux.Config.Common`), and `colorOptionsL`, `noColorsErrL`, `noColorsOutL`
+  (from `Crux.Config.Load`).
+
 # 0.9 -- 2026-01-29
 
 # 0.8 -- 2025-11-09

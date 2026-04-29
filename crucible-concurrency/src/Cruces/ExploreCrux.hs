@@ -13,7 +13,6 @@ Maintainer       : Alexander Bakst <abakst@galois.com>
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TemplateHaskell #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Cruces.ExploreCrux
@@ -26,7 +25,6 @@ module Cruces.ExploreCrux
 import           Control.Monad.IO.Class
 import           Control.Monad (when)
 import           Control.Lens
-import           Data.Generics.Product.Fields (field, setField)
 import qualified Data.Vector as V
 import qualified Data.Map.Strict as Map
 import           Data.Void (Void)
@@ -45,6 +43,7 @@ import           Lang.Crucible.CFG.Extension (IsSyntaxExtension)
 import           Lang.Crucible.Backend
 
 import qualified Crux
+import           Crux.Config.Common (outputOptionsL, quietModeL, simVerboseL)
 import qualified Crux.Types
 
 import           Crucibles.SchedulingAlgorithm hiding (_exec, exec)
@@ -191,7 +190,7 @@ exploreOvr bak symOnline cruxOpts mainAct =
       Just (Crux.SomeOnlineSolver _) ->
         do ctx <- use stateContext
            todo <- liftIO $ getProofObligations bak
-           let cruxOpts' = over (field @"outputOptions") (setField @"quietMode" True . setField @"simVerbose" 0) cruxOpts
+           let cruxOpts' = over outputOptionsL (set quietModeL True . set simVerboseL 0) cruxOpts
            mkOutCfg <- liftIO $ Crux.defaultOutputConfig Crux.cruxLogMessageToSayWhat
            let ?outputConfig = mkOutCfg (Just (Crux.outputOptions cruxOpts'))
            (processed, _) <- liftIO $ proveGoalsOnline bak cruxOpts' ctx (\_ _ -> return mempty) todo
