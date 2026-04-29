@@ -3,9 +3,9 @@
 module Crux.Config.Load where
 
 
-import Control.Lens (Lens', lens, set)
-import Control.Monad(foldM, (<=<))
 import Control.Exception(Exception(..),catch,catches,throwIO, Handler(..))
+import Control.Monad(foldM, (<=<))
+import Lens.Micro (Lens', lens, set)
 import Data.Text (Text)
 
 import System.Environment
