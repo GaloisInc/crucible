@@ -37,7 +37,9 @@ import qualified Data.Vector as V
 import qualified Prettyprinter as PP
 
 import Control.Monad
-import Control.Lens ((^.), at, use)
+import Lens.Micro ((^.))
+import Lens.Micro.GHC (at)
+import Lens.Micro.Mtl (use)
 
 import GHC.Stack
 

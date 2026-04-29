@@ -107,14 +107,15 @@ import GHC.TypeLits
     TypeError,
   )
 
-import Control.Lens ((&), (.~), (^.))
 import Control.Monad (MonadPlus (..), when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.State.Class (get, put)
 import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Maybe (MaybeT (..))
+import Lens.Micro ((^.), (.~))
 
 import Data.BitVector.Sized qualified as BV
+import Data.Function ((&))
 import Data.Kind (Type)
 import Data.Parameterized.Context
   ( Ctx,

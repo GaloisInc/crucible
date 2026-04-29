@@ -26,13 +26,17 @@
 module Mir.TransTy where
 
 import Control.Monad
-import Control.Lens
 import qualified Data.BitVector.Sized as BV
 import Data.List (findIndices)
+import Data.Foldable.WithIndex (ifind)
 import qualified Data.Map.Strict as Map
+import           Data.Function ((&))
 import           Data.String (fromString)
 import qualified Data.Vector as V
-import Data.Word (Word64)
+import           Data.Word (Word64)
+import Lens.Micro ((^.), (^?), (%~), SimpleGetter, ix)
+import Lens.Micro.GHC (at)
+import Lens.Micro.Mtl (use)
 import Prettyprinter (Pretty(..))
 
 import GHC.Stack
@@ -1363,7 +1367,7 @@ enumInfo adt i j = do
         M.Enum discrTy -> tyToReprM discrTy
         _ -> mirFail $ "expected enum, but got adt " ++ show (adt ^. M.adtname)
 
-    when (isn't M._Enum (adt ^. M.adtkind)) $ mirFail $
+    when (not (M.isEnum (adt ^. M.adtkind))) $ mirFail $
         "expected enum, but got adt " ++ show (adt ^. M.adtname)
 
     var <- case adt ^? M.adtvariants . ix i of
@@ -1874,7 +1878,7 @@ expectEnumOrFail expectedDiscrTpr expectedVariantsCtx actualEnumTpr =
 getLayoutFieldAsExpr ::
      String -- ^ The name of the operation that is looking up the layout data
             -- (only used for error messages)
-  -> Getter M.Layout Word64 -- ^ Which field of the layout data to retrieve
+  -> SimpleGetter M.Layout Word64 -- ^ Which field of the layout data to retrieve
   -> M.Ty -- ^ The type to look up layout data for
   -> MirGenerator h s ret (R.Expr MIR s UsizeType)
 getLayoutFieldAsExpr opName layoutFieldLens ty = do
@@ -1890,7 +1894,7 @@ getLayoutFieldAsExpr opName layoutFieldLens ty = do
 getLayoutFieldAsMirExp ::
      String -- ^ The name of the operation that is looking up the layout data
             -- (only used for error messages)
-  -> Getter M.Layout Word64 -- ^ Which field of the layout data to retrieve
+  -> SimpleGetter M.Layout Word64 -- ^ Which field of the layout data to retrieve
   -> M.Ty -- ^ The type to look up layout data for
   -> MirGenerator h s ret (MirExp s)
 getLayoutFieldAsMirExp opName layoutFieldLens ty =

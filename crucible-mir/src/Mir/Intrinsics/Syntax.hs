@@ -25,8 +25,7 @@ where
 
 import GHC.TypeLits (type (<=))
 
-import Control.Lens ((&), (.~), (^.))
-
+import Data.Function ((&))
 import Data.Kind (Type)
 import Data.Parameterized.Classes (OrdF (..), TestEquality (..))
 import Data.Parameterized.Context
@@ -50,6 +49,7 @@ import Data.Parameterized.TraversableFC
     foldMapFCDefault,
   )
 import Data.Vector qualified as V
+import Lens.Micro ((^.), (.~))
 
 import Prettyprinter (pretty, viaShow, (<+>))
 

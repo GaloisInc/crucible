@@ -44,8 +44,11 @@ import           Data.Type.Equality ((:~:)(..),TestEquality(..))
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (fromMaybe)
 import qualified Data.Sequence   as Seq
-import           Control.Lens ((^.), (^?), (^..), (.~), (&), ix, each, _Just)
+import           Data.Function ((&))
 import           GHC.Generics (Generic)
+import           Lens.Micro ((^.), (^?), (^..), (.~), each, _Just)
+import           Lens.Micro.Extras (view)
+import           Lens.Micro.GHC (ix)
 
 import System.Console.ANSI
 import           System.IO (Handle)
@@ -54,8 +57,6 @@ import           System.Exit (exitSuccess, exitWith, ExitCode(..))
 import           System.FilePath ((</>))
 
 import           Prettyprinter (pretty)
-
-import           Control.Lens (view)
 
 --import           GHC.Stack
 
