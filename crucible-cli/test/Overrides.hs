@@ -11,12 +11,12 @@ module Overrides
   ( setupOverrides
   ) where
 
-import qualified Control.Lens as Lens
-import Control.Lens hiding ((:>), Empty)
 import Control.Monad.Except (runExceptT)
 import Control.Monad.IO.Class
 import qualified Control.Monad.State.Strict as State
 import Data.Monoid (All(..))
+import Lens.Micro ((^.))
+import Lens.Micro.Extras (view)
 import System.IO
 
 import qualified Prettyprinter as PP
@@ -230,7 +230,7 @@ printAssumptionState ::
   proxy sym ->
   OverrideSim p sym ext r EmptyCtx UnitType (RegValue sym UnitType)
 printAssumptionState _proxy = do
-  ctx <- State.gets (Lens.view stateContext)
+  ctx <- State.gets (view stateContext)
   let hdl = printHandle ctx
   CS.ovrWithBackend $ \bak -> liftIO $ do
     let render =  PP.renderIO hdl . PP.layoutSmart PP.defaultLayoutOptions
