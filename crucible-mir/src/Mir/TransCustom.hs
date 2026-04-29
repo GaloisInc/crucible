@@ -2352,7 +2352,7 @@ cloneShimDef ty _parts = CustomOp $ \_ _ -> mirFail $ "cloneShimDef not implemen
 -- | Create an 'IkCloneShim' implementation for a tuple or closure type.
 cloneShimTuple :: Ty -> [M.DefId] -> CustomOp
 cloneShimTuple tupleTy parts = CustomMirOp $ \ops -> do
-    tys <- tupleLikeFieldTysM tupleTy
+    tys <- map snd <$> tyFieldsM tupleTy
     when (length tys /= length parts) $ mirFail "cloneShimTuple: expected tys and parts to match"
     -- The clone shim expects exactly one operand, with a reference type that
     -- looks something `&(A, B, C)`. First, we dereference the argument to

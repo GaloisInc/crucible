@@ -847,21 +847,6 @@ buildArrayLit elemTy exps = do
         ag0 (zip [0, elemSize ..] exps)
     return $ MirExp MirAggregateRepr ag1
 
--- | Get the fields of a tuple-like type.
-tupleLikeFieldTys :: M.Ty -> Maybe [M.Ty]
-tupleLikeFieldTys ty =
-    case ty of
-        M.TyTuple tys -> Just tys
-        M.TyClosure tys -> Just tys
-        M.TyCoroutineClosure tys -> Just tys
-        _ -> Nothing
-
-tupleLikeFieldTysM :: M.Ty -> MirGenerator h s ret [M.Ty]
-tupleLikeFieldTysM ty =
-    case tupleLikeFieldTys ty of
-        Just x -> return x
-        Nothing -> mirFail $ "tupleLikeFieldTysM: expected tuple-like type, but got " ++ show ty
-
 {-
 Note [present]
 --------------
@@ -899,19 +884,14 @@ buildTupleM tupleTy xs = buildTupleMaybeM tupleTy (map Just xs)
 -- [present].
 buildTupleMaybeM :: M.Ty -> [Maybe (MirExp s)] -> MirGenerator h s ret (MirExp s)
 buildTupleMaybeM tupleTy xs = do
-    fieldTys <- tupleLikeFieldTysM tupleTy
     layout <- tyLayoutM tupleTy
-    let fieldOffsets = case layout ^. M.layFieldOffsets of
-            Just x -> x
-            -- Should be impossible; all struct-like types should have field info.
-            Nothing -> panic "buildTupleMaybeM"
-                ["missing field_offsets in layout for", show tupleTy]
-    when (length fieldTys /= length fieldOffsets || length fieldTys /= length xs) $
-        mirFail $ "buildTupleMaybeM: length mismatch:\n  fieldTys = " ++ show fieldTys
-            ++ "\n  fieldOffsets = " ++ show fieldOffsets ++ "\n  xs = " ++ show xs
+    offsetsAndTys <- tyFieldsM tupleTy
+    when (length offsetsAndTys /= length xs) $
+        mirFail $ "buildTupleMaybeM: length mismatch:\n  offsetsAndTys = " ++ show offsetsAndTys
+            ++ "\n  xs = " ++ show xs
     ag0 <- mirAggregate_uninit_constSize (fromIntegral $ layout ^. M.laySize)
     ag1 <- foldM
-        (\ag (ty, off, mExp) -> do
+        (\ag ((off, ty), mExp) -> do
             sz <- tySizeM ty
             case mExp of
                 Just (MirExp tpr rv)
@@ -920,10 +900,10 @@ buildTupleMaybeM tupleTy xs = do
                   -- never be accessed.  A ZST field can have the same offset
                   -- as another field; omitting the ZST field prevents one from
                   -- overwriting the other.
-                  | sz /= 0 -> mirAggregate_set (fromIntegral off) sz tpr rv ag
+                  | sz /= 0 -> mirAggregate_set off sz tpr rv ag
                   | otherwise -> return ag
                 Nothing -> return ag)
-        ag0 (zip3 fieldTys fieldOffsets xs)
+        ag0 (zip offsetsAndTys xs)
     return $ MirExp MirAggregateRepr ag1
 
 getTupleElem :: HasCallStack => M.Ty -> MirExp s -> Int -> MirGenerator h s ret (MirExp s)

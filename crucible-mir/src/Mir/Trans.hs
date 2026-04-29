@@ -308,7 +308,7 @@ transConstSliceRef ty defid len = do
 -- Translate a constant (non-empty) tuple or constant closure value.
 transConstTuple :: M.Ty -> [ConstVal] -> MirGenerator h s ret (MirExp s)
 transConstTuple tupleTy vals = do
-    tys <- tupleLikeFieldTysM tupleTy
+    tys <- map snd <$> tyFieldsM tupleTy
     exps <- forM (zip tys vals) $ \(ty, val) -> do
         Some tpr <- tyToReprM ty
         transConstVal ty (Some tpr) val
