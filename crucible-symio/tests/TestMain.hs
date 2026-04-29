@@ -35,6 +35,7 @@ import           Data.Parameterized.Classes
 import           Data.Parameterized.Some
 import qualified Data.Parameterized.Nonce as N
 import qualified Data.Parameterized.NatRepr as NR
+import           Lens.Micro ((^.))
 
 import qualified Data.ByteString as BS
 
