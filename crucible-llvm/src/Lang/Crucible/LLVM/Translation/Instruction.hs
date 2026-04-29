@@ -1920,6 +1920,13 @@ generateInstr retType lab instr assign_f k =
     L.LandingPad{} -> unsupported
     L.Resume{} -> unsupported
 
+    -- Windows SEH instructions, not currently supported for simulation
+    L.CleanupPad{} -> unsupported
+    L.CatchPad{} -> unsupported
+    L.CleanupRet{} -> unsupported
+    L.CatchRet{} -> unsupported
+    L.CatchSwitch{} -> unsupported
+
     -- indirect branch could be supported, but requires some nontrivial work to deal
     -- properly with mapping basic-block labels to pointer values.
     L.IndirectBr{} -> unsupported
