@@ -24,7 +24,6 @@
 module Main (main) where
 
 import           GHC.TypeNats
-import           Control.Lens ( (^.) )
 
 import           Control.Monad (foldM )
 import           Control.Monad.Except (runExceptT)
