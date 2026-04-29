@@ -43,7 +43,6 @@ import Control.Monad.State.Strict (MonadState(..), StateT)
 import Control.Monad.Trans.Class (MonadTrans(..))
 import Control.Monad.ST
 import Control.Monad.Reader ()
-import Control.Lens hiding (op, (:>))
 import Data.Int (Int32)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
@@ -57,6 +56,7 @@ import Data.Word
 import Data.Char (ord, chr)
 
 import Control.Applicative ((<|>))
+import Lens.Micro.Mtl (use)
 import System.IO
 
 -- jvm-parser

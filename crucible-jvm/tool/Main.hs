@@ -29,16 +29,16 @@
 
 module Main (main) where
 
-import Data.String(fromString)
-import qualified Data.Sequence as Seq
-import qualified Data.Map as Map
-import Control.Lens((^.), (&), (%~), lens)
-import Control.Monad.ST
-import Control.Monad
-import Control.Monad.State.Strict
-import Data.Void (Void)
-
 import Control.Exception(SomeException(..),displayException,catch)
+import Control.Monad
+import Control.Monad.ST
+import Control.Monad.State.Strict
+import Data.Function ((&))
+import qualified Data.Map as Map
+import qualified Data.Sequence as Seq
+import Data.String(fromString)
+import Data.Void (Void)
+import Lens.Micro ((^.), (%~), lens)
 
 import System.Console.GetOpt
 import System.IO
