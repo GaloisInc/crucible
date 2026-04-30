@@ -39,7 +39,6 @@ import qualified Data.Aeson as JSON
 import           Data.Foldable
 import           Data.Functor.Contravariant ( (>$<) )
 import           Data.Functor.Contravariant.Divisible ( divide )
-import           Data.Generics.Product.Fields (field)
 import           Data.IORef
 import           Data.Maybe ( fromMaybe )
 import qualified Data.Sequence as Seq
@@ -201,7 +200,7 @@ loadOptions mkOutCfg nm ver config cont =
              showVersion nm ver
              exitSuccess
        Cfg.Options (cruxWithoutColorOptions, os) files ->
-          do let crux = set (field @"outputOptions" . field @"colorOptions") copts cruxWithoutColorOptions
+          do let crux = set (outputOptionsL . colorOptionsL) copts cruxWithoutColorOptions
              let ?outputConfig = mkOutCfg (Just (outputOptions crux))
              crux' <- postprocessOptions crux { inputFiles = files ++ inputFiles crux }
              cont (crux', os)

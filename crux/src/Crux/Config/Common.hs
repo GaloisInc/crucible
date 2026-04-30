@@ -1,10 +1,7 @@
 {-# LANGUAGE ApplicativeDo #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE ImplicitParams #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE DataKinds #-}
 
 module Crux.Config.Common (
   OutputOptions(..),
@@ -13,17 +10,20 @@ module Crux.Config.Common (
   cruxOptions,
   defaultOutputOptions,
   postprocessOptions,
+  outputOptionsL,
+  colorOptionsL,
+  simVerboseL,
+  printFailuresL,
+  quietModeL,
 ) where
 
-import Control.Lens (set)
+import Control.Lens (Lens', lens, set)
 import Data.Functor.Alt
-import Data.Generics.Product.Fields (field)
 import Data.Time(DiffTime, NominalDiffTime)
 import Data.Maybe(fromMaybe)
 import Data.Char(toLower)
 import Data.Word (Word64)
 import Data.Text (pack)
-import GHC.Generics (Generic)
 import System.Directory ( createDirectoryIfMissing )
 
 import Crux.Config
@@ -101,7 +101,18 @@ data OutputOptions = OutputOptions
     -- ^ If true, produce minimal output
 
   }
-  deriving (Generic)
+
+colorOptionsL :: Lens' OutputOptions ColorOptions
+colorOptionsL = lens colorOptions (\o v -> o { colorOptions = v })
+
+simVerboseL :: Lens' OutputOptions Int
+simVerboseL = lens simVerbose (\o v -> o { simVerbose = v })
+
+printFailuresL :: Lens' OutputOptions Bool
+printFailuresL = lens printFailures (\o v -> o { printFailures = v })
+
+quietModeL :: Lens' OutputOptions Bool
+quietModeL = lens quietMode (\o v -> o { quietMode = v })
 
 
 defaultOutputOptions :: ColorOptions -> OutputOptions
@@ -209,8 +220,9 @@ data CruxOptions = CruxOptions
     -- ^ Drop into the Crucible debugger before simulation begins
 
   }
-  deriving (Generic)
 
+outputOptionsL :: Lens' CruxOptions OutputOptions
+outputOptionsL = lens outputOptions (\c v -> c { outputOptions = v })
 
 
 cruxOptions :: Config CruxOptions
@@ -393,7 +405,7 @@ cruxOptions = Config
 
       [ Option "d" ["sim-verbose"]
         "Set simulator verbosity level."
-        $ ReqArg "NUM" $ parsePosNum "NUM" $ \v -> set (field @"outputOptions" . field @"simVerbose") v
+        $ ReqArg "NUM" $ parsePosNum "NUM" $ \v -> set (outputOptionsL . simVerboseL) v
 
       , Option [] ["path-sat"]
         "Enable path satisfiability checking"
@@ -517,7 +529,7 @@ cruxOptions = Config
 
       , Option [] ["skip-print-failures"]
         "Skip printing messages related to failed verification goals"
-        $ NoArg $ Right . set (field @"outputOptions" . field @"printFailures") False
+        $ NoArg $ Right . set (outputOptionsL . printFailuresL) False
 
       , Option [] ["fail-fast"]
         "Stop attempting to prove goals as soon as one of them is disproved"
@@ -525,7 +537,7 @@ cruxOptions = Config
 
       , Option "q" ["quiet"]
         "Quiet mode; produce minimal output"
-        $ NoArg $ Right . set (field @"outputOptions" . field @"quietMode") True
+        $ NoArg $ Right . set (outputOptionsL . quietModeL) True
 
       , Option "f" ["floating-point"]
         ("Select floating point representation,"

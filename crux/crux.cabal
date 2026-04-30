@@ -42,7 +42,6 @@ library
     directory,
     file-embed ^>= 0.0.16,
     filepath,
-    generic-lens,
     githash ^>= 0.1.7,
     lens,
     libBF >= 0.6 && < 0.7,

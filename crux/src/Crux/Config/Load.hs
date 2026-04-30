@@ -1,16 +1,12 @@
-{-# LANGUAGE TypeApplications #-}
-{-# LANGUAGE DataKinds #-}
-{-# Language DeriveGeneric, MultiWayIf, OverloadedStrings #-}
+{-# Language MultiWayIf, OverloadedStrings #-}
 -- | This module deals with loading configurations.
 module Crux.Config.Load where
 
 
-import Control.Lens (set)
+import Control.Lens (Lens', lens, set)
 import Control.Monad(foldM, (<=<))
 import Control.Exception(Exception(..),catch,catches,throwIO, Handler(..))
-import Data.Generics.Product.Fields (field, setField)
 import Data.Text (Text)
-import GHC.Generics (Generic)
 
 import System.Environment
 
@@ -32,7 +28,6 @@ data ColorOptions = ColorOptions
   { noColorsErr :: Bool
   , noColorsOut :: Bool
   }
-  deriving (Generic)
 
 defaultColorOptions :: ColorOptions
 defaultColorOptions = allColors
@@ -49,6 +44,12 @@ noColors = ColorOptions
   , noColorsOut = True
   }
 
+noColorsErrL :: Lens' ColorOptions Bool
+noColorsErrL = lens noColorsErr (\c v -> c { noColorsErr = v })
+
+noColorsOutL :: Lens' ColorOptions Bool
+noColorsOutL = lens noColorsOut (\c v -> c { noColorsOut = v })
+
 
 -- | Command line options processed before loading the configuration file.
 data EarlyConfig opts = EarlyConfig
@@ -61,7 +62,9 @@ data EarlyConfig opts = EarlyConfig
   , options       :: OptSetter opts
   , files         :: [FilePath]
   }
-  deriving (Generic)
+
+colorOptionsL :: Lens' (EarlyConfig opts) ColorOptions
+colorOptionsL = lens colorOptions (\e v -> e { colorOptions = v })
 
 
 commandLineOptions :: Config opts -> OptSpec (EarlyConfig opts)
@@ -90,15 +93,15 @@ commandLineOptions cfg = OptSpec
 
       , Option [] ["no-colors-err"]
         "Suppress color codes in the errors"
-        $ NoArg $ Right . set (field @"colorOptions" . field @"noColorsErr") True
+        $ NoArg $ Right . set (colorOptionsL . noColorsErrL) True
 
       , Option [] ["no-colors-out"]
         "Suppress color codes in the output"
-        $ NoArg $ Right . set (field @"colorOptions" . field @"noColorsOut") True
+        $ NoArg $ Right . set (colorOptionsL . noColorsOutL) True
 
       , Option [] ["no-colors"]
         "Suppress color codes in both the output and the errors"
-        $ NoArg $ Right . setField @"colorOptions" noColors
+        $ NoArg $ Right . set colorOptionsL noColors
 
       ] ++ map (mapOptDescr delayOpt) (cfgCmdLineFlag cfg)
 
