@@ -56,9 +56,7 @@ module Mir.Intrinsics.Reference
     dropMirRefLeaf,
     dropMirRefIO,
     subfieldMirRefLeaf,
-    subfieldMirRef_UntypedLeaf,
     subfieldMirRefIO,
-    subfieldMirRef_UntypedIO,
     subvariantMirRefLeaf,
     subvariantMirRefIO,
     subindexMirRefSim,
@@ -125,8 +123,6 @@ import Data.Parameterized.Context
     Index,
     adjustM,
     field,
-    intIndex,
-    size,
     (!),
     (::>),
     pattern Empty,
@@ -931,48 +927,6 @@ subfieldMirRefLeaf ctx ref idx =
     let tpr = ctx ! idx
     return $ MirReference tpr root (Field_RefPath ctx path idx)
 
--- | Mimic `subfieldMirRefLeaf`, but infer the appropriate `CtxRepr` and `Index`
--- at simulation time. If @expectedTy@ is provided, this will assert that it
--- matches the actual type of the field during simulation.
-subfieldMirRef_UntypedLeaf ::
-    MirReference sym ->
-    Int ->
-    Maybe (Some TypeRepr) ->
-    MuxLeafT sym IO (MirReference sym)
-subfieldMirRef_UntypedLeaf ref fieldNum expectedTy =
-  case ref of
-    MirReference_Integer _ ->
-      bail $ "attempted untyped subfield on the result of an integer-to-pointer cast"
-    MirReference structReprHopefully refRoot refPath ->
-      case structReprHopefully of
-        StructRepr structCtx ->
-          do
-            Some fieldIdx <-
-              case intIndex fieldNum (size structCtx) of
-                Just someIdx -> pure someIdx
-                Nothing ->
-                  bail $ unwords $
-                    [ "out-of-bounds field access:"
-                    , "field", show fieldNum, "of struct", show structCtx ]
-            let fieldRepr = structCtx ! fieldIdx
-            () <- case expectedTy of
-              Nothing -> pure ()
-              Just (Some expected) ->
-                case testEquality expected fieldRepr of
-                  Just Refl -> pure ()
-                  Nothing ->
-                    bail $ unwords $
-                      [ "expected field type", show expected
-                      , "did not match actual field type", show fieldRepr ]
-            let fieldPath = Field_RefPath structCtx refPath fieldIdx
-            pure $ MirReference fieldRepr refRoot fieldPath
-        notAStruct ->
-          bail $ unwords $
-            [ "untyped subfield requires a reference to a struct, but got a reference to"
-            , show notAStruct ]
-  where
-    bail msg = leafAbort $ GenericSimError $ msg
-
 subfieldMirRefIO ::
     IsSymBackend sym bak =>
     bak ->
@@ -983,17 +937,6 @@ subfieldMirRefIO ::
     IO (MirReferenceMux sym)
 subfieldMirRefIO bak iTypes ctx ref idx =
     modifyRefMuxMA bak iTypes (\ref' -> subfieldMirRefLeaf ctx ref' idx) ref
-
-subfieldMirRef_UntypedIO ::
-    IsSymBackend sym bak =>
-    bak ->
-    IntrinsicTypes sym ->
-    MirReferenceMux sym ->
-    Int ->
-    Maybe (Some TypeRepr) ->
-    IO (MirReferenceMux sym)
-subfieldMirRef_UntypedIO bak iTypes ref fieldNum expectedTy =
-    modifyRefMuxMA bak iTypes (\ref' -> subfieldMirRef_UntypedLeaf ref' fieldNum expectedTy) ref
 
 
 subvariantMirRefLeaf ::

@@ -38,7 +38,6 @@ import Data.Parameterized.Context
     pattern (:>),
   )
 import Data.Parameterized.NatRepr (NatRepr)
-import Data.Parameterized.Some (Some)
 import Data.Parameterized.TH.GADT qualified as U
 import Data.Parameterized.TraversableFC
   ( FoldableFC (..),
@@ -129,7 +128,6 @@ import Mir.Intrinsics.Reference
     newMirRefIO,
     readMirRefMA,
     subfieldMirRefIO,
-    subfieldMirRef_UntypedIO,
     subindexMirRefIO,
     subjustMirRefIO,
     subvariantMirRefIO,
@@ -180,16 +178,6 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(CtxRepr ctx) ->
      !(f MirReferenceType) ->
      !(Index ctx tp) ->
-     MirStmt f MirReferenceType
-  -- | Like `MirSubfieldRef`, but for fields with statically-unknown types, such
-  -- as trait objects. The `Int` is the index of the field, and the `TypeRepr`
-  -- is an optional type hint, if the expected type happens to be known and
-  -- representable. If provided, it will be dynamically checked at simulation
-  -- time.
-  MirSubfieldRef_Untyped ::
-     !(f MirReferenceType) ->
-     !Int ->
-     !(Maybe (Some TypeRepr)) ->
      MirStmt f MirReferenceType
   MirSubvariantRef ::
      !(TypeRepr discrTp) ->
@@ -407,7 +395,6 @@ instance TypeApp MirStmt where
     MirWriteRef _ _ _ -> UnitRepr
     MirDropRef _    -> UnitRepr
     MirSubfieldRef _ _ _ -> MirReferenceRepr
-    MirSubfieldRef_Untyped _ _ _ -> MirReferenceRepr
     MirSubvariantRef _ _ _ _ -> MirReferenceRepr
     MirSubindexRef _ _ _ _ -> MirReferenceRepr
     MirSubjustRef _ _ -> MirReferenceRepr
@@ -445,7 +432,6 @@ instance PrettyApp MirStmt where
     MirWriteRef _ x y -> "writeMirRef" <+> pp x <+> "<-" <+> pp y
     MirDropRef x    -> "dropMirRef" <+> pp x
     MirSubfieldRef _ x idx -> "subfieldRef" <+> pp x <+> viaShow idx
-    MirSubfieldRef_Untyped x fieldNum expectedTy -> "subfieldRef_Untyped" <+> pp x <+> viaShow fieldNum <+> viaShow expectedTy
     MirSubvariantRef _ _ x idx -> "subvariantRef" <+> pp x <+> viaShow idx
     MirSubindexRef _ x idx sz -> "subindexRef" <+> pp x <+> pp idx <+> viaShow sz
     MirSubjustRef _ x -> "subjustRef" <+> pp x
@@ -511,8 +497,6 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
          writeOnly s $ dropMirRefIO bak gs ref
        MirSubfieldRef ctx0 (regValue -> ref) idx ->
          readOnly s $ subfieldMirRefIO bak iTypes ctx0 ref idx
-       MirSubfieldRef_Untyped (regValue -> ref) idx expectedTy ->
-         readOnly s $ subfieldMirRef_UntypedIO bak iTypes ref idx expectedTy
        MirSubvariantRef tp0 ctx0 (regValue -> ref) idx ->
          readOnly s $ subvariantMirRefIO bak iTypes tp0 ctx0 ref idx
        MirSubindexRef tpr (regValue -> ref) (regValue -> idx) elemSize ->
