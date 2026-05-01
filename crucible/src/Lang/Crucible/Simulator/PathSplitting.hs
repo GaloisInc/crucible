@@ -35,12 +35,12 @@ module Lang.Crucible.Simulator.PathSplitting
   , executeCrucibleDFSPaths
   ) where
 
-import           Control.Lens ( (^.) )
 import           Control.Monad.Reader
 import           Data.IORef
 import           Data.Sequence( Seq )
 import qualified Data.Sequence as Seq
 import           Data.Word
+import           Lens.Micro ((^.))
 
 import           What4.Interface
 import           What4.ProgramLoc

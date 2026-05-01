@@ -6,8 +6,7 @@ module Mir.PP where
 
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
-
-import           Control.Lens((^.))
+import           Lens.Micro ((^.))
 import           Prettyprinter
 import           Prettyprinter.Render.String
 

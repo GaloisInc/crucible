@@ -21,8 +21,8 @@ module Mir.DefId
 , parseFieldName
 ) where
 
-import Control.Lens (makeLenses)
 import Data.Aeson
+import Lens.Micro.TH (makeLenses)
 
 import qualified Language.Haskell.TH.Syntax as TH
 import qualified Data.Text as T

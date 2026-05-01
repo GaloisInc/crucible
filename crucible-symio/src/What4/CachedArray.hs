@@ -52,14 +52,14 @@ module What4.CachedArray
   , initArray
   ) where
 
-import           Control.Lens ( (.~), (&) )
 import           Control.Monad ( foldM, join )
 import           Control.Monad.Trans ( lift )
+import           Data.Function ((&))
 import           Data.Functor.Const
-import           Data.Maybe ( catMaybes )
-import qualified Data.Map as Map
-import           Data.Maybe (mapMaybe)
 import qualified Data.IORef as IO
+import qualified Data.Map as Map
+import           Data.Maybe ( catMaybes, mapMaybe )
+import           Lens.Micro ((.~))
 
 import qualified Data.Parameterized.TraversableFC as FC
 import qualified Data.Parameterized.Context as Ctx

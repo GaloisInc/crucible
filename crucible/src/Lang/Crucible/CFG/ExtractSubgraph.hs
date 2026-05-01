@@ -17,13 +17,13 @@ module Lang.Crucible.CFG.ExtractSubgraph
   ( extractSubgraph
   ) where
 
-import           Control.Lens
 import qualified Data.Bimap as Bimap
 import           Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Map as MapF
 import           Data.Set as S
 import qualified Data.Map as Map
 import           Debug.Trace
+import           Lens.Micro ((^.))
 
 import           What4.FunctionName
 import           What4.ProgramLoc

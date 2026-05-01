@@ -118,7 +118,7 @@ library
     crucible-mir,
     crucible-syntax,
     mtl,
-    parameterized-utils >= 0.1.7,
+    parameterized-utils >= 2.3,
     what4,
 
   hs-source-dirs: src

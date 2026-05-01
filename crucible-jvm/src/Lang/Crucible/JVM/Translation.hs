@@ -25,11 +25,12 @@ module Lang.Crucible.JVM.Translation
 import           Control.Monad (void)
 import           Control.Monad.State.Strict (MonadState(..), StateT, execStateT)
 import           Control.Monad.Trans.Class (MonadTrans(..))
-import           Control.Lens hiding (op, (:>))
 import           Data.Int (Int32)
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.String (fromString)
+import           Lens.Micro (Lens')
+import           Lens.Micro.Mtl (use, (.=), (%=))
 
 -- jvm-parser
 import qualified Language.JVM.Common as J

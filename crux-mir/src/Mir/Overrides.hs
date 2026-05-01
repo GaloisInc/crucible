@@ -14,11 +14,13 @@
 
 module Mir.Overrides (bindFn, getString) where
 
-import Control.Lens ((^?), (.=), (^.), use, ix, _Wrapped)
 import Control.Monad
 import Control.Monad.IO.Class
 import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Maybe (MaybeT(..))
+import Lens.Micro ((^?), (^.), to)
+import Lens.Micro.GHC (ix)
+import Lens.Micro.Mtl (use, (.=))
 
 import qualified Data.BitVector.Sized as BV
 import qualified Data.ByteString as BS
@@ -392,7 +394,7 @@ overrideRust ::
   OverrideSim (p sym) sym MIR rtp args ret ()
 overrideRust cs name = do
   let tyArgs = cs ^? collection . M.intrinsics . ix (textId name) .
-        M.intrInst . M.inSubsts . _Wrapped
+        M.intrInst . M.inSubsts . to (\(M.Substs xs) -> xs)
   (fDefId, gDefId) <- case tyArgs of
     Just [M.TyFnDef f, M.TyFnDef g] -> return (f, g)
     _ -> error $ "expected two TyFnDef arguments, but got " ++ show tyArgs

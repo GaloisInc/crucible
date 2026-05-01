@@ -71,9 +71,12 @@ import qualified Data.Text as Text
 import           Data.Char(isDigit)
 import           GHC.Generics (Generic)
 
-import           Control.Lens hiding (Empty, (:>), Index, parts, view)
 import           Control.Monad
 import           Control.Monad.ST
+import           Lens.Micro ((^.), to)
+import           Lens.Micro.GHC (at)
+import           Lens.Micro.Mtl (use)
+import           Lens.Micro.TH (makeLenses)
 
 import           Prettyprinter
 

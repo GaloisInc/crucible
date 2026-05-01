@@ -17,11 +17,12 @@ module Lang.Crucible.Simulator.Cut
   ( cutAndReturn
   ) where
 
-import           Control.Lens
 import           Control.Monad.Reader
 import qualified Data.Bimap as Bimap
+import           Data.Function ((&))
 import           Data.HashMap.Strict (HashMap)
 import qualified Data.HashMap.Strict as HashMap
+import           Lens.Micro ((^.), (%~))
 
 import           Data.Parameterized.Classes
 import qualified Data.Parameterized.Context as Ctx

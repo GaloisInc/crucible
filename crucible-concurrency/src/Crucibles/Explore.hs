@@ -36,22 +36,24 @@ should be selected after the execution of a given hook.
 {-# LANGUAGE FlexibleContexts #-}
 module Crucibles.Explore ( scheduleFeature, ppScheduler, Personality(..) ) where
 
-import           Control.Lens
 import           Control.Monad (unless, when)
 import           Control.Monad.IO.Class
-import           Control.Monad.State (MonadState(..), StateT(..), evalStateT, gets)
 import           Control.Monad.Reader (ReaderT(..))
-import qualified Data.Set as Set
+import           Control.Monad.State (MonadState(..), StateT(..), evalStateT, gets)
+import           Data.Foldable (foldlM)
+import           Data.Function ((&))
+import qualified Data.IntMap as IntMap
 import qualified Data.IntSet as IntSet
 import qualified Data.Map.Strict as Map
-import qualified Data.IntMap as IntMap
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.NatRepr
+import qualified Data.Set as Set
 import           Data.Text (Text)
 import qualified Data.Vector as V
-
-import Data.Foldable (foldlM)
 import           GHC.Stack
+import           Lens.Micro ((^.), (.~), (%~), to)
+import           Lens.Micro.GHC (at)
+import           Lens.Micro.Mtl (use, (.=), (%=))
 
 import           Lang.Crucible.Backend
 import           Lang.Crucible.FunctionHandle

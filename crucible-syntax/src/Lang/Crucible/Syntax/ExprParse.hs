@@ -28,11 +28,12 @@ module Lang.Crucible.Syntax.ExprParse
   ) where
 
 import Control.Applicative
-import Control.Lens hiding (List, cons, backwards)
 import Control.Monad (MonadPlus(..), ap)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (MonadReader(..), ReaderT(..))
 import qualified Control.Monad.State.Strict as Strict
+import Lens.Micro (Lens', lens, over, set)
+import Lens.Micro.Mtl (view)
 
 import Data.Containers.ListUtils (nubOrd)
 import Data.Foldable as Foldable
@@ -167,13 +168,13 @@ data SyntaxParseCtx atom =
                  }
   deriving Show
 
-parseProgress :: Simple Lens (SyntaxParseCtx atom) Progress
+parseProgress :: Lens' (SyntaxParseCtx atom) Progress
 parseProgress = lens _parseProgress (\s v -> s { _parseProgress = v })
 
-parseReason :: Simple Lens (SyntaxParseCtx atom) (Reason atom)
+parseReason :: Lens' (SyntaxParseCtx atom) (Reason atom)
 parseReason = lens _parseReason (\s v -> s { _parseReason = v })
 
-parseFocus :: Simple Lens (SyntaxParseCtx atom) (Syntax atom)
+parseFocus :: Lens' (SyntaxParseCtx atom) (Syntax atom)
 parseFocus = lens _parseFocus (\s v -> s { _parseFocus = v })
 
 -- | The default parsing monad. Use its 'MonadSyntax' instance to write parsers.

@@ -29,12 +29,11 @@ module Lang.Crucible.Simulator.RecordAndReplay (
 ) where
 
 import Control.Exception qualified as X
-import Control.Lens ((%~), (&), (^.))
-import Control.Lens qualified as Lens
 import Data.Foldable qualified as F
+import Data.Function ((&))
 import Data.Kind (Type)
-import Data.Text qualified as Text
 import Data.Sequence qualified as Seq
+import Data.Text qualified as Text
 import Lang.Crucible.Backend qualified as CB
 import Lang.Crucible.CFG.Core qualified as C
 import Lang.Crucible.FunctionHandle qualified as C
@@ -44,6 +43,9 @@ import Lang.Crucible.Simulator.ExecutionTree qualified as C
 import Lang.Crucible.Simulator.GlobalState qualified as C
 import Lang.Crucible.Simulator.SymSequence qualified as CSSS
 import Lang.Crucible.Types qualified as CT
+import Lens.Micro ((^.), (%~))
+import Lens.Micro qualified as Lens
+import Lens.Micro.TH (makeLenses)
 import What4.Interface qualified as W4
 import What4.Partial qualified as W4P
 
@@ -83,7 +85,7 @@ data ReplayState p sym ext rtp
     , _initialTrace :: (RecordedTrace sym)
     }
     -- ^ constructor intentionally not exported
-Lens.makeLenses ''ReplayState
+makeLenses ''ReplayState
 
 -- | Constructor for 'RecordState'
 mkRecordState ::

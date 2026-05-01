@@ -46,13 +46,14 @@ module Lang.Crucible.LLVM.SimpleLoopFixpointCHC
   , simpleLoopFixpoint
   ) where
 
-import           Control.Lens
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
 import           Control.Monad.State
 import           Control.Monad.Trans.Maybe
 import           Data.Foldable
+import           Data.Function ((&))
+import           Data.Functor.Identity (runIdentity)
 import qualified Data.IntMap as IntMap
 import           Data.IORef
 import           Data.Kind
@@ -64,6 +65,7 @@ import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import           Data.Set (Set)
 import           GHC.TypeLits (KnownNat)
+import           Lens.Micro ((^.), (.~), (%~))
 import           Numeric.Natural (Natural)
 import qualified System.IO
 

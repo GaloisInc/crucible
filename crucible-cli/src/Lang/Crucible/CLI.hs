@@ -26,7 +26,6 @@ module Lang.Crucible.CLI
   , execCommand
   ) where
 
-import qualified Control.Lens as Lens
 import Control.Monad
 import Control.Monad.Except (runExceptT)
 import Control.Monad.IO.Class (liftIO)
@@ -37,6 +36,7 @@ import qualified Data.Text as Text
 import Data.String (IsString(..))
 import Data.Void (Void)
 import qualified Data.Text.IO as T
+import qualified Lens.Micro as Lens
 import qualified Prettyprinter as PP
 import qualified Prettyprinter.Render.Text as PP
 import System.IO

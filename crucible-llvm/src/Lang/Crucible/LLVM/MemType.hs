@@ -52,9 +52,9 @@ module Lang.Crucible.LLVM.MemType
   , ppIdent
   ) where
 
-import Control.Lens
 import Data.Vector (Vector)
 import qualified Data.Vector as V
+import Lens.Micro ((^.))
 import Numeric.Natural
 import qualified Text.LLVM as L
 import Prettyprinter

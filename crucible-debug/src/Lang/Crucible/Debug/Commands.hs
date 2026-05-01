@@ -31,7 +31,6 @@ module Lang.Crucible.Debug.Commands
   ) where
 
 import Control.Exception qualified as X
-import Control.Lens qualified as Lens
 import Control.Monad.Except (runExceptT)
 import Control.Monad.IO.Class (liftIO)
 import Data.List qualified as List
@@ -79,6 +78,7 @@ import Lang.Crucible.Syntax.Concrete qualified as C
 import Lang.Crucible.Syntax.SExpr qualified as C
 import Lang.Crucible.Utils.Seconds qualified as Sec
 import Lang.Crucible.Utils.Timeout qualified as CTO
+import Lens.Micro qualified as Lens
 import Prettyprinter qualified as PP
 import System.Exit qualified as Exit
 import Text.Megaparsec qualified as MP

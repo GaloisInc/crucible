@@ -35,9 +35,8 @@ import           Data.String (fromString)
 import           Data.List (isPrefixOf)
 import qualified Data.Vector as V
 
+import           Lens.Micro (set)
 import           System.IO
-
-import qualified Control.Lens
 
 -- jvm-parser
 import qualified Language.JVM.Common as J
@@ -837,7 +836,7 @@ doFieldStore bak globals ref fid val =
      inst <- C.readPartExpr bak (C.unVB (C.unroll obj Ctx.! Ctx.i1of2)) msg2
      let tab = C.unRV (inst Ctx.! Ctx.i1of3)
      let tab' = Map.insert (fieldIdText fid) (W4.justPartExpr sym val) tab
-     let inst' = Control.Lens.set (Ctx.ixF Ctx.i1of3) (C.RV tab') inst
+     let inst' = set (Ctx.ixF Ctx.i1of3) (C.RV tab') inst
      let obj' = C.RolledType (C.injectVariant sym knownRepr Ctx.i1of2 inst')
      EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref' (W4.justPartExpr sym obj') globals
 
@@ -898,7 +897,7 @@ doArrayStore bak globals ref idx val =
      arr <- C.readPartExpr bak (C.unVB (C.unroll obj Ctx.! Ctx.i2of2)) msg2
      let vec = C.unRV (arr Ctx.! Ctx.i2of4)
      let vec' = vec V.// [(idx, val)]
-     let arr' = Control.Lens.set (Ctx.ixF Ctx.i2of4) (C.RV vec') arr
+     let arr' = set (Ctx.ixF Ctx.i2of4) (C.RV vec') arr
      let obj' = C.RolledType (C.injectVariant sym knownRepr Ctx.i2of2 arr')
      EvalStmt.alterRef sym jvmIntrinsicTypes objectRepr ref' (W4.justPartExpr sym obj') globals
 

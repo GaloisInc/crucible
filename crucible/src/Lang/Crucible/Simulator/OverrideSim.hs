@@ -84,7 +84,6 @@ module Lang.Crucible.Simulator.OverrideSim
   ) where
 
 import           Control.Exception
-import           Control.Lens
 import           Control.Monad hiding (fail)
 import qualified Control.Monad.Catch as X
 import           Control.Monad.IO.Class (MonadIO(..))
@@ -92,16 +91,18 @@ import           Control.Monad.Reader (ReaderT(..))
 import           Control.Monad.ST
 import           Control.Monad.State.Strict (StateT(..))
 import qualified Data.Foldable as Foldable
+import           Data.Function ((&))
 import qualified Data.Parameterized.Context as Ctx
+import           Data.Parameterized.TraversableFC (fmapFC)
 import           Data.Proxy
 import qualified Data.Text as T
 import           Data.Traversable (for)
+import           Lens.Micro ((^.), (.~), to)
+import           Lens.Micro.Mtl (use, view, (.=), (%=))
 import           Numeric.Natural (Natural)
 import           System.Exit
 import           System.IO
 import           System.IO.Error
-
-import           Data.Parameterized.TraversableFC (fmapFC)
 
 import           What4.Config
 import           What4.Interface

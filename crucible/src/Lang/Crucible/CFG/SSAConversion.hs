@@ -30,11 +30,11 @@ module Lang.Crucible.CFG.SSAConversion
   ) where
 
 import           Control.Exception (assert)
-import           Control.Lens ((&))
 import           Control.Monad.State.Strict
 import           Data.Bimap (Bimap)
 import qualified Data.Bimap as Bimap
 import qualified Data.Foldable as Fold
+import           Data.Function ((&))
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Data.Maybe (isJust, fromMaybe)

@@ -17,8 +17,9 @@ module Lang.Crucible.JVM.Translation.Monad where
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import           Control.Monad (when)
-import           Control.Lens hiding (op, (:>))
 import qualified Data.Text as Text
+import           Lens.Micro (Lens', lens)
+import           Lens.Micro.Mtl (use, (.=), (%=))
 
 -- jvm-parser
 import qualified Language.JVM.Parser as J
@@ -95,31 +96,31 @@ data JVMState ret s
   , _jsVerbosity :: Int
   }
 
-jsLabelMap :: Simple Lens (JVMState ret s) (Map J.BBId (Label s))
+jsLabelMap :: Lens' (JVMState ret s) (Map J.BBId (Label s))
 jsLabelMap = lens _jsLabelMap (\s v -> s { _jsLabelMap = v })
 
-jsStackMap :: Simple Lens (JVMState ret s) (Map J.BBId [JVMReg s])
+jsStackMap :: Lens' (JVMState ret s) (Map J.BBId [JVMReg s])
 jsStackMap = lens _jsStackMap (\s v -> s { _jsStackMap = v })
 
-jsLocalsD :: Simple Lens (JVMState ret s) (Map J.LocalVariableIndex (Reg s JVMDoubleType))
+jsLocalsD :: Lens' (JVMState ret s) (Map J.LocalVariableIndex (Reg s JVMDoubleType))
 jsLocalsD = lens _jsLocalsD (\s v -> s { _jsLocalsD = v })
 
-jsLocalsF :: Simple Lens (JVMState ret s) (Map J.LocalVariableIndex (Reg s JVMFloatType))
+jsLocalsF :: Lens' (JVMState ret s) (Map J.LocalVariableIndex (Reg s JVMFloatType))
 jsLocalsF = lens _jsLocalsF (\s v -> s { _jsLocalsF = v })
 
-jsLocalsI :: Simple Lens (JVMState ret s) (Map J.LocalVariableIndex (Reg s JVMIntType))
+jsLocalsI :: Lens' (JVMState ret s) (Map J.LocalVariableIndex (Reg s JVMIntType))
 jsLocalsI = lens _jsLocalsI (\s v -> s { _jsLocalsI = v })
 
-jsLocalsL :: Simple Lens (JVMState ret s) (Map J.LocalVariableIndex (Reg s JVMLongType))
+jsLocalsL :: Lens' (JVMState ret s) (Map J.LocalVariableIndex (Reg s JVMLongType))
 jsLocalsL = lens _jsLocalsL (\s v -> s { _jsLocalsL = v })
 
-jsLocalsR :: Simple Lens (JVMState ret s) (Map J.LocalVariableIndex (Reg s JVMRefType))
+jsLocalsR :: Lens' (JVMState ret s) (Map J.LocalVariableIndex (Reg s JVMRefType))
 jsLocalsR = lens _jsLocalsR (\s v -> s { _jsLocalsR = v })
 
-jsCFG :: Simple Lens (JVMState ret s) J.CFG
+jsCFG :: Lens' (JVMState ret s) J.CFG
 jsCFG = lens _jsCFG (\s v -> s { _jsCFG = v })
 
-jsVerbosity :: Simple Lens (JVMState ret s) Int
+jsVerbosity :: Lens' (JVMState ret s) Int
 jsVerbosity = lens _jsVerbosity (\s v -> s { _jsVerbosity = v })
 
 

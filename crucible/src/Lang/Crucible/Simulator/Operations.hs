@@ -76,17 +76,19 @@ module Lang.Crucible.Simulator.Operations
 import Prelude hiding (pred)
 
 import qualified Control.Exception as Ex
-import           Control.Lens
 import           Control.Monad (when, void)
 import           Control.Monad.IO.Class (MonadIO(..))
 import           Control.Monad.Reader (ReaderT(..), ask, withReaderT)
 import           Control.Monad.Trans.Class (MonadTrans(..))
-import           Data.Maybe (fromMaybe)
+import           Data.Function ((&))
 import           Data.List (isPrefixOf)
+import           Data.Maybe (fromMaybe)
 import qualified Data.Parameterized.Context as Ctx
 import           Data.Parameterized.Some
-import qualified Data.Vector as V
 import           Data.Type.Equality hiding (sym)
+import qualified Data.Vector as V
+import           Lens.Micro ((^.), (.~), (%~), _2, to, traverseOf)
+import           Lens.Micro.Mtl (view)
 import           System.IO
 import qualified Prettyprinter as PP
 

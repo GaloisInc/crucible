@@ -39,10 +39,11 @@ module Crucibles.Primitives
  ) where
 
 import           Control.Applicative
-import           Control.Lens.Getter
-import           Data.Text (Text)
 import qualified Data.Set as S
+import           Data.Text (Text)
 import qualified Data.Vector as V
+import           Lens.Micro ((^.))
+import           Lens.Micro.Extras (view)
 
 import           Data.Parameterized.Nonce
 import qualified Data.Parameterized.Context as Ctx

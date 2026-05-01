@@ -27,9 +27,10 @@ module Lang.Crucible.Wasm
 , wasmIntrinsicTypes
 ) where
 
-import Control.Lens hiding (Empty, (:>),Index )
 import Control.Monad
 import Control.Monad.Trans
+import Lens.Micro (to)
+import Lens.Micro.Mtl (use)
 
 import qualified Data.Map as Map
 import qualified Data.Sequence as Seq

@@ -17,13 +17,13 @@ module Crux.Config.Common (
   quietModeL,
 ) where
 
-import Control.Lens (Lens', lens, set)
-import Data.Functor.Alt
-import Data.Time(DiffTime, NominalDiffTime)
-import Data.Maybe(fromMaybe)
 import Data.Char(toLower)
-import Data.Word (Word64)
+import Data.Functor.Alt
+import Data.Maybe(fromMaybe)
 import Data.Text (pack)
+import Data.Time(DiffTime, NominalDiffTime)
+import Data.Word (Word64)
+import Lens.Micro (Lens', lens, set)
 import System.Directory ( createDirectoryIfMissing )
 
 import Crux.Config

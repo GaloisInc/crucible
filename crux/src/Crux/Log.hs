@@ -41,7 +41,6 @@ module Crux.Log (
   ) where
 
 import           Control.Exception ( SomeException, bracket_,  )
-import           Control.Lens ( Getter, view )
 import qualified Data.Aeson as JSON
 import           Data.Aeson.TH ( deriveToJSON )
 import qualified Data.List as List
@@ -50,6 +49,8 @@ import           Data.Text.IO as TIO ( hPutStr, hPutStrLn )
 import           Data.Version ( Version, showVersion )
 import           Data.Word ( Word64 )
 import           GHC.Generics ( Generic )
+import           Lens.Micro (SimpleGetter)
+import           Lens.Micro.Extras (view)
 import qualified Lumberjack as LJ
 import           Prettyprinter ( SimpleDocStream )
 import           Prettyprinter.Render.Text ( renderStrict )
@@ -302,14 +303,14 @@ data OutputConfig msgs =
 -- directly instead of using the logging/output functions above.  It
 -- can either get the _outputHandle directly or it can use the
 -- output/outputLn functions below.
-outputHandle :: Getter (OutputConfig msgs) Handle
+outputHandle :: SimpleGetter (OutputConfig msgs) Handle
 outputHandle f o = o <$ f (_outputHandle o)
 
 -- | Lens to allow client code to determine if running in quiet mode.
-quiet :: Getter (OutputConfig msgs) Bool
+quiet :: SimpleGetter (OutputConfig msgs) Bool
 quiet f o = o <$ f (_quiet o)
 
-logMsg :: Getter (OutputConfig msgs) (LJ.LogAction IO msgs)
+logMsg :: SimpleGetter (OutputConfig msgs) (LJ.LogAction IO msgs)
 logMsg f o = o <$ f (_logMsg o)
 
 

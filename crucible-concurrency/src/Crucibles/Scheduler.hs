@@ -17,11 +17,12 @@ updating the record simple enough.
 {-# LANGUAGE DataKinds #-}
 module Crucibles.Scheduler where
 
-import           Control.Lens
 import           Control.Monad.State
 import qualified Data.Vector as V
-import           Data.Vector.Lens
 import qualified Lang.Crucible.Types as C
+import           Lens.Micro (ASetter, Lens')
+import           Lens.Micro.Mtl (use, (.=), (%=))
+import           Lens.Micro.TH (makeLenses)
 import           Lang.Crucible.Simulator
 
 -- | The scheduler state, which is parameterized by the thread state as well as
@@ -50,7 +51,7 @@ addThread atSched th = atSched.threads %= flip V.snoc th
 -- | Replace the state of thread @i@ as a monadic action.
 setThreadState :: MonadState s m
                => ASchedSetter s p sym ext th ret -> Int -> th -> m ()
-setThreadState atSched i th = atSched.threads.ordinals [i] .= th
+setThreadState atSched i th = atSched.threads %= (V.// [(i, th)])
 
 getThreadState :: MonadState s m
                => Lens' s (Scheduler p sym ext th ret) -> Int -> m th
