@@ -2912,11 +2912,7 @@ dispatchFromDyn dynTraitName recvTy recvExp die = do
               fieldExps' <- forM (zip [0..] (v ^. vfields)) $ \(i, f) -> do
                 fieldExp <- lift $ getStructField ty i mirExp
                 go (f ^. fty) fieldExp
-              -- It's safe to use `buildStructAdjusted` here because the only
-              -- adjustment is `*const dyn Trait` to `*const T` or similar, and
-              -- `M.TyRef`/`M.TyRawPtr` all use the same `FieldKind`s
-              -- regardless of pointee type.
-              lift $ buildStructAdjusted adt fieldExps'
+              lift $ buildStruct adt fieldExps'
         _ -> return mirExp
     -- rustc only recurses into struct types to find the coerced field.  All
     -- other types are ignored.

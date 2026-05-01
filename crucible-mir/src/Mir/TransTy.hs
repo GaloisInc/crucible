@@ -1406,23 +1406,6 @@ buildStruct :: HasCallStack => M.Adt -> [MirExp s] ->
 buildStruct adt es =
     buildStruct' adt (map Just es)
 
--- | Like `buildStruct`, but only the `FieldKind`s of the ADT are used; its
--- actual field types are ignored in favor of the types of the provided
--- `MirExp`s.
---
--- Warning: this makes it easy to create a value whose `C.TypeRepr` doesn't
--- match its `M.Ty`!  This can be hard to debug since the error may show up far
--- downstream of the bad `buildStructAdjusted` call.  Don't use this unless
--- you're really sure that the `FieldKind`s will match up with the `M.Ty`s of
--- the exprs.  In almost all cases, it's better to use the non-adjusted
--- version.
---
--- TODO: now identical to buildStruct; remove
-buildStructAdjusted :: HasCallStack => M.Adt -> [MirExp s] ->
-    MirGenerator h s ret (MirExp s)
-buildStructAdjusted adt es = do
-    buildStruct adt es
-
 
 buildEnum' :: HasCallStack => M.Adt -> Int -> [Maybe (MirExp s)] ->
     MirGenerator h s ret (MirExp s)
