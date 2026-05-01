@@ -41,7 +41,6 @@ import GHC.Stack
 import qualified Data.Parameterized.Context as Ctx
 import Data.Parameterized.Classes
 import Data.Parameterized.NatRepr
-import Data.Parameterized.Pair
 import Data.Parameterized.Some
 
 
@@ -60,15 +59,16 @@ import qualified Mir.Mir as M
 
 import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
-    , subfieldRef, subfieldRef_Untyped, subvariantRef, subjustRef, subindexRef
-    , mirRef_agElem_constOffset, mirAggregate_uninit_constSize
+    , subfieldRef, subvariantRef, subjustRef
+    , mirRef_agElem_constOffset, mirRef_agElem_unsized
+    , mirAggregate_uninit_constSize
     , mirAggregate_zst, mirAggregate_get, mirAggregate_set
     , cs, collection, discrMap, findAdt, arrayZeroed )
 import           Mir.Intrinsics
     ( MIR, pattern MirSliceRepr, pattern MirReferenceRepr, MirReferenceType
     , pattern MirAggregateRepr
     , SizeBits, pattern UsizeRepr, UsizeType, pattern IsizeRepr
-    , isizeLit
+    , isizeLit, usizeAdd, usizeSub, usizeAnd
     , RustEnumType, pattern RustEnumRepr, SomeRustEnumRepr(..)
     , mkRustEnum, rustEnumVariant, rustEnumDiscriminant
     , pattern MethodSpecRepr, pattern MethodSpecBuilderRepr
@@ -235,9 +235,7 @@ tyToRepr col t0 = case t0 of
     case adt ^. M.adtkind of
       _ | Just ty <- reprTransparentFieldTy col adt ->
           tyToRepr col ty
-      M.Struct -> do
-        Some fctx <- variantFields' col (M.onlyVariant adt)
-        Right (Some (C.StructRepr (fieldCtxType fctx)))
+      M.Struct -> Right (Some MirAggregateRepr)
       M.Enum discrTy -> do
         Some discrTp <- tyToRepr col discrTy
         SomeRustEnumRepr _ ctx <- enumVariants col adt
@@ -659,6 +657,11 @@ findLastField col adtName = do
     [] -> Nothing
     fields -> Just (last fields)
 
+findLastFieldM :: M.AdtName -> MirGenerator h s ret (Maybe M.Field)
+findLastFieldM adtName = do
+  col <- use $ cs . collection
+  return $ findLastField col adtName
+
 -- | A version of `findLastField` that, when it encounters an ADT-type last
 -- field, will recursively find that ADT's last field.
 findLastFieldRec :: M.Collection -> M.AdtName -> Maybe M.Field
@@ -870,22 +873,10 @@ construct MIR must be very careful to ensure that the type of that MIR is
 present.
 -}
 
--- | Build a tuple of type @tupleTy@, using @xs@ to initialize the fields.
---
--- @tupleTy@ must be present in the `M.Collection`, as decribed in Note
--- [present].
-buildTupleM :: M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
-buildTupleM tupleTy xs = buildTupleMaybeM tupleTy (map Just xs)
-
--- | Build a tuple of type @tupleTy@, using @xs@ to initialize the fields.  If
--- an entry in @xs@ is `Nothing`, that field will be left uninitialized.
---
--- @tupleTy@ must be present in the `M.Collection`, as decribed in Note
--- [present].
-buildTupleMaybeM :: M.Ty -> [Maybe (MirExp s)] -> MirGenerator h s ret (MirExp s)
-buildTupleMaybeM tupleTy xs = do
-    layout <- tyLayoutM tupleTy
-    offsetsAndTys <- tyFieldsM tupleTy
+buildAggregateMaybeM :: M.Ty -> [Maybe (MirExp s)] -> MirGenerator h s ret (MirExp s)
+buildAggregateMaybeM agTy xs = do
+    layout <- tyLayoutM agTy
+    offsetsAndTys <- tyFieldsM agTy
     when (length offsetsAndTys /= length xs) $
         mirFail $ "buildTupleMaybeM: length mismatch:\n  offsetsAndTys = " ++ show offsetsAndTys
             ++ "\n  xs = " ++ show xs
@@ -905,6 +896,22 @@ buildTupleMaybeM tupleTy xs = do
                 Nothing -> return ag)
         ag0 (zip offsetsAndTys xs)
     return $ MirExp MirAggregateRepr ag1
+
+-- | Build a tuple of type @tupleTy@, using @xs@ to initialize the fields.
+--
+-- @tupleTy@ must be present in the `M.Collection`, as decribed in Note
+-- [present].
+buildTupleM :: M.Ty -> [MirExp s] -> MirGenerator h s ret (MirExp s)
+buildTupleM tupleTy xs = buildTupleMaybeM tupleTy (map Just xs)
+
+-- | Build a tuple of type @tupleTy@, using @xs@ to initialize the fields.  If
+-- an entry in @xs@ is `Nothing`, that field will be left uninitialized.
+--
+-- @tupleTy@ must be present in the `M.Collection`, as decribed in Note
+-- [present].
+buildTupleMaybeM :: M.Ty -> [Maybe (MirExp s)] -> MirGenerator h s ret (MirExp s)
+buildTupleMaybeM tupleTy xs = do
+    buildAggregateMaybeM tupleTy xs
 
 getTupleElem :: HasCallStack => M.Ty -> MirExp s -> Int -> MirGenerator h s ret (MirExp s)
 getTupleElem tupleTy tupleExp i = do
@@ -1144,6 +1151,7 @@ tySizeM ty = do
             ((_, loc):_) -> prettySrcLoc loc
        in mirFail $ "tySizeM (called at " <> caller <> "): unsized type: " <> show ty
 
+
 -- | Get a type's `M.Layout`.  Returns `Nothing` if the type is not present in
 -- the `M.Collection` (as described in Note [present]).
 tyLayout :: M.Collection -> M.Ty -> Maybe M.Layout
@@ -1175,7 +1183,13 @@ tyFields col ty = do
             M.TyTuple x -> x
             M.TyClosure x -> x
             M.TyCoroutineClosure x -> x
-            M.TyAdt {} -> panic "tyFields" ["TODO: tyFields struct case"]  -- For now, we only call this on tuples
+            M.TyAdt adtName _ _ ->
+                case col ^. M.adts . at adtName of
+                    Just adt ->
+                        case adt ^. M.adtkind of
+                            M.Struct -> map (\f -> f ^. M.fty) $ M.onlyVariant adt ^. M.vfields
+                            ak -> panic "tyFields" ["bad adt kind", show ak, "for type", show ty]
+                    Nothing -> panic "tyFields" ["missing adt def for type", show ty]
             _ -> panic "tyFields" ["tyFields: unsupported type:", show ty]
     when (length tys /= length offsets) $
         panic "tyFields" ["field count vs offset count mismatch",
@@ -1192,76 +1206,24 @@ tyFieldsM ty = do
         Just x -> pure x
         Nothing -> mirFail $ "tyFieldsM: layout not found for type: " <> show ty
 
-structInfo :: M.Adt -> Int -> MirGenerator h s ret StructInfo
-structInfo adt i = do
-    when (adt ^. M.adtkind /= M.Struct) $ mirFail $
-        "expected struct, but got adt " ++ show (adt ^. M.adtname)
 
-    let var = M.onlyVariant adt
-    fldTy <- case var ^? M.vfields . ix i of
-        Just fld -> return $ fld ^. M.fty
-        Nothing -> mirFail errFieldIndex
-
-    col <- use $ cs . collection
-    case adtSizedness col adt of
-      Sized _ -> do
-        Some ctx <- variantFieldsM var
-        Some idx <- case Ctx.intIndex i (Ctx.size ctx) of
-            Just x -> return x
-            Nothing -> mirFail errFieldIndex
-        let tpr' = ctx Ctx.! idx
-        Some tpr <- tyToReprM fldTy
-
-        kind <- checkFieldKind (not $ canInitialize col fldTy) tpr tpr' $
-            "field " ++ show i ++ " of struct " ++ show (adt ^. M.adtname)
-
-        return $ SizedStruct ctx idx kind
-
-      -- We want to avoid attempting to compute the `CtxRepr` for this struct,
-      -- which may involve computing the `TypeRepr` of its unsized field, which
-      -- does (for `TyDynamic`) or should (for `TyStr` and `TySlice`) cause an
-      -- error.
-      Unsized -> case tySizedness col fldTy of
-        Sized _ -> do
-          Some (FieldRepr fieldKind) <- case tyToFieldRepr col fldTy of
-            Left err -> mirFail ("structInfo: " ++ err)
-            Right x -> return x
-          pure $ SizedField fieldKind
-        Unsized
-          | i /= length (var ^. M.vfields) - 1 ->
-            mirFail "encountered unsized field in non-last position"
-          | otherwise ->
-            case fldTy of
-              M.TySlice innerTy -> do
-                Some innerRepr <- tyToReprM innerTy
-                innerSize <- tySizeM innerTy
-                pure $ UnsizedSliceField innerSize innerRepr
-              M.TyStr -> do
-                Some innerRepr <- tyToReprM (M.TyUint M.B8)
-                let innerSize = 1  -- because the element type is u8
-                pure $ UnsizedSliceField innerSize innerRepr
-              _ -> pure UnsizedNonSliceField
-
-  where
-    errFieldIndex = "field index " ++ show i ++ " is out of range for struct " ++
-        show (adt ^. M.adtname)
-
-getStructField :: M.Adt -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
-getStructField adt i (MirExp structTpr e0) = structInfo adt i >>= \case
-  SizedStruct ctx idx fld -> do
-    Refl <- expectStructOrFail ctx structTpr
-    e1 <- readStructField ctx idx e0
-    e2 <- readFieldData' fld errFieldUninit e1
-    return $ MirExp (fieldDataType fld) e2
-  SizedField _fieldRepr ->
-    mirFail "getStructField: sized fields of unsized structs not yet supported"
-  UnsizedNonSliceField ->
-    mirFail "getStructField: unsized fields of unsized structs not yet supported"
-  UnsizedSliceField _elemSize _innerRepr ->
-    mirFail "getStructField: unsized fields of unsized structs not yet supported"
-  where
-    errFieldUninit = "field " ++ show i ++ " of " ++ show (adt ^. M.adtname) ++
-        " read while uninitialized"
+getStructField :: M.Ty -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
+getStructField structTy i (MirExp structTpr e0) = do
+  let tpr' = MirAggregateRepr
+  Refl <- testEqualityOrFail structTpr tpr' $ "bad representation " ++ show structTpr ++
+    " for struct type " ++ show structTy ++ ": expected " ++ show tpr'
+  fields <- tyFieldsM structTy
+  (off, ty) <- case fields ^? ix i of
+    Just x -> return x
+    Nothing -> mirFail $ "tupleFieldRef: field index " ++ show i ++
+      " is out of range for tuple " ++ show structTy
+  -- Assume `NoMeta`.  Calling `getStructField` requires holding a struct by
+  -- value, which is only possible if the struct is sized.
+  Some valTpr <- tyToReprM ty
+  sz <- tySizeM ty
+  case (sz, valTpr) of
+    (0, MirAggregateRepr) -> MirExp valTpr <$> mirAggregate_zst
+    _ -> MirExp valTpr <$> mirAggregate_get off sz valTpr e0
 
 
 data EnumInfo = forall discrTp ctx ctx' tp tp'. EnumInfo
@@ -1431,41 +1393,13 @@ buildStructAssign ctx0 es0 = go ctx0 $ reverse es0
         Nothing -> Left $ "type mismatch: expected " ++ show tpr ++ " but got " ++
             show (R.exprType e) ++ " in field " ++ show (length rest) ++ ": " ++ show (ctx0, es0)
 
--- | Like `buildStructAssign`, but only the `FieldKind`s of the `FieldCtxRepr`
--- are used; the actual types are ignored in favor of the types of the
--- `R.Expr`s.
-buildStructAssignAdjusted :: HasCallStack => FieldCtxRepr ctx -> [Some (R.Expr MIR s)] ->
-    Either String (Pair FieldCtxRepr (Ctx.Assignment (R.Expr MIR s)))
-buildStructAssignAdjusted ctx0 es0 = do
-  Some ctx0' <- adjust ctx0 $ reverse es0
-  asn <- buildStructAssign ctx0' (map Just es0)
-  return $ Pair ctx0' asn
-  where
-    adjust :: forall ctx s. FieldCtxRepr ctx -> [Some (R.Expr MIR s)] ->
-      Either String (Some FieldCtxRepr)
-    adjust Ctx.Empty [] = return $ Some Ctx.empty
-    adjust _ [] = Left "adjust: not enough expressions"
-    adjust Ctx.Empty _ = Left "adjust: too many expressions"
-    adjust (ctx Ctx.:> fr) (Some e : es) = do
-      let tpr = R.exprType e
-      Some fr' <- case fr of
-        FieldRepr (FkInit _) -> return $ Some $ FieldRepr (FkInit tpr)
-        FieldRepr (FkMaybe _) -> return $ Some $ FieldRepr (FkMaybe tpr)
-      Some ctx' <- adjust ctx es
-      return $ Some (ctx' Ctx.:> fr')
-
 buildStruct' :: HasCallStack => M.Adt -> [Maybe (MirExp s)] ->
     MirGenerator h s ret (MirExp s)
-buildStruct' adt es = do
+buildStruct' adt xs = do
     when (adt ^. M.adtkind /= M.Struct) $ mirFail $
         "expected struct, but got adt " ++ show (adt ^. M.adtname)
-    let var = M.onlyVariant adt
-    Some fctx <- variantFieldsM' var
-    asn <- case buildStructAssign fctx $ map (fmap (\(MirExp _ e) -> Some e)) es of
-        Left err -> mirFail $ "error building struct " ++ show (var ^. M.vname) ++ ": " ++ err
-        Right x -> return x
-    let ctx = fieldCtxType fctx
-    pure $ MirExp (C.StructRepr ctx) $ R.App $ E.MkStruct ctx asn
+    let adtTy = M.TyAdt (adt ^. M.adtname) (adt ^. M.adtOrigDefId) (adt ^. M.adtOrigSubsts)
+    buildAggregateMaybeM adtTy xs
 
 buildStruct :: HasCallStack => M.Adt -> [MirExp s] ->
     MirGenerator h s ret (MirExp s)
@@ -1482,19 +1416,12 @@ buildStruct adt es =
 -- you're really sure that the `FieldKind`s will match up with the `M.Ty`s of
 -- the exprs.  In almost all cases, it's better to use the non-adjusted
 -- version.
+--
+-- TODO: now identical to buildStruct; remove
 buildStructAdjusted :: HasCallStack => M.Adt -> [MirExp s] ->
     MirGenerator h s ret (MirExp s)
 buildStructAdjusted adt es = do
-    when (adt ^. M.adtkind /= M.Struct) $ mirFail $
-        "expected struct, but got adt " ++ show (adt ^. M.adtname)
-    let var = M.onlyVariant adt
-    Some fctx <- variantFieldsM' var
-    Pair fctx' asn <- case buildStructAssignAdjusted fctx $ map (\(MirExp _ e) -> Some e) es of
-        Left err -> mirFail $
-          "error building adjusted struct " ++ show (var ^. M.vname) ++ ": " ++ err
-        Right x -> return x
-    let ctx' = fieldCtxType fctx'
-    pure $ MirExp (C.StructRepr ctx') $ R.App $ E.MkStruct ctx' asn
+    buildStruct adt es
 
 
 buildEnum' :: HasCallStack => M.Adt -> Int -> [Maybe (MirExp s)] ->
@@ -1676,41 +1603,74 @@ fieldDataRef ::
 fieldDataRef (FkInit _tpr) ref = return ref
 fieldDataRef (FkMaybe tpr) ref = subjustRef tpr ref
 
+-- | Round up @sz@ to the next multiple of @align@.
+padToAlign :: R.Expr MIR s UsizeType -> R.Expr MIR s UsizeType -> R.Expr MIR s UsizeType
+padToAlign sz align =
+  let alignMinus1 = R.App $ usizeSub align (R.App $ usizeLit 1)
+      szPlusAlignMinus1 = R.App $ usizeAdd sz alignMinus1
+      alignMask = R.App $ E.BVNot (knownNat @SizeBits) alignMinus1
+  in R.App $ usizeAnd szPlusAlignMinus1 alignMask
+
 structFieldRef ::
-    M.Adt -> Int ->
+    M.Ty -> Int ->
     R.Expr MIR s MirReferenceType ->
     PtrMetadata s ->
     MirGenerator h s ret (MirPlace s)
-structFieldRef adt i ref0 meta = structInfo adt i >>= \case
-  SizedStruct ctx idx fld -> do
-    ref1 <- subfieldRef ctx ref0 idx
-    ref2 <- fieldDataRef fld ref1
-    return $ MirPlace (fieldDataType fld) ref2 NoMeta
-  SizedField fieldKind -> do
-    let fieldRepr = fieldDataType fieldKind
-    fieldRef <- subfieldRef_Untyped ref0 i (Just (Some fieldRepr))
-    dataRef <- fieldDataRef fieldKind fieldRef
-    return $ MirPlace fieldRepr dataRef NoMeta
+structFieldRef structTy i ref meta = do
+  fields <- tyFieldsM structTy
+  (off, ty) <- case fields ^? ix i of
+    Just x -> return x
+    Nothing -> mirFail $ "tupleFieldRef: field index " ++ show i ++
+      " is out of range for tuple " ++ show structTy
+  let isLast = i + 1 == length fields
+  case meta of
+    DynMeta vtable | isLast -> do
+      dynTraitName <- findUnsizedTailM structTy >>= \case
+        Just (M.TyDynamic trait) -> return trait
+        tailTy -> panic "structFieldRef"
+          ["expected struct with DynMeta to have TyDynamic tail, but got",
+            show tailTy, "for struct", show structTy]
+      alignExp <- getVtableSlot dynTraitName vtableAlignSlotIdx UsizeRepr vtable
+      let offExp = R.App $ usizeLit $ fromIntegral off
+      let offExp' = padToAlign offExp alignExp
+      ref' <- mirRef_agElem_unsized offExp' ref
+      return $ MirPlace C.AnyRepr ref' meta
 
-  -- Note the unconditional absence of (a caller of) `subjustRef` in the unsized
-  -- cases below. When casting from a sized struct to an unsized struct, we
-  -- currently assert that the last field of the sized struct is initializable,
-  -- so that we know no `subjustRef` is necessary. This is an artificial
-  -- restriction, but it lets us get away without knowing the concrete type of
-  -- the inhabitant of that field, which is unknown at translation time.
-  UnsizedNonSliceField -> do
-    fieldRef <- subfieldRef_Untyped ref0 i Nothing
-    return $ MirPlace C.AnyRepr fieldRef meta
-  UnsizedSliceField innerSize innerRepr -> do
-    fieldRef <- subfieldRef_Untyped ref0 i Nothing
-    elemRef <- subindexRef innerRepr fieldRef (R.App $ usizeLit 0) innerSize
-    case meta of
-      NoMeta ->
-        mirFail "expected slice metadata for slice field access, but found no metadata"
-      DynMeta _vtable ->
-        mirFail "expected slice metadata for slice field access, but found vtable"
-      SliceMeta _len ->
-        return $ MirPlace innerRepr elemRef meta
+    SliceMeta _len | isLast -> do
+      let adtName = case structTy of
+            M.TyAdt name _ _ -> name
+            _ -> panic "structFieldRef" ["expected struct type, but got", show structTy]
+      -- This is `Just elemTy` if the last field of `structTy` is a slice or
+      -- str, or `Nothing` if it's another struct DST.
+      optElemTy <- findLastFieldM adtName >>= \case
+        Just f | M.TySlice elemTy <- f ^. M.fty -> return $ Just elemTy
+        Just f | M.TyStr <- f ^. M.fty -> return $ Just $ M.TyUint M.B8
+        _ -> return Nothing
+
+      let offExp = R.App $ usizeLit $ fromIntegral off
+      -- Can't use typed/sized `mirRef_agElem` here because it requires the
+      -- size to be a translation-time constant.
+      ref' <- mirRef_agElem_unsized offExp ref
+
+      case optElemTy of
+        Just elemTy -> do
+          -- Output is a slice reference.  Project into the first element of
+          -- the array.
+          Some elemTpr <- tyToReprM elemTy
+          elemSz <- tySizeM elemTy
+          ref'' <- mirRef_agElem_constOffset 0 elemSz elemTpr ref'
+          return $ MirPlace elemTpr ref'' meta
+        Nothing -> do
+          -- Output is a reference to a nested custom DST.  No additional
+          -- projection is needed.
+          return $ MirPlace MirAggregateRepr ref' meta
+
+    _ -> do
+      Some valTpr <- tyToReprM ty
+      sz <- tySizeM ty
+      ref' <- mirRef_agElem_constOffset off sz valTpr ref
+      return $ MirPlace valTpr ref' NoMeta
+
 
 enumFieldRef ::
     M.Adt -> Int -> Int ->

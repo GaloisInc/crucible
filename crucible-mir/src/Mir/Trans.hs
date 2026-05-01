@@ -1207,7 +1207,8 @@ evalCast' ck ty1 e ty2  = do
         when (numFields' /= numFields) $ mirFail $
             "coerceUnsized on incompatible types (mismatched fields): " ++ show (an1, an2)
         vals' <- forM (zip3 [0..] (v1 ^. vfields) (v2 ^. vfields)) $ \(i, f1, f2) -> do
-            val <- getStructField adt1 i expr
+            let adtTy = M.TyAdt (adt1 ^. M.adtname) (adt1 ^. M.adtOrigDefId) (adt1 ^. M.adtOrigSubsts)
+            val <- getStructField adtTy i expr
             -- Only compute a cast if the types are syntactically unequal.
             if (f1 ^. fty) == (f2 ^. fty)
               then pure val
@@ -1666,7 +1667,7 @@ evalPlaceProj ty pl@(MirPlace tpr ref meta) (M.PField idx fieldTy) = do
     M.TyAdt nm _ _ -> do
         adt <- findAdt nm
         case adt ^. adtkind of
-            Struct -> structFieldRef adt idx ref meta
+            Struct -> structFieldRef ty idx ref meta
             Enum _ -> mirFail $ "tried to access field of non-downcast " ++ show ty
             Union -> unionFieldRef adt idx ref
 
@@ -2896,7 +2897,7 @@ dispatchFromDyn dynTraitName recvTy recvExp die = do
     go :: M.Ty -> MirExp s -> WriterT [R.Expr MIR s C.AnyType] (MirGenerator h s ret) (MirExp s)
     go ty@(M.TyRawPtr pointeeTy _) mirExp = goPtr ty pointeeTy mirExp
     go ty@(M.TyRef pointeeTy _) mirExp = goPtr ty pointeeTy mirExp
-    go (M.TyAdt aname _ _) mirExp = do
+    go ty@(M.TyAdt aname _ _) mirExp = do
       adt <- lift $ findAdt aname
       col <- use $ cs . collection
       case adt ^. adtkind of
@@ -2909,7 +2910,7 @@ dispatchFromDyn dynTraitName recvTy recvExp die = do
             Nothing -> do
               let v = Maybe.fromJust $ adt ^? adtvariants . ix 0
               fieldExps' <- forM (zip [0..] (v ^. vfields)) $ \(i, f) -> do
-                fieldExp <- lift $ getStructField adt i mirExp
+                fieldExp <- lift $ getStructField ty i mirExp
                 go (f ^. fty) fieldExp
               -- It's safe to use `buildStructAdjusted` here because the only
               -- adjustment is `*const dyn Trait` to `*const T` or similar, and
