@@ -636,17 +636,22 @@ ptr_read_impl what substs =
   case substs of
     Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp MirReferenceRepr ptr] -> do
+            sz <- tySizeM ty
             Some tpr <- tyToReprM ty
-            MirExp tpr <$> readMirRef tpr ptr
+            case (sz, tpr) of
+                (0, MirAggregateRepr) -> MirExp tpr <$> mirAggregate_zst
+                _ -> MirExp tpr <$> readMirRef tpr ptr
         _ -> mirFail $ "bad arguments for " ++ what ++ ": " ++ show ops
     _ -> Nothing
 
 ptr_write_impl :: String -> CustomRHS
 ptr_write_impl what substs =
   case substs of
-    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
+    Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp MirReferenceRepr ptr, MirExp tpr val] -> do
-            writeMirRef tpr ptr val
+            sz <- tySizeM ty
+            when (sz /= 0) $ do
+                writeMirRef tpr ptr val
             MirExp MirAggregateRepr <$> mirAggregate_zst
         _ -> mirFail $ "bad arguments for " ++ what ++ ": " ++ show ops
     _ -> Nothing
@@ -655,11 +660,13 @@ ptr_swap :: (ExplodedDefId, CustomRHS)
 ptr_swap = ( ["core", "ptr", "swap"], \substs -> case substs of
     Substs [ty] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp MirReferenceRepr ptr1, MirExp MirReferenceRepr ptr2] -> do
-            Some tpr <- tyToReprM ty
-            x1 <- readMirRef tpr ptr1
-            x2 <- readMirRef tpr ptr2
-            writeMirRef tpr ptr1 x2
-            writeMirRef tpr ptr2 x1
+            sz <- tySizeM ty
+            when (sz /= 0) $ do
+                Some tpr <- tyToReprM ty
+                x1 <- readMirRef tpr ptr1
+                x2 <- readMirRef tpr ptr2
+                writeMirRef tpr ptr1 x2
+                writeMirRef tpr ptr2 x1
             MirExp MirAggregateRepr <$> mirAggregate_zst
         _ -> mirFail $ "bad arguments for ptr::swap: " ++ show ops
     _ -> Nothing)
@@ -2352,7 +2359,7 @@ cloneShimDef ty _parts = CustomOp $ \_ _ -> mirFail $ "cloneShimDef not implemen
 -- | Create an 'IkCloneShim' implementation for a tuple or closure type.
 cloneShimTuple :: Ty -> [M.DefId] -> CustomOp
 cloneShimTuple tupleTy parts = CustomMirOp $ \ops -> do
-    tys <- tupleLikeFieldTysM tupleTy
+    tys <- map snd <$> tyFieldsM tupleTy
     when (length tys /= length parts) $ mirFail "cloneShimTuple: expected tys and parts to match"
     -- The clone shim expects exactly one operand, with a reference type that
     -- looks something `&(A, B, C)`. First, we dereference the argument to

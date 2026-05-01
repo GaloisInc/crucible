@@ -342,6 +342,12 @@ instance Pretty Vtable where
     where sizeItem = pretty "size =" <+> pretty size <> semi
           alignItem = pretty "align =" <+> pretty align_ <> semi
 
+instance Pretty Layout where
+  pretty (Layout align_ size fieldOffsets) =
+    vcat [pretty "size =" <+> pretty size,
+          pretty "align =" <+> pretty align_,
+          pretty "fields =" <+> viaShow fieldOffsets]
+
 instance Pretty CastKind where
     pretty = viaShow
 
@@ -449,6 +455,9 @@ instance Pretty Collection where
           map pretty (Map.elems (col ^. traits)) ++
           [pretty "VTABLEs"] ++
           map pretty (Map.elems (col ^. vtables)) ++
+          [pretty "LAYOUTs"] ++
+          concat [[pretty name, indent 3 (pretty layout)]
+            | (name, layout) <- Map.toList (col ^. layouts)] ++
           [pretty "INTRINSICSs"] ++
           map pretty (Map.elems (col ^. intrinsics)) ++
           [pretty "STATICS"] ++

@@ -593,24 +593,16 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
               | otherwise =
                 showZSTValue fTy
         fieldStrs <- zipWithM showField [0..] fieldTys
-        showVariant' variant fieldStrs
+        showVariant variant fieldStrs
 
       | Just adt <- findAdt' col name -> do
         optParts <- case adt ^. adtkind of
             Struct -> do
                 let var = onlyVariant adt
-                C.Some fctx <- case variantFields' col var of
-                    Left err -> fail ("Type not supported: " ++ err)
-                    Right x -> return x
-                let ctx = fieldCtxType fctx
-                let expectedStructTpr = C.StructRepr ctx
-                Refl <-
-                  case testEquality expectedStructTpr tp of
-                    Just r -> pure r
-                    Nothing -> fail $
-                      "expected struct to have type " ++ show expectedStructTpr ++
-                      ", but got " ++ show tp
-                return $ Right (var, readFields fctx rv)
+                Refl <- failIfNotEqual tp MirAggregateRepr
+                            ("when printing struct type " ++ show mty)
+                strs <- showAgFields mty ("struct type " ++ show mty) rv
+                return $ Right (var, strs)
             Enum _ -> do
              case enumVariants col adt of
                Left err -> fail ("Type not supported: " ++ err)
@@ -635,12 +627,13 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
                             Right (C.Some fctx) -> do
                                 Refl <- failIfNotEqual tpr (C.StructRepr $ fieldCtxType fctx)
                                             ("when printing enum type " ++ show name)
-                                return $ Right (var, readFields fctx fields)
+                                strs <- showFields var fctx fields
+                                return $ Right (var, strs)
                     Nothing -> return $ Left "Symbolic enum"
             Union -> return $ Left "union printing is not yet implemented"
         case optParts of
             Left err -> return err
-            Right (variant, fields) -> showVariant variant fields
+            Right (variant, fieldStrs) -> showVariant variant fieldStrs
 
     (TyRef ty Immut, _) -> showRegEntry col ty (C.RegEntry tp rv)
 
@@ -674,6 +667,36 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
     readField (FieldRepr (FkMaybe tpr)) (W4.Err _) =
         error $ "readField: W4.Err for type " ++ show tpr
 
+    showFields :: Variant -> FieldCtxRepr ctx -> Ctx.Assignment (C.RegValue' sym) ctx ->
+        C.OverrideSim p sym MIR rtp args ret [String]
+    showFields variant fctx vs = do
+      let fields = readFields fctx vs
+      fieldStrs <-
+        zipWithM
+          (\fieldTy (C.Some fieldEntry) -> showRegEntry col fieldTy fieldEntry)
+          (variant ^.. vfields . each . fty)
+          fields
+      return fieldStrs
+
+    showAgFields :: Ty -> String -> MirAggregate sym ->
+        C.OverrideSim p sym MIR rtp args ret [String]
+    showAgFields agTy tyDesc ag = do
+      let MirAggregate _ m = ag
+      fields <- case tyFields col agTy of
+        Just x -> return x
+        Nothing -> fail $ "missing fields for " ++ tyDesc
+      strs <- forM fields $ \(off, ty) -> do
+        case col ^? layouts . ix ty . _Just . laySize of
+          Just 0 -> showZSTValue ty
+          Just _ -> do
+            case IntMap.lookup (fromIntegral off) m of
+              Just (MirAggregateEntry _ elemTpr elemRvPart) ->
+                goMaybe ty elemTpr elemRvPart
+              Nothing -> return "<uninit>"
+          Nothing -> fail $ "impossible: got field offsets for " ++ tyDesc
+            ++ ", but no layout for element " ++ show ty ++ "?"
+      return strs
+
     goMaybe ::
       Ty ->
       C.TypeRepr tp ->
@@ -688,23 +711,10 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
 
     showVariant ::
       Variant ->
-      -- | Field values, matching the order in the provided `Variant`
-      [C.Some (C.RegEntry sym)] ->
-      C.OverrideSim p sym MIR rtp args ret String
-    showVariant variant fields = do
-      fieldStrs <-
-        zipWithM
-          (\fieldTy (C.Some fieldEntry) -> showRegEntry col fieldTy fieldEntry)
-          (variant ^.. vfields . each . fty)
-          fields
-      showVariant' variant fieldStrs
-
-    showVariant' ::
-      Variant ->
       -- | Serialized field values, matching the order in the provided `Variant`
       [String] ->
       C.OverrideSim p sym MIR rtp args ret String
-    showVariant' variant fieldStrs = do
+    showVariant variant fieldStrs = do
       let varName = Text.unpack $ cleanVariantName (variant ^. vname)
       case variant ^. vctorkind of
         Just FnKind ->
@@ -735,7 +745,7 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
               let variant = onlyVariant adt
               let fieldTys = variant ^.. vfields . each . fty
               fieldStrs <- mapM showZSTValue fieldTys
-              showVariant' variant fieldStrs
+              showVariant variant fieldStrs
           | otherwise ->
               fail $ "showZSTValue: unknown ADT"
         _ ->

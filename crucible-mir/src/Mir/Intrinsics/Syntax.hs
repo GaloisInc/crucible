@@ -38,7 +38,6 @@ import Data.Parameterized.Context
     pattern (:>),
   )
 import Data.Parameterized.NatRepr (NatRepr)
-import Data.Parameterized.Some (Some)
 import Data.Parameterized.TH.GADT qualified as U
 import Data.Parameterized.TraversableFC
   ( FoldableFC (..),
@@ -119,6 +118,7 @@ import Mir.Intrinsics.Reference
     MirReferenceType,
     dropMirRefIO,
     mirRef_agElemIO,
+    mirRef_agElem_unsizedIO,
     mirRef_aggregateAsChunksIO,
     mirRef_eqIO,
     mirRef_offsetMA,
@@ -128,7 +128,6 @@ import Mir.Intrinsics.Reference
     newMirRefIO,
     readMirRefMA,
     subfieldMirRefIO,
-    subfieldMirRef_UntypedIO,
     subindexMirRefIO,
     subjustMirRefIO,
     subvariantMirRefIO,
@@ -180,16 +179,6 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(f MirReferenceType) ->
      !(Index ctx tp) ->
      MirStmt f MirReferenceType
-  -- | Like `MirSubfieldRef`, but for fields with statically-unknown types, such
-  -- as trait objects. The `Int` is the index of the field, and the `TypeRepr`
-  -- is an optional type hint, if the expected type happens to be known and
-  -- representable. If provided, it will be dynamically checked at simulation
-  -- time.
-  MirSubfieldRef_Untyped ::
-     !(f MirReferenceType) ->
-     !Int ->
-     !(Maybe (Some TypeRepr)) ->
-     MirStmt f MirReferenceType
   MirSubvariantRef ::
      !(TypeRepr discrTp) ->
      !(CtxRepr variantsCtx) ->
@@ -211,6 +200,10 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(f UsizeType) ->
      !Word ->
      !(TypeRepr tp) ->
+     !(f MirReferenceType) ->
+     MirStmt f MirReferenceType
+  MirRef_AgElem_Unsized ::
+     !(f UsizeType) ->
      !(f MirReferenceType) ->
      MirStmt f MirReferenceType
   MirRef_Eq ::
@@ -402,11 +395,11 @@ instance TypeApp MirStmt where
     MirWriteRef _ _ _ -> UnitRepr
     MirDropRef _    -> UnitRepr
     MirSubfieldRef _ _ _ -> MirReferenceRepr
-    MirSubfieldRef_Untyped _ _ _ -> MirReferenceRepr
     MirSubvariantRef _ _ _ _ -> MirReferenceRepr
     MirSubindexRef _ _ _ _ -> MirReferenceRepr
     MirSubjustRef _ _ -> MirReferenceRepr
     MirRef_AgElem _ _ _ _ -> MirReferenceRepr
+    MirRef_AgElem_Unsized _ _ -> MirReferenceRepr
     MirRef_Eq _ _ -> BoolRepr
     MirRef_Offset _ _ _ -> MirReferenceRepr
     MirRef_OffsetWrap _ _ _ -> MirReferenceRepr
@@ -439,11 +432,11 @@ instance PrettyApp MirStmt where
     MirWriteRef _ x y -> "writeMirRef" <+> pp x <+> "<-" <+> pp y
     MirDropRef x    -> "dropMirRef" <+> pp x
     MirSubfieldRef _ x idx -> "subfieldRef" <+> pp x <+> viaShow idx
-    MirSubfieldRef_Untyped x fieldNum expectedTy -> "subfieldRef_Untyped" <+> pp x <+> viaShow fieldNum <+> viaShow expectedTy
     MirSubvariantRef _ _ x idx -> "subvariantRef" <+> pp x <+> viaShow idx
     MirSubindexRef _ x idx sz -> "subindexRef" <+> pp x <+> pp idx <+> viaShow sz
     MirSubjustRef _ x -> "subjustRef" <+> pp x
     MirRef_AgElem off _ _ ref -> "mirRef_agElem" <+> pp off <+> pp ref
+    MirRef_AgElem_Unsized off ref -> "mirRef_agElem_unsized" <+> pp off <+> pp ref
     MirRef_Eq x y -> "mirRef_eq" <+> pp x <+> pp y
     MirRef_Offset p o s -> "mirRef_offset" <+> pp p <+> pp o <+> viaShow s
     MirRef_OffsetWrap p o s -> "mirRef_offsetWrap" <+> pp p <+> pp o <+> viaShow s
@@ -504,8 +497,6 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
          writeOnly s $ dropMirRefIO bak gs ref
        MirSubfieldRef ctx0 (regValue -> ref) idx ->
          readOnly s $ subfieldMirRefIO bak iTypes ctx0 ref idx
-       MirSubfieldRef_Untyped (regValue -> ref) idx expectedTy ->
-         readOnly s $ subfieldMirRef_UntypedIO bak iTypes ref idx expectedTy
        MirSubvariantRef tp0 ctx0 (regValue -> ref) idx ->
          readOnly s $ subvariantMirRefIO bak iTypes tp0 ctx0 ref idx
        MirSubindexRef tpr (regValue -> ref) (regValue -> idx) elemSize ->
@@ -514,6 +505,8 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
          readOnly s $ subjustMirRefIO bak iTypes tpr ref
        MirRef_AgElem (regValue -> off) sz tpr (regValue -> ref) ->
          readOnly s $ mirRef_agElemIO bak iTypes off sz tpr ref
+       MirRef_AgElem_Unsized (regValue -> off) (regValue -> ref) ->
+         readOnly s $ mirRef_agElem_unsizedIO bak gs iTypes off ref
        MirRef_Eq (regValue -> r1) (regValue -> r2) ->
          readOnly s $ mirRef_eqIO bak r1 r2
        MirRef_Offset (regValue -> ref) (regValue -> off) elemSize ->
