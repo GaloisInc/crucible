@@ -676,10 +676,9 @@ mirRef_agElem_constOffset off sz tpr ref =
 
 mirRef_agElem_unsized ::
   R.Expr MIR s UsizeType ->
-  C.TypeRepr tp ->
   R.Expr MIR s MirReferenceType ->
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-mirRef_agElem_unsized off tpr ref = G.extensionStmt $ MirRef_AgElem_Unsized off tpr ref
+mirRef_agElem_unsized off ref = G.extensionStmt $ MirRef_AgElem_Unsized off ref
 
 mirRef_eq ::
   R.Expr MIR s MirReferenceType ->

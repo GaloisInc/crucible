@@ -1119,10 +1119,9 @@ mirRef_agElem_unsizedLeaf ::
     SymGlobalState sym ->
     IntrinsicTypes sym ->
     RegValue sym UsizeType ->
-    TypeRepr tp ->
     MirReference sym ->
     MuxLeafT sym IO (MirReference sym)
-mirRef_agElem_unsizedLeaf bak gs iTypes off tpr ref =
+mirRef_agElem_unsizedLeaf bak gs iTypes off ref =
   typedLeafOp "MirAggregate unsized element projection" MirAggregateRepr ref $ \root path -> do
     let ref' = MirReference MirAggregateRepr root path
     offConcrete <- case asBV off of
@@ -1130,11 +1129,10 @@ mirRef_agElem_unsizedLeaf bak gs iTypes off tpr ref =
       Nothing -> leafAbort $ GenericSimError $
         "mirRef_agElem_unsized: offset must be concrete, but got " ++ show (printSymExpr off)
     MirAggregate _ m <- readMirRefLeaf bak gs iTypes MirAggregateRepr ref'
-    MirAggregateEntry sz _ _ <- case IntMap.lookup offConcrete m of
-      Just entry -> return entry
-      Nothing -> leafAbort $ GenericSimError $
-        "mirRef_agElem_unsized: no entry at offset " ++ show offConcrete
-    return $ MirReference tpr root (AgElem_RefPath off sz tpr path)
+    (sz, Some entryTpr) <- case IntMap.lookup offConcrete m of
+      Just (MirAggregateEntry sz entryTpr _) -> return (sz, Some entryTpr)
+      Nothing -> return (0, Some MirAggregateRepr)
+    return $ MirReference entryTpr root (AgElem_RefPath off sz entryTpr path)
 
 mirRef_agElem_unsizedIO ::
     IsSymBackend sym bak =>
@@ -1142,11 +1140,10 @@ mirRef_agElem_unsizedIO ::
     SymGlobalState sym ->
     IntrinsicTypes sym ->
     RegValue sym UsizeType ->
-    TypeRepr tp ->
     MirReferenceMux sym ->
     IO (MirReferenceMux sym)
-mirRef_agElem_unsizedIO bak gs iTypes off tpr ref =
-    modifyRefMuxMA bak iTypes (mirRef_agElem_unsizedLeaf bak gs iTypes off tpr) ref
+mirRef_agElem_unsizedIO bak gs iTypes off ref =
+    modifyRefMuxMA bak iTypes (mirRef_agElem_unsizedLeaf bak gs iTypes off) ref
 
 
 refRootEq ::
