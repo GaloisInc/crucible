@@ -975,14 +975,6 @@ writeStructField :: C.CtxRepr ctx -> Ctx.Index ctx tp ->
 writeStructField ctx idx e e' =
     return $ R.App $ E.SetStruct ctx e idx e'
 
-adjustStructField :: C.CtxRepr ctx -> Ctx.Index ctx tp ->
-    (R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s tp)) ->
-    R.Expr MIR s (C.StructType ctx) -> MirGenerator h s ret (R.Expr MIR s (C.StructType ctx))
-adjustStructField ctx idx f e = do
-    x <- readStructField ctx idx e
-    y <- f x
-    writeStructField ctx idx e y
-
 
 readJust' :: R.Expr MIR s (C.MaybeType tp) -> String ->
     MirGenerator h s ret (R.Expr MIR s tp)
@@ -1270,56 +1262,6 @@ getStructField adt i (MirExp structTpr e0) = structInfo adt i >>= \case
   where
     errFieldUninit = "field " ++ show i ++ " of " ++ show (adt ^. M.adtname) ++
         " read while uninitialized"
-
-setStructField :: M.Adt -> Int ->
-    MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
-setStructField adt i (MirExp structTpr structExp) (MirExp fldTpr fldExp) = structInfo adt i >>= \case
-  SizedStruct ctx idx fld -> do
-    Refl <- expectStructOrFail ctx structTpr
-    Refl <- testEqualityOrFail fldTpr (fieldDataType fld) (errFieldType fld)
-    fldExp' <- buildFieldData fld fldExp
-    MirExp structTpr <$> writeStructField ctx idx structExp fldExp'
-  SizedField _fieldRepr ->
-    mirFail "setStructField: sized fields of unsized structs not yet supported"
-  UnsizedNonSliceField ->
-    mirFail "setStructField: unsized fields of unsized structs not yet supported"
-  UnsizedSliceField _elemSize _innerRepr ->
-    mirFail "setStructField: unsized fields of unsized structs not yet supported"
-  where
-    errFieldType :: FieldKind tp tp' -> String
-    errFieldType fld = "expected field value for " ++ show (adt ^. M.adtname, i) ++
-        " to have type " ++ show (fieldDataType fld) ++ ", but got " ++ show fldTpr
-
--- Run `f`, checking that its return type is the same as its argument.  Fails
--- if `f` returns a different type.
-checkSameType :: String ->
-    (MirExp s -> MirGenerator h s ret (MirExp s)) ->
-    R.Expr MIR s tp -> MirGenerator h s ret (R.Expr MIR s tp)
-checkSameType desc f e = do
-    let tpr = R.exprType e
-    MirExp tpr' _e' <- f (MirExp tpr e)
-    Refl <- testEqualityOrFail tpr tpr' $ "checkSameType: bad result type: expected " ++
-        show tpr ++ ", but got " ++ show tpr' ++ " (in " ++ show desc ++ ")"
-    return e
-
-mapStructField :: M.Adt -> Int ->
-    (MirExp s -> MirGenerator h s ret (MirExp s)) ->
-    MirExp s -> MirGenerator h s ret (MirExp s)
-mapStructField adt i f (MirExp structTpr e) = structInfo adt i >>= \case
-  SizedStruct ctx idx fld -> do
-    Refl <- expectStructOrFail ctx structTpr
-    let f' =
-            adjustStructField ctx idx $
-            adjustFieldData fld $
-            checkSameType ("mapStructField " ++ show i ++ " of " ++ show (adt ^. M.adtname)) $
-            f
-    MirExp structTpr <$> f' e
-  SizedField _fieldRepr ->
-    mirFail "mapStructField: sized fields of unsized structs not yet supported"
-  UnsizedNonSliceField ->
-    mirFail "mapStructField: unsized fields of unsized structs not yet supported"
-  UnsizedSliceField _elemSize _innerRepr ->
-    mirFail "mapStructField: unsized fields of unsized structs not yet supported"
 
 
 data EnumInfo = forall discrTp ctx ctx' tp tp'. EnumInfo
