@@ -68,6 +68,8 @@ module Mir.Intrinsics.Reference
     subjustMirRefIO,
     mirRef_agElemLeaf,
     mirRef_agElemIO,
+    mirRef_agElem_unsizedLeaf,
+    mirRef_agElem_unsizedIO,
     refRootEq,
     refPathEq,
     mirRef_eqLeaf,
@@ -115,6 +117,7 @@ import Control.Monad.Trans (lift)
 import Control.Monad.Trans.Maybe (MaybeT (..))
 
 import Data.BitVector.Sized qualified as BV
+import Data.IntMap qualified as IntMap
 import Data.Kind (Type)
 import Data.Parameterized.Context
   ( Ctx,
@@ -208,6 +211,7 @@ import Mir.FancyMuxTree
   )
 import Mir.Intrinsics.Aggregate
   ( MirAggregate (..),
+    MirAggregateEntry (..),
     MirAggregateType,
     adjustMirAggregateWithSymOffset,
     mirAggregate_concat,
@@ -1108,6 +1112,41 @@ mirRef_agElemIO ::
     IO (MirReferenceMux sym)
 mirRef_agElemIO bak iTypes off sz tpr ref =
     modifyRefMuxMA bak iTypes (mirRef_agElemLeaf off sz tpr) ref
+
+mirRef_agElem_unsizedLeaf ::
+    IsSymBackend sym bak =>
+    bak ->
+    SymGlobalState sym ->
+    IntrinsicTypes sym ->
+    RegValue sym UsizeType ->
+    TypeRepr tp ->
+    MirReference sym ->
+    MuxLeafT sym IO (MirReference sym)
+mirRef_agElem_unsizedLeaf bak gs iTypes off tpr ref =
+  typedLeafOp "MirAggregate unsized element projection" MirAggregateRepr ref $ \root path -> do
+    let ref' = MirReference MirAggregateRepr root path
+    offConcrete <- case asBV off of
+      Just bv -> return $ fromIntegral $ BV.asUnsigned bv
+      Nothing -> leafAbort $ GenericSimError $
+        "mirRef_agElem_unsized: offset must be concrete, but got " ++ show (printSymExpr off)
+    MirAggregate _ m <- readMirRefLeaf bak gs iTypes MirAggregateRepr ref'
+    MirAggregateEntry sz _ _ <- case IntMap.lookup offConcrete m of
+      Just entry -> return entry
+      Nothing -> leafAbort $ GenericSimError $
+        "mirRef_agElem_unsized: no entry at offset " ++ show offConcrete
+    return $ MirReference tpr root (AgElem_RefPath off sz tpr path)
+
+mirRef_agElem_unsizedIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    SymGlobalState sym ->
+    IntrinsicTypes sym ->
+    RegValue sym UsizeType ->
+    TypeRepr tp ->
+    MirReferenceMux sym ->
+    IO (MirReferenceMux sym)
+mirRef_agElem_unsizedIO bak gs iTypes off tpr ref =
+    modifyRefMuxMA bak iTypes (mirRef_agElem_unsizedLeaf bak gs iTypes off tpr) ref
 
 
 refRootEq ::
