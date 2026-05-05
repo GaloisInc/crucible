@@ -202,6 +202,11 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(TypeRepr tp) ->
      !(f MirReferenceType) ->
      MirStmt f MirReferenceType
+  -- | Like `MirRef_AgElem`, but the size and `TypeRepr` are inferred by
+  -- inspecting the aggregate.  This reads from memory instead of simply
+  -- adjusting the `MirReferencePath`, so it's best avoided if possible.
+  --
+  -- TODO: remove this once `MirRef_AgOffset` is implemented
   MirRef_AgElem_Unsized ::
      !(f UsizeType) ->
      !(f MirReferenceType) ->

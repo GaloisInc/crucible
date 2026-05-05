@@ -27,7 +27,7 @@ module Mir.TransTy where
 
 import Control.Monad
 import qualified Data.BitVector.Sized as BV
-import Data.List (findIndices)
+import Data.List (findIndices, intercalate)
 import Data.Foldable.WithIndex (ifind)
 import qualified Data.Map.Strict as Map
 import           Data.Function ((&))
@@ -877,13 +877,19 @@ construct MIR must be very careful to ensure that the type of that MIR is
 present.
 -}
 
+-- | Build an aggregate of type @agTy@ containing @xs@ as its field values.
+-- The order of @xs@ must match the field order produced by @tyFieldsM agTy@.
+-- If any entry in @xs@ is `Nothing`, that field will be left uninitialized in
+-- the output aggregate.
 buildAggregateMaybeM :: M.Ty -> [Maybe (MirExp s)] -> MirGenerator h s ret (MirExp s)
 buildAggregateMaybeM agTy xs = do
     layout <- tyLayoutM agTy
     offsetsAndTys <- tyFieldsM agTy
     when (length offsetsAndTys /= length xs) $
-        mirFail $ "buildTupleMaybeM: length mismatch:\n  offsetsAndTys = " ++ show offsetsAndTys
-            ++ "\n  xs = " ++ show xs
+        mirFail $ intercalate "\n"
+          [ "buildAggregateMaybeM: length mismatch:"
+          , "  offsetsAndTys = " ++ show offsetsAndTys
+          , "  xs = " ++ show xs ]
     ag0 <- mirAggregate_uninit_constSize (fromIntegral $ layout ^. M.laySize)
     ag1 <- foldM
         (\ag ((off, ty), mExp) -> do
@@ -1192,7 +1198,12 @@ tyFields col ty = do
                     Just adt ->
                         case adt ^. M.adtkind of
                             M.Struct -> map (\f -> f ^. M.fty) $ M.onlyVariant adt ^. M.vfields
-                            ak -> panic "tyFields" ["bad adt kind", show ak, "for type", show ty]
+                            -- Enums don't have field offsets (all unions,
+                            -- including single-variant ones, use VariantRepr).
+                            -- For unions, all field offsets are zero, but so
+                            -- far we haven't needed this function for unions.
+                            ak -> panic "tyFields"
+                              ["unsupported adt kind", show ak, "for type", show ty]
                     Nothing -> panic "tyFields" ["missing adt def for type", show ty]
             _ -> panic "tyFields" ["tyFields: unsupported type:", show ty]
     when (length tys /= length offsets) $
@@ -1219,10 +1230,12 @@ getStructField structTy i (MirExp structTpr e0) = do
   fields <- tyFieldsM structTy
   (off, ty) <- case fields ^? ix i of
     Just x -> return x
-    Nothing -> mirFail $ "tupleFieldRef: field index " ++ show i ++
-      " is out of range for tuple " ++ show structTy
-  -- Assume `NoMeta`.  Calling `getStructField` requires holding a struct by
-  -- value, which is only possible if the struct is sized.
+    Nothing -> mirFail $ "structFieldRef: field index " ++ show i ++
+      " is out of range for struct " ++ show structTy
+  -- This is similar to the `NoMeta` case of `structFieldRef`.  We can assume
+  -- that `structTy` is sized (and thus uses `NoMeta`) because calling
+  -- `getStructField` requires holding a struct by value, which is only
+  -- possible if the struct is sized.
   Some valTpr <- tyToReprM ty
   sz <- tySizeM ty
   case (sz, valTpr) of
@@ -1607,8 +1620,8 @@ structFieldRef structTy i ref meta = do
   fields <- tyFieldsM structTy
   (off, ty) <- case fields ^? ix i of
     Just x -> return x
-    Nothing -> mirFail $ "tupleFieldRef: field index " ++ show i ++
-      " is out of range for tuple " ++ show structTy
+    Nothing -> mirFail $ "structFieldRef: field index " ++ show i ++
+      " is out of range for struct " ++ show structTy
   let isLast = i + 1 == length fields
   case meta of
     DynMeta vtable | isLast -> do
@@ -1635,6 +1648,10 @@ structFieldRef structTy i ref meta = do
         _ -> return Nothing
 
       let offExp = R.App $ usizeLit $ fromIntegral off
+      -- No need for `padToAlign` here.  The correct alignment for the slice is
+      -- statically known based on its element type, and the layout emitted by
+      -- mir-json already includes the necessary padding for that alignment.
+      --
       -- Can't use typed/sized `mirRef_agElem` here because it requires the
       -- size to be a translation-time constant.
       ref' <- mirRef_agElem_unsized offExp ref

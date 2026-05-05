@@ -1069,12 +1069,11 @@ mirRef_agElem_unsizedLeaf ::
     MuxLeafT sym IO (MirReference sym)
 mirRef_agElem_unsizedLeaf bak gs iTypes off ref =
   typedLeafOp "MirAggregate unsized element projection" MirAggregateRepr ref $ \root path -> do
-    let ref' = MirReference MirAggregateRepr root path
     offConcrete <- case asBV off of
       Just bv -> return $ fromIntegral $ BV.asUnsigned bv
       Nothing -> leafAbort $ GenericSimError $
         "mirRef_agElem_unsized: offset must be concrete, but got " ++ show (printSymExpr off)
-    MirAggregate _ m <- readMirRefLeaf bak gs iTypes MirAggregateRepr ref'
+    MirAggregate _ m <- readMirRefLeaf bak gs iTypes MirAggregateRepr ref
     (sz, Some entryTpr) <- case IntMap.lookup offConcrete m of
       Just (MirAggregateEntry sz entryTpr _) -> return (sz, Some entryTpr)
       Nothing -> return (0, Some MirAggregateRepr)
