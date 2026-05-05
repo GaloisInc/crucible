@@ -6,9 +6,9 @@
 
 module Main (main) where
 
-import qualified Control.Lens as Lens
 import qualified Data.ByteString.Lazy as BS
 import Data.Void (Void)
+import qualified Lens.Micro as Lens
 import System.Exit (exitWith)
 
 import qualified Data.Parameterized.Context as Ctx

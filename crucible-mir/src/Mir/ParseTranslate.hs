@@ -17,8 +17,8 @@
 
 module Mir.ParseTranslate (parseMIR, translateMIR) where
 
-import Control.Lens hiding((<.>))
 import Control.Monad (unless, when)
+import Lens.Micro ((^.))
 
 import qualified Data.Aeson as J
 import qualified Data.Aeson.KeyMap as KeyMap

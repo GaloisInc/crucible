@@ -24,7 +24,7 @@ import Data.Text (Text,  unpack)
 import qualified Data.Text as T
 import qualified Data.Text.Read  as T
 import Data.Word (Word64)
-import Control.Lens((^.))
+import Lens.Micro ((^.))
 
 #if MIN_VERSION_aeson(2,0,0)
 import qualified Data.Aeson.Key as K (Key)

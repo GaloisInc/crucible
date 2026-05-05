@@ -39,15 +39,17 @@ module Lang.Crucible.LLVM.MemModel.Value
   , testEqual
   ) where
 
-import           Control.Lens (view, over, _2, (^.))
 import           Control.Monad (foldM, join)
 import           Data.ByteString (ByteString)
 import qualified Data.ByteString as BS
 import           Data.Map (Map)
 import           Data.Foldable (toList)
 import           Data.Functor.Identity (Identity(..))
-import           Data.Maybe (fromMaybe, mapMaybe)
+import           Lens.Micro ((^.), _2, over)
+import           Lens.Micro.Extras (view)
+
 import           Data.List (intersperse)
+import           Data.Maybe (fromMaybe, mapMaybe)
 import           Numeric.Natural
 import           Prettyprinter
 

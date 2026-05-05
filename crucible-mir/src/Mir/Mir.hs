@@ -35,8 +35,7 @@ import Data.Map.Strict (Map)
 import Data.Set (Set)
 import Data.Text (Text)
 import Data.Word (Word64)
-
-import Control.Lens (makeLenses, makePrisms, makeWrapped)
+import Lens.Micro.TH (makeLenses)
 
 import GHC.Generics
 
@@ -252,6 +251,10 @@ data AdtKind
              _enumDiscrTy :: Ty }
     | Union
     deriving (Eq, Ord, Show, Generic)
+
+isEnum :: AdtKind -> Bool
+isEnum (Enum {}) = True
+isEnum _ = False
 
 data VariantDiscr
   = Explicit DefId
@@ -716,7 +719,6 @@ makeLenses ''MirBody
 makeLenses ''BasicBlock
 makeLenses ''BasicBlockData
 makeLenses ''Adt
-makePrisms ''AdtKind
 makeLenses ''AdtAg
 makeLenses ''Trait
 makeLenses ''Static
@@ -730,7 +732,6 @@ makeLenses ''LangItem
 makeLenses ''Statement
 makeLenses ''Terminator
 makeLenses ''CoroutineArgs
-makeWrapped ''Substs
 
 --------------------------------------------------------------------------------------
 --- aux functions ---

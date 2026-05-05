@@ -15,7 +15,6 @@ module Lang.Crucible.Debug.Eval
   , eval
   ) where
 
-import Control.Lens qualified as Lens
 import Data.Maybe qualified as Maybe
 import Data.Set qualified as Set
 import Data.Text qualified as Text
@@ -37,6 +36,7 @@ import Lang.Crucible.Simulator.EvalStmt qualified as C
 import Lang.Crucible.Simulator.ExecutionTree qualified as C
 import Lang.Crucible.Simulator qualified as C
 import Lang.Crucible.Syntax.Concrete qualified as C
+import Lens.Micro qualified as Lens
 import Prettyprinter qualified as PP
 import What4.Expr.Builder qualified as W4
 import What4.Interface qualified as W4

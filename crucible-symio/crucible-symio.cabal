@@ -31,7 +31,7 @@ common shared
                        filemanip,
                        filepath,
                        IntervalMap,
-                       lens,
+                       microlens,
                        mtl,
                        parameterized-utils,
                        text,

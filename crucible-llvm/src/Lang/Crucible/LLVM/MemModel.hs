@@ -197,7 +197,6 @@ module Lang.Crucible.LLVM.MemModel
 
 import           Prelude hiding (seq)
 
-import           Control.Lens hiding (Empty, (:>))
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Control.Monad.Trans (lift)
@@ -209,6 +208,8 @@ import           Data.Maybe
 import           Data.Text (Text)
 import           Data.Word
 import qualified GHC.Stack as GHC
+import           Lens.Micro ((^.), _2, to, folded)
+import           Lens.Micro.Mtl (use, (%=))
 import           Numeric.Natural (Natural)
 import qualified Prettyprinter as PP
 import           System.IO (Handle, hPutStrLn)

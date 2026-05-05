@@ -38,19 +38,21 @@ module Lang.Crucible.LLVM.TypeContext
   , asMemType
   ) where
 
-import           Control.Lens
 import           Control.Monad
 import           Control.Monad.Except (MonadError(..))
 import           Control.Monad.State (State, runState, modify, gets)
+import           Data.IntMap (IntMap)
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Set (Set)
 import qualified Data.Set as Set
 import qualified Data.Vector as V
+import           Lens.Micro ((^.))
+import           Lens.Micro.Extras (view)
+import           Lens.Micro.GHC (at)
+import           Prettyprinter
 import qualified Text.LLVM as L
 import qualified Text.LLVM.DebugUtils as L
-import           Prettyprinter
-import           Data.IntMap (IntMap)
 
 import           Lang.Crucible.LLVM.MemType
 import           Lang.Crucible.LLVM.DataLayout
@@ -73,7 +75,7 @@ runTC :: DataLayout
       -> Map Ident IdentStatus
       -> TC a
       -> ([Doc ann], a)
-runTC pdl initMap m = over _1 tcsErrors . view swapped $ runState m tcs0
+runTC pdl initMap m = let (a, s) = runState m tcs0 in (tcsErrors s, a)
   where tcs0 = TCS { tcsDataLayout = pdl
                    , tcsMap =  initMap
                    , tcsUnsupported = Set.empty
@@ -283,4 +285,4 @@ compatMemTypeLists _ _ = False
 compatMemTypeVectors :: V.Vector MemType -> V.Vector MemType -> Bool
 compatMemTypeVectors x y =
   V.length x == V.length y &&
-  allOf traverse (uncurry compatMemTypes) (V.zip x y)
+  all (uncurry compatMemTypes) (V.zip x y)

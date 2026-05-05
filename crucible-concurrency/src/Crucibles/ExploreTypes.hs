@@ -11,11 +11,13 @@ Maintainer       : Alexander Bakst <abakst@galois.com>
 {-# LANGUAGE MultiParamTypeClasses #-}
 module Crucibles.ExploreTypes where
 
-import Control.Lens
 import Control.Monad.State
-import Data.Text
 import Data.Map.Strict
 import Data.Parameterized (Some(..))
+import Data.Text
+import Lens.Micro (Lens')
+import Lens.Micro.Mtl (use, (.=))
+import Lens.Micro.TH (makeLenses)
 
 import Lang.Crucible.Simulator
 

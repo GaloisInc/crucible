@@ -25,8 +25,8 @@ module Lang.Crucible.Simulator.PathSatisfiability
   , BranchResult(..)
   ) where
 
-import           Control.Lens( (^.) )
 import           Control.Monad.Reader
+import           Lens.Micro ((^.))
 import qualified Prettyprinter as PP
 
 import           Lang.Crucible.Backend

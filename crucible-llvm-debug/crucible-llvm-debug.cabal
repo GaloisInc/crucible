@@ -117,7 +117,7 @@ library
     crucible,
     crucible-debug,
     crucible-llvm,
-    lens,
+    microlens,
     mtl,
     parameterized-utils,
     prettyprinter,

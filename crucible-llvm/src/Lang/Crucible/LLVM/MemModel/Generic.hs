@@ -77,10 +77,10 @@ module Lang.Crucible.LLVM.MemModel.Generic
 import           Prelude hiding (pred)
 
 import qualified Control.Exception as X
-import           Control.Lens
 import           Control.Monad
 import           Control.Monad.State.Strict
 import           Control.Monad.Trans.Maybe
+import           Data.Function ((&))
 import           Data.IORef
 import           Data.Maybe
 import qualified Data.List as List
@@ -89,6 +89,7 @@ import           Data.IntMap (IntMap)
 import qualified Data.IntMap as IntMap
 import           Data.Monoid
 import           Data.Text (Text)
+import           Lens.Micro ((^.), (.~), (%~))
 import           Numeric.Natural
 import           Prettyprinter
 import           Lang.Crucible.Panic (panic)

@@ -7,8 +7,8 @@
 
 module Lang.Crucible.Wasm.Main where
 
-import qualified Control.Lens as Lens
 import Data.Void (Void)
+import qualified Lens.Micro as Lens
 import System.Exit
 import System.FilePath (takeExtension)
 import System.IO

@@ -73,11 +73,11 @@ module Lang.Crucible.Backend.Prove
   , proveCurrentObligations
   ) where
 
-import           Control.Lens ((^.))
 import           Control.Monad.Catch (MonadMask)
 import           Control.Monad.Error.Class (MonadError, liftEither)
 import           Control.Monad.IO.Class (MonadIO(liftIO))
 import qualified Control.Monad.Reader as Reader
+import           Lens.Micro ((^.))
 
 import qualified What4.Interface as W4
 import qualified What4.Expr as WE

@@ -46,28 +46,29 @@ import Control.Monad
 import Control.Monad.ST
 import Control.Monad.Trans.Class
 import Control.Monad.Writer
-
-import Control.Lens hiding (op,(|>))
-import qualified Control.Lens.Extras as Lens (is)
-import Data.Foldable
+import Lens.Micro ((^.), (^?), (%~), ix, to)
+import Lens.Micro.GHC (at)
+import Lens.Micro.Mtl (use, (.=), (%=))
 
 import Data.Bits (shift, shiftL)
 import qualified Data.ByteString as BS
 import qualified Data.Char as Char
+import Data.Foldable
+import Data.Function ((&))
+import Data.Kind (Type)
 import qualified Data.List as List
 import Data.List.NonEmpty (NonEmpty(..))
 import qualified Data.List.NonEmpty as NE
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import qualified Data.Maybe as Maybe
-import Data.Kind (Type)
 import qualified Data.Sequence as Seq
 import qualified Data.Set as Set
 import Data.STRef
+import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Traversable as Trav
-import Data.String (fromString)
 import Numeric
 import Numeric.Natural()
 
@@ -3081,7 +3082,7 @@ transVirtCall colState intrName' methName dynTraitName methIndex
 mkDiscrMap :: M.Collection -> Map M.AdtName [Integer]
 mkDiscrMap col = mconcat
     [ Map.singleton (adt ^. M.adtname) (adtIndices adt col)
-    | adt <- Map.elems $ col ^. M.adts, Lens.is _Enum (adt ^. M.adtkind) ]
+    | adt <- Map.elems $ col ^. M.adts, M.isEnum (adt ^. M.adtkind) ]
 
 -- | Gather all of the 'M.DefId's in a 'M.Collection' and construct a
 -- 'crateHashesMap' from it. To accomplish this, it suffices to look at the

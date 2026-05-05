@@ -24,7 +24,6 @@
 module Main (main) where
 
 import           GHC.TypeNats
-import           Control.Lens ( (^.) )
 
 import           Control.Monad (foldM )
 import           Control.Monad.Except (runExceptT)
@@ -35,6 +34,7 @@ import           Data.Parameterized.Classes
 import           Data.Parameterized.Some
 import qualified Data.Parameterized.Nonce as N
 import qualified Data.Parameterized.NatRepr as NR
+import           Lens.Micro ((^.))
 
 import qualified Data.ByteString as BS
 

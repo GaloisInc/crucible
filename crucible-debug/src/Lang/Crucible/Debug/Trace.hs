@@ -20,7 +20,6 @@ module Lang.Crucible.Debug.Trace
   , latest
   ) where
 
-import Control.Lens qualified as Lens
 import Data.Parameterized.Classes (ixF')
 import Data.Parameterized.Context qualified as Ctx
 import Data.Parameterized.NatRepr qualified as NatRepr
@@ -30,6 +29,7 @@ import Data.RingBuffer qualified as RB
 import Data.Vector qualified as V
 import Lang.Crucible.CFG.Core qualified as C
 import Lang.Crucible.CFG.Extension qualified as C
+import Lens.Micro qualified as Lens
 import Prettyprinter qualified as PP
 import What4.ProgramLoc qualified as W4
 

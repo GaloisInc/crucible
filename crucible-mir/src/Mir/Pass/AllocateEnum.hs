@@ -16,9 +16,10 @@ module Mir.Pass.AllocateEnum
 ( passAllocateEnum
 ) where
 
-import Control.Lens hiding (op)
-import qualified Data.Text as T
+import           Data.Function ((&))
 import qualified Data.List as List
+import qualified Data.Text as T
+import           Lens.Micro ((^.), (%~))
 
 import Mir.DefId
 import Mir.Mir

@@ -18,9 +18,10 @@ module Crux.Config
   , parsePosNum
   ) where
 
-import Control.Lens (Lens', set, view)
-import Data.Text (Text)
 import Data.Maybe (fromMaybe)
+import Data.Text (Text)
+import Lens.Micro (Lens', set)
+import Lens.Micro.Extras (view)
 import Text.Read(readMaybe)
 
 import SimpleGetOpt

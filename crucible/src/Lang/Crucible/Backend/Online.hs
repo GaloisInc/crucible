@@ -78,19 +78,19 @@ module Lang.Crucible.Backend.Online
   , withSTPOnlineBackend
   ) where
 
-import           Control.Lens ( (^.) )
 import           Control.Monad
-import           Control.Monad.Fix (mfix)
 import           Control.Monad.Catch
+import           Control.Monad.Fix (mfix)
 import           Control.Monad.IO.Class
 import           Data.Bits
 import           Data.Data (Data)
 import           Data.Foldable
 import           Data.IORef
-import           GHC.Generics (Generic)
-import           System.IO
 import qualified Data.Text as Text
+import           GHC.Generics (Generic)
+import           Lens.Micro ((^.))
 import qualified Prettyprinter as PP
+import           System.IO
 
 import           What4.Config
 import           What4.Concrete

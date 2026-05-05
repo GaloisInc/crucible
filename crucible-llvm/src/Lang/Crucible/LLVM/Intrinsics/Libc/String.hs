@@ -51,9 +51,9 @@ module Lang.Crucible.LLVM.Intrinsics.Libc.String
   , callStrndup
   ) where
 
-import           Control.Lens ((^.), _1, _2, _3)
 import           Control.Monad.IO.Class (liftIO)
 import qualified Data.BitVector.Sized as BV
+import           Lens.Micro ((^.), _1, _2, _3)
 
 import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 import qualified Data.Parameterized.Context as Ctx

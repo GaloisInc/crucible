@@ -5,8 +5,8 @@
 
 module Main (main) where
 
-import Control.Lens (use)
 import Control.Monad.IO.Class (MonadIO(..))
+import Lens.Micro.Mtl (use)
 
 import qualified Data.List as List (sort)
 import qualified Data.Map as Map

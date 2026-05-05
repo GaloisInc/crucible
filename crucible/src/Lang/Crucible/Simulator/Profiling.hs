@@ -47,9 +47,9 @@ module Lang.Crucible.Simulator.Profiling
   ) where
 
 import qualified Control.Exception as Ex
-import           Control.Lens
 import           Control.Monad ((<=<), when)
 import           Data.Foldable (toList)
+import           Data.Functor.Identity (Identity(..), runIdentity)
 import           Data.Hashable
 import           Data.HashSet (HashSet)
 import qualified Data.HashSet as HashSet
@@ -64,6 +64,7 @@ import qualified Data.Text as Text
 import           Data.Time.Clock
 import           Data.Time.Clock.POSIX
 import           Data.Time.Format
+import           Lens.Micro ((^.))
 import           System.IO (withFile, IOMode(..), hPutStrLn)
 import           Text.JSON
 import           GHC.Generics (Generic)

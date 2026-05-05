@@ -92,7 +92,6 @@ module Lang.Crucible.LLVM.Translation
   , module Lang.Crucible.LLVM.Translation.Types
   ) where
 
-import           Control.Lens hiding (op, (:>) )
 import           Control.Monad (foldM)
 import           Data.IORef (IORef, newIORef, readIORef, modifyIORef)
 import           Data.Map.Strict (Map)
@@ -101,6 +100,8 @@ import qualified Data.Set as Set
 import           Data.Maybe
 import           Data.String
 import qualified Data.Text   as Text
+import           Lens.Micro (SimpleGetter, to, (^.))
+import           Lens.Micro.Mtl (use, (.=))
 import           Prettyprinter (pretty)
 
 import qualified Text.LLVM.AST as L
@@ -166,19 +167,19 @@ instance TestEquality ModuleTranslation where
   testEquality mt1 mt2 =
     testEquality (_modTransNonce mt1) (_modTransNonce mt2)
 
-transContext :: Getter (ModuleTranslation arch) (LLVMContext arch)
+transContext :: SimpleGetter (ModuleTranslation arch) (LLVMContext arch)
 transContext = to _transContext
 
-globalInitMap :: Getter (ModuleTranslation arch) GlobalInitializerMap
+globalInitMap :: SimpleGetter (ModuleTranslation arch) GlobalInitializerMap
 globalInitMap = to _globalInitMap
 
-modTransDefs :: Getter (ModuleTranslation arch) [(L.Declare,SomeHandle)]
+modTransDefs :: SimpleGetter (ModuleTranslation arch) [(L.Declare,SomeHandle)]
 modTransDefs = to _modTransDefs
 
-modTransModule :: Getter (ModuleTranslation arch) L.Module
+modTransModule :: SimpleGetter (ModuleTranslation arch) L.Module
 modTransModule = to _modTransModule
 
-modTransHalloc :: Getter (ModuleTranslation arch) HandleAllocator
+modTransHalloc :: SimpleGetter (ModuleTranslation arch) HandleAllocator
 modTransHalloc = to _modTransHalloc
 
 typeToRegExpr :: MemType -> LLVMGenerator s arch ret (Some (Reg s))

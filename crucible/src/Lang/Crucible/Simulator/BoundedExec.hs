@@ -30,8 +30,8 @@ module Lang.Crucible.Simulator.BoundedExec
   ( boundedExecFeature
   ) where
 
-import           Control.Lens ( (^.), to, (&), (%~), (.~) )
 import           Control.Monad ( when )
+import           Data.Function ((&))
 import           Data.IORef
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -40,7 +40,7 @@ import           Data.Sequence (Seq)
 import qualified Data.Sequence as Seq
 import qualified Data.Text as Text
 import           Data.Word
-
+import           Lens.Micro ((^.), to, (%~), (.~))
 
 import qualified Data.Parameterized.Context as Ctx
 import qualified Data.Parameterized.Map as MapF

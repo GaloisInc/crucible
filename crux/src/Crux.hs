@@ -33,7 +33,6 @@ module Crux
 
 import qualified Control.Applicative as Applicative
 import qualified Control.Exception as Ex
-import           Control.Lens
 import           Control.Monad ( unless, void, when )
 import qualified Data.Aeson as JSON
 import           Data.Foldable
@@ -46,6 +45,7 @@ import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Version (Version)
 import           Data.Void (Void)
+import           Lens.Micro (set)
 import qualified Lumberjack as LJ
 import           Prettyprinter
 import qualified System.Console.ANSI as AC

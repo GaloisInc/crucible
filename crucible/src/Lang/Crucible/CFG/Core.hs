@@ -91,7 +91,6 @@ module Lang.Crucible.CFG.Core
   ) where
 
 import Control.Applicative
-import Control.Lens
 import Data.Bimap (Bimap)
 import Data.Maybe (fromMaybe)
 import Data.Kind (Type)
@@ -100,6 +99,7 @@ import Data.Parameterized.Map (Pair(..))
 import Data.Parameterized.Some
 import Data.Parameterized.TraversableFC
 import Data.String
+import Lens.Micro ((^.), Lens', lens)
 import Prettyprinter
 
 import What4.ProgramLoc
@@ -673,7 +673,7 @@ data Block ext (blocks :: Ctx (Ctx CrucibleType)) (ret :: CrucibleType) ctx
              -- ^ The sequence of statements in this block
            }
 
-blockStmts :: Simple Lens (Block ext b r c) (StmtSeq ext b r c)
+blockStmts :: Lens' (Block ext b r c) (StmtSeq ext b r c)
 blockStmts = lens _blockStmts (\b s -> b { _blockStmts = s })
 
 -- | Return location of start of block.

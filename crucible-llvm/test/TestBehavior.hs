@@ -13,16 +13,16 @@
 
 module TestBehavior (behaviorTests) where
 
-import           Control.Lens ( (^.) )
 import           Control.Monad ( void, when, unless )
 import qualified Data.ByteString.Char8 as BS
+import qualified Data.List as List
 import           Data.Parameterized.Context ( pattern Empty, pattern (:>) )
 import qualified Data.Parameterized.Map as MapF
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
-import qualified Data.Vector as V
 import           Data.Time.Clock ( NominalDiffTime )
-import qualified Data.List as List
+import qualified Data.Vector as V
+import           Lens.Micro ((^.))
 import qualified Oughta
 import           System.Directory ( listDirectory )
 import           System.Exit ( ExitCode(..) )

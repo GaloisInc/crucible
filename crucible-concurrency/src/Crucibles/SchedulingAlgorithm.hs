@@ -11,9 +11,9 @@ feature and the algorithm for picking threads to run.
 {-# LANGUAGE RankNTypes #-}
 module Crucibles.SchedulingAlgorithm where
 
-import Control.Lens
 import Control.Monad.Reader
 import Control.Monad.State
+import Lens.Micro.TH (makeLenses)
 
 import Crucibles.Common
 import Crucibles.Execution

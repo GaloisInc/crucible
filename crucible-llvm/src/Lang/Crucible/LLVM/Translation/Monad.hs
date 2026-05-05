@@ -48,7 +48,6 @@ module Lang.Crucible.LLVM.Translation.Monad
   , useTypedVal
   ) where
 
-import Control.Lens hiding (op, (:>), to, from )
 import Control.Monad (unless)
 import Control.Monad.IO.Class (MonadIO(..))
 import Control.Monad.State.Strict (MonadState(..))
@@ -57,6 +56,8 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Set (Set)
 import Data.Text (Text)
+import Lens.Micro (Lens', lens, (^.))
+import Lens.Micro.Mtl (use)
 
 import qualified Text.LLVM.AST as L
 
@@ -97,7 +98,7 @@ data LLVMContext arch
    , llvmFunctionAliases :: Map L.Symbol (Set L.GlobalAlias)
    }
 
-llvmTypeCtx :: Simple Lens (LLVMContext arch) TypeContext
+llvmTypeCtx :: Lens' (LLVMContext arch) TypeContext
 llvmTypeCtx = lens _llvmTypeCtx (\s v -> s{ _llvmTypeCtx = v })
 
 mkLLVMContext :: GlobalVar Mem

@@ -7,10 +7,11 @@ module Lang.Crucible.LLVM.Eval
   , callStackFromMemVar
   ) where
 
-import           Control.Lens ((^.), view)
 import           Control.Monad (forM_)
 import qualified Data.List.NonEmpty as NE
 import           Data.Parameterized.TraversableF
+import           Lens.Micro ((^.))
+import           Lens.Micro.Extras (view)
 
 import           What4.Interface
 

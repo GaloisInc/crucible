@@ -13,7 +13,8 @@ module Crux.Goal where
 
 import Control.Concurrent.Async (async, asyncThreadId, waitAnyCatch)
 import Control.Exception (throwTo, SomeException, displayException)
-import Control.Lens ((^.), view)
+import Lens.Micro ((^.))
+import Lens.Micro.Extras (view)
 
 import Control.Monad (forM, forM_, unless, when)
 import Data.Either (partitionEithers)

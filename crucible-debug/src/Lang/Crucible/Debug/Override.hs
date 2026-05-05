@@ -17,7 +17,6 @@ module Lang.Crucible.Debug.Override
   , debugRunOverride
   ) where
 
-import Control.Lens qualified as Lens
 import Control.Monad.IO.Class (liftIO)
 import Data.Text qualified as Text
 import Data.Parameterized.Context qualified as Ctx
@@ -31,6 +30,7 @@ import Lang.Crucible.Simulator.ExecutionTree qualified as C
 import Lang.Crucible.Simulator.OverrideSim qualified as C
 import Lang.Crucible.Simulator.RegValue qualified as C
 import Lang.Crucible.Types qualified as CT
+import Lens.Micro.Mtl qualified as Lens
 import What4.Interface qualified as WI
 
 debuggerPrepend ::

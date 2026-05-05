@@ -53,7 +53,6 @@ where
 
 import Prelude hiding (fail)
 
-import Control.Lens hiding (cons, backwards)
 import Control.Applicative
 import Control.Monad (forM, join)
 import Control.Monad.Error.Class (MonadError(..))
@@ -62,6 +61,9 @@ import Control.Monad.IO.Class (MonadIO(..))
 import Control.Monad.Reader (MonadReader, ReaderT(..))
 import Control.Monad.State.Strict (MonadState(..), StateT(..))
 import Control.Monad.Writer.Strict (MonadWriter(..), WriterT(..))
+import Lens.Micro ((^.))
+import Lens.Micro.GHC (at)
+import Lens.Micro.Mtl (use, view, (%=))
 
 import Lang.Crucible.Types
 
@@ -81,6 +83,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Vector as V
 import Numeric.Natural
+
 import Lang.Crucible.Syntax.ExprParse hiding (SyntaxError)
 import Lang.Crucible.Syntax.Monad
 import Lang.Crucible.Syntax.Parser
@@ -2098,8 +2101,7 @@ prog defuns =
                    return $ AnyCFG (CFG handle entry (e' : rest))
      gs <- use stxGlobals
      externs <- use stxExterns
-     fds <- uses stxForwardDecs $ fmap $
-              \(FunctionHeader _ _ _ handle _) -> SomeHandle handle
+     fds <- fmap (fmap headerHandle) (use stxForwardDecs)
      return $ ParsedProgram
        { parsedProgGlobals = gs
        , parsedProgExterns = externs

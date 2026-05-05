@@ -29,7 +29,6 @@
 module Lang.Crucible.LLVM.Intrinsics.LLVM where
 
 import           GHC.TypeNats (KnownNat)
-import           Control.Lens hiding (op, (:>), Empty)
 import           Control.Monad (foldM, unless)
 import           Control.Monad.IO.Class (MonadIO(..))
 import           Data.Bits ((.&.))

@@ -13,10 +13,10 @@ module TestMemory
   )
 where
 
-import           Control.Lens ( (^.), _1, _2 )
 import           Control.Monad ( foldM, forM_, void )
 import           Data.Foldable ( foldlM )
 import qualified Data.Vector as V
+import           Lens.Micro ((^.), _1, _2)
 
 import qualified Test.Tasty as T
 import           Test.Tasty.HUnit ( testCase, (@=?), assertFailure )

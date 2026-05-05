@@ -84,12 +84,13 @@ module Lang.Crucible.LLVM.MemModel.Strings
   , lengthBoundedByteComparison
   ) where
 
-import           Control.Lens ((^.), to)
 import           Data.Bifunctor (Bifunctor(bimap))
+
 import           Control.Monad.IO.Class (MonadIO, liftIO)
 import qualified Control.Monad.State.Strict as State
 import qualified Data.BitVector.Sized as BV
 import           Data.Functor ((<&>))
+import           Lens.Micro ((^.), to)
 import qualified Data.Parameterized.NatRepr as DPN
 import           Data.Word (Word8)
 import qualified Data.Vector as Vec

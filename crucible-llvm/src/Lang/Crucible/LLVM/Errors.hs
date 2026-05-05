@@ -41,10 +41,9 @@ module Lang.Crucible.LLVM.Errors
 
 import           Prelude hiding (pred)
 
-import           Control.Lens
 import           Data.Text (Text)
-
 import           Data.Typeable (Typeable)
+import           Lens.Micro (Lens', lens)
 import           GHC.Generics (Generic)
 import           Prettyprinter
 
@@ -126,13 +125,13 @@ poison poison_ pred =
 -- -----------------------------------------------------------------------
 -- ** Lenses
 
-classifier :: Simple Lens (LLVMSafetyAssertion sym) (BadBehavior sym)
+classifier :: Lens' (LLVMSafetyAssertion sym) (BadBehavior sym)
 classifier = lens _classifier (\s v -> s { _classifier = v})
 
-predicate :: Simple Lens (LLVMSafetyAssertion sym) (Pred sym)
+predicate :: Lens' (LLVMSafetyAssertion sym) (Pred sym)
 predicate = lens _predicate (\s v -> s { _predicate = v})
 
-extra :: Simple Lens (LLVMSafetyAssertion sym) (Maybe Text)
+extra :: Lens' (LLVMSafetyAssertion sym) (Maybe Text)
 extra = lens _extra (\s v -> s { _extra = v})
 
 explainBB :: IsExpr (SymExpr sym) => BadBehavior sym -> Doc ann

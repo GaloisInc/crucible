@@ -30,9 +30,9 @@ module Lang.Crucible.Backend.Simple
   , B.Flags
   ) where
 
-import           Control.Lens ( (^.) )
 import           Control.Monad (void)
 import           Data.IORef (readIORef)
+import           Lens.Micro ((^.))
 
 import           What4.Config
 import           What4.Interface

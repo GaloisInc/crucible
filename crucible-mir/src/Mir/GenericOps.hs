@@ -29,8 +29,7 @@ import Data.Text (Text)
 import Data.Vector(Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
-
-import Control.Lens((^.))
+import Lens.Micro ((^.))
 
 import Mir.DefId
 import Mir.Mir

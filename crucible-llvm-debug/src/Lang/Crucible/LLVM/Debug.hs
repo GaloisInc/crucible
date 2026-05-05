@@ -10,7 +10,6 @@ module Lang.Crucible.LLVM.Debug
   , llvmExtImpl
   ) where
 
-import Control.Lens qualified as Lens
 import Data.Parameterized.Classes (knownRepr)
 import Data.Parameterized.Some (Some(Some))
 import Data.Text (Text)
@@ -22,6 +21,7 @@ import Lang.Crucible.LLVM.MemModel qualified as Mem
 import Lang.Crucible.Simulator.EvalStmt qualified as C
 import Lang.Crucible.Simulator.ExecutionTree qualified as C
 import Lang.Crucible.Simulator.GlobalState qualified as C
+import Lens.Micro qualified as Lens
 import Prettyprinter as PP
 import What4.Interface qualified as W4
 

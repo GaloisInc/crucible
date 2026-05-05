@@ -128,8 +128,11 @@ library
                      , crucible-debug
                      , crucible-syntax
                      , crux
-                     , lens
                      , megaparsec
+                     , microlens
+                     , microlens-ghc
+                     , microlens-mtl
+                     , microlens-th
                      , mtl
                      , parameterized-utils
                      , prettyprinter

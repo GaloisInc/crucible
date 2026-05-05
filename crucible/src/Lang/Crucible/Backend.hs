@@ -85,13 +85,13 @@ module Lang.Crucible.Backend
   ) where
 
 import           Control.Exception(Exception(..), throwIO)
-import           Control.Lens ((^.))
 import           Control.Monad
 import           Control.Monad.IO.Class
 import           Data.Foldable (toList)
 import           Data.Set (Set)
-import qualified Prettyprinter as PP
 import           GHC.Stack
+import           Lens.Micro ((^.))
+import qualified Prettyprinter as PP
 
 import           Data.Parameterized.Map (MapF)
 

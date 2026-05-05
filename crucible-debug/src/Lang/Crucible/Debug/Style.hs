@@ -23,7 +23,6 @@ module Lang.Crucible.Debug.Style
   , highlighter
   ) where
 
-import Control.Lens qualified as Lens
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (MonadReader, ReaderT)
 import Control.Monad.Reader qualified as Reader
@@ -46,6 +45,7 @@ import Lang.Crucible.Debug.Command qualified as Cmd
 import Lang.Crucible.Debug.Regex qualified as Rgx
 import Lang.Crucible.FunctionHandle qualified as C
 import Lang.Crucible.Simulator.ExecutionTree qualified as C
+import Lens.Micro qualified as Lens
 import Prettyprinter qualified as PP
 import System.Console.Isocline qualified as Isocline
 

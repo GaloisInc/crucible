@@ -16,21 +16,23 @@
 
 module Crux.LLVM.Simulate where
 
-import qualified Control.Lens as Lens
 import Control.Monad (unless)
-import Data.String (fromString)
-import qualified Data.Map.Strict as Map
+import Control.Monad.IO.Class (liftIO)
 import Data.IORef
 import qualified Data.List as List
+import qualified Data.Map.Strict as Map
 import Data.Maybe ( fromMaybe )
 import qualified Data.Parameterized.Map as MapF
 import Data.Sequence (Seq)
+import Data.String (fromString)
 import qualified Data.Traversable as T
-import Control.Lens ((&), (%~), (%=), (^.), use, view)
-import Control.Monad.IO.Class (liftIO)
 import Data.Text as Text (Text, pack)
 import Data.Void (Void)
 import GHC.Exts ( proxy# )
+import qualified Lens.Micro as Lens
+import Lens.Micro ((&), (%~), (^.))
+import Lens.Micro.Extras (view)
+import Lens.Micro.Mtl ((%=), use)
 
 import System.IO (stdout)
 

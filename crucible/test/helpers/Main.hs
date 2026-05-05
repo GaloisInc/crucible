@@ -2,9 +2,9 @@
 
 module Main (main) where
 
-import Control.Lens ((^.))
 import Data.List (isInfixOf)
 import Data.Maybe (fromMaybe)
+import Lens.Micro ((^.))
 
 import Test.Hspec
 import Test.Tasty

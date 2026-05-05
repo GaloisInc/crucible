@@ -48,10 +48,11 @@ import qualified Text.LLVM.AST as L
 
 import           Control.Monad (when)
 import           Control.Monad.IO.Class (liftIO)
-import           Control.Lens
 import qualified Data.List as List
 import qualified Data.Maybe as Maybe
 import qualified Data.Text as Text
+import           Lens.Micro ((^.), to)
+import           Lens.Micro.Mtl (use)
 import           Numeric (readDec)
 import qualified System.Info as Info
 

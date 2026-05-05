@@ -46,14 +46,14 @@ module Lang.Crucible.Backend.Assumptions
   ) where
 
 
-import           Control.Lens (Traversal, folded)
 import           Data.Kind (Type)
 import qualified Data.Foldable as F
-import           Data.Functor.Identity
 import           Data.Functor.Const
+import           Data.Functor.Identity
 import qualified Data.Parameterized.TraversableF as TF
-import qualified Data.Sequence as Seq
 import           Data.Sequence (Seq)
+import qualified Data.Sequence as Seq
+import           Lens.Micro (Traversal, folded)
 import qualified Prettyprinter as PP
 
 import           What4.Expr.Builder

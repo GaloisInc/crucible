@@ -28,10 +28,10 @@ module Lang.Crucible.LLVM.Intrinsics.Libc
   , module Lang.Crucible.LLVM.Intrinsics.Libc.String
   ) where
 
-import           Control.Lens ((^.))
 import qualified Codec.Binary.UTF8.Generic as UTF8
 import           Control.Monad (when)
 import           Control.Monad.IO.Class (liftIO)
+import           Lens.Micro ((^.))
 
 import           Data.Parameterized.Context ( pattern (:>), pattern Empty )
 import qualified Data.Parameterized.Context as Ctx

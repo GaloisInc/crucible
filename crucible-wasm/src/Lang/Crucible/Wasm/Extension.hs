@@ -13,10 +13,11 @@
 
 module Lang.Crucible.Wasm.Extension where
 
-import Control.Lens
 import Control.Monad.Trans
 import Control.Monad.Trans.State
 import Data.Kind
+import Lens.Micro ((^.))
+import Lens.Micro.Mtl (use, (%=))
 import Prettyprinter
 
 import Data.Parameterized.TraversableFC
