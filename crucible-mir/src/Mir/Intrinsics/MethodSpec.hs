@@ -121,7 +121,10 @@ class MethodSpecBuilderImpl sym msb where
         msb ->
         OverrideSim (p sym) sym MIR rtp args ret (MethodSpec sym)
 
-data MethodSpecBuilder sym = forall msb. MethodSpecBuilderImpl sym msb => MethodSpecBuilder msb
+data MethodSpecBuilder sym = forall msb. MethodSpecBuilderImpl sym msb => MethodSpecBuilder {
+    msbData :: msb,
+    msbNonce :: Word64
+}
 
 type MethodSpecBuilderSymbol = "MethodSpecBuilder"
 type MethodSpecBuilderType = IntrinsicType MethodSpecBuilderSymbol EmptyCtx
@@ -138,6 +141,7 @@ type family MethodSpecBuilderFam (sym :: Type) (ctx :: Ctx CrucibleType) :: Type
 instance IsSymInterface sym => IntrinsicClass sym MethodSpecBuilderSymbol where
   type Intrinsic sym MethodSpecBuilderSymbol ctx = MethodSpecBuilderFam sym ctx
 
-  muxIntrinsic _sym _iTypes _nm Empty _ _ _ =
-    fail "can't mux MethodSpecBuilders"
+  muxIntrinsic _sym _iTypes _nm Empty _p msb1 msb2
+    | msbNonce msb1 == msbNonce msb2 = return msb1
+    | otherwise = fail "can't mux MethodSpecBuilders"
   muxIntrinsic _sym _tys nm ctx _ _ _ = typeError nm ctx
