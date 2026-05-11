@@ -56,9 +56,7 @@ module Mir.Intrinsics.Reference
     dropMirRefLeaf,
     dropMirRefIO,
     subfieldMirRefLeaf,
-    subfieldMirRef_UntypedLeaf,
     subfieldMirRefIO,
-    subfieldMirRef_UntypedIO,
     subvariantMirRefLeaf,
     subvariantMirRefIO,
     subindexMirRefSim,
@@ -68,6 +66,8 @@ module Mir.Intrinsics.Reference
     subjustMirRefIO,
     mirRef_agElemLeaf,
     mirRef_agElemIO,
+    mirRef_agElem_unsizedLeaf,
+    mirRef_agElem_unsizedIO,
     refRootEq,
     refPathEq,
     mirRef_eqLeaf,
@@ -91,6 +91,8 @@ module Mir.Intrinsics.Reference
     mirRef_peelIndexMA,
     mirRef_peelFieldLeaf,
     mirRef_peelFieldMA,
+    mirRef_peelAgElemLeaf,
+    mirRef_peelAgElemMA,
     mirRef_peelJustLeaf,
     mirRef_peelJustMA,
     mirRef_indexAndLenLeaf,
@@ -116,6 +118,7 @@ import Lens.Micro ((^.), (.~))
 
 import Data.BitVector.Sized qualified as BV
 import Data.Function ((&))
+import Data.IntMap qualified as IntMap
 import Data.Kind (Type)
 import Data.Parameterized.Context
   ( Ctx,
@@ -123,8 +126,6 @@ import Data.Parameterized.Context
     Index,
     adjustM,
     field,
-    intIndex,
-    size,
     (!),
     (::>),
     pattern Empty,
@@ -209,6 +210,7 @@ import Mir.FancyMuxTree
   )
 import Mir.Intrinsics.Aggregate
   ( MirAggregate (..),
+    MirAggregateEntry (..),
     MirAggregateType,
     adjustMirAggregateWithSymOffset,
     mirAggregate_concat,
@@ -928,48 +930,6 @@ subfieldMirRefLeaf ctx ref idx =
     let tpr = ctx ! idx
     return $ MirReference tpr root (Field_RefPath ctx path idx)
 
--- | Mimic `subfieldMirRefLeaf`, but infer the appropriate `CtxRepr` and `Index`
--- at simulation time. If @expectedTy@ is provided, this will assert that it
--- matches the actual type of the field during simulation.
-subfieldMirRef_UntypedLeaf ::
-    MirReference sym ->
-    Int ->
-    Maybe (Some TypeRepr) ->
-    MuxLeafT sym IO (MirReference sym)
-subfieldMirRef_UntypedLeaf ref fieldNum expectedTy =
-  case ref of
-    MirReference_Integer _ ->
-      bail $ "attempted untyped subfield on the result of an integer-to-pointer cast"
-    MirReference structReprHopefully refRoot refPath ->
-      case structReprHopefully of
-        StructRepr structCtx ->
-          do
-            Some fieldIdx <-
-              case intIndex fieldNum (size structCtx) of
-                Just someIdx -> pure someIdx
-                Nothing ->
-                  bail $ unwords $
-                    [ "out-of-bounds field access:"
-                    , "field", show fieldNum, "of struct", show structCtx ]
-            let fieldRepr = structCtx ! fieldIdx
-            () <- case expectedTy of
-              Nothing -> pure ()
-              Just (Some expected) ->
-                case testEquality expected fieldRepr of
-                  Just Refl -> pure ()
-                  Nothing ->
-                    bail $ unwords $
-                      [ "expected field type", show expected
-                      , "did not match actual field type", show fieldRepr ]
-            let fieldPath = Field_RefPath structCtx refPath fieldIdx
-            pure $ MirReference fieldRepr refRoot fieldPath
-        notAStruct ->
-          bail $ unwords $
-            [ "untyped subfield requires a reference to a struct, but got a reference to"
-            , show notAStruct ]
-  where
-    bail msg = leafAbort $ GenericSimError $ msg
-
 subfieldMirRefIO ::
     IsSymBackend sym bak =>
     bak ->
@@ -980,17 +940,6 @@ subfieldMirRefIO ::
     IO (MirReferenceMux sym)
 subfieldMirRefIO bak iTypes ctx ref idx =
     modifyRefMuxMA bak iTypes (\ref' -> subfieldMirRefLeaf ctx ref' idx) ref
-
-subfieldMirRef_UntypedIO ::
-    IsSymBackend sym bak =>
-    bak ->
-    IntrinsicTypes sym ->
-    MirReferenceMux sym ->
-    Int ->
-    Maybe (Some TypeRepr) ->
-    IO (MirReferenceMux sym)
-subfieldMirRef_UntypedIO bak iTypes ref fieldNum expectedTy =
-    modifyRefMuxMA bak iTypes (\ref' -> subfieldMirRef_UntypedLeaf ref' fieldNum expectedTy) ref
 
 
 subvariantMirRefLeaf ::
@@ -1109,6 +1058,37 @@ mirRef_agElemIO ::
     IO (MirReferenceMux sym)
 mirRef_agElemIO bak iTypes off sz tpr ref =
     modifyRefMuxMA bak iTypes (mirRef_agElemLeaf off sz tpr) ref
+
+mirRef_agElem_unsizedLeaf ::
+    IsSymBackend sym bak =>
+    bak ->
+    SymGlobalState sym ->
+    IntrinsicTypes sym ->
+    RegValue sym UsizeType ->
+    MirReference sym ->
+    MuxLeafT sym IO (MirReference sym)
+mirRef_agElem_unsizedLeaf bak gs iTypes off ref =
+  typedLeafOp "MirAggregate unsized element projection" MirAggregateRepr ref $ \root path -> do
+    offConcrete <- case asBV off of
+      Just bv -> return $ fromIntegral $ BV.asUnsigned bv
+      Nothing -> leafAbort $ GenericSimError $
+        "mirRef_agElem_unsized: offset must be concrete, but got " ++ show (printSymExpr off)
+    MirAggregate _ m <- readMirRefLeaf bak gs iTypes MirAggregateRepr ref
+    (sz, Some entryTpr) <- case IntMap.lookup offConcrete m of
+      Just (MirAggregateEntry sz entryTpr _) -> return (sz, Some entryTpr)
+      Nothing -> return (0, Some MirAggregateRepr)
+    return $ MirReference entryTpr root (AgElem_RefPath off sz entryTpr path)
+
+mirRef_agElem_unsizedIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    SymGlobalState sym ->
+    IntrinsicTypes sym ->
+    RegValue sym UsizeType ->
+    MirReferenceMux sym ->
+    IO (MirReferenceMux sym)
+mirRef_agElem_unsizedIO bak gs iTypes off ref =
+    modifyRefMuxMA bak iTypes (mirRef_agElem_unsizedLeaf bak gs iTypes off) ref
 
 
 refRootEq ::
@@ -1715,6 +1695,59 @@ mirRef_peelFieldMA ::
 mirRef_peelFieldMA bak iTypes fieldReprs idx (MirReferenceMux ref) =
     let sym = backendGetSym bak in
     readFancyMuxTree' bak (mirRef_peelFieldLeaf sym fieldReprs idx)
+        (muxRegForType sym iTypes MirReferenceRepr) ref
+
+
+-- | Peel off an outermost 'AgElem_RefPath'. Given a pointer to a field of an
+-- aggregate, this produces a pointer to the containing struct.
+--
+-- This function takes in the expected offset and size of the field within the
+-- aggregate. If the 'AgElem_RefPath' is actually for a different offset or
+-- size, it will raise an error.
+--
+-- If the outermost path segment isn't 'AgElem_RefPath', this operation raises
+-- an error.
+mirRef_peelAgElemLeaf ::
+    (IsSymBackend sym bak, MonadAssert sym bak m) =>
+    bak ->
+    Word {-^ The expected offset -} ->
+    Word {-^ The expected size -} ->
+    MirReference sym {-^ The field pointer -} ->
+    MuxLeafT sym m (MirReferenceMux sym)
+mirRef_peelAgElemLeaf bak off sz (MirReference _tpr root path) = do
+    let sym = backendGetSym bak
+    case path of
+      AgElem_RefPath off' sz' _ path'
+        | sz' == sz -> do
+          offEq <- liftIO $ bvEq sym off' =<< wordLit sym off
+          leafAssert bak offEq $ Unsupported callStack $
+            "peelAgElem offset mismatch; expected " ++ show off
+              ++ ", but got " ++ show (printSymExpr off')
+          return $ MirReferenceMux $
+            toFancyMuxTree sym $ MirReference MirAggregateRepr root path'
+
+        | otherwise ->
+          leafAbort $ Unsupported callStack $
+            "peelAgElem size mismatch; expected " ++ show sz
+              ++ ", but got " ++ show sz'
+      _ ->
+        leafAbort $ Unsupported callStack $
+          "peelAgElem not implemented for this RefPath kind"
+mirRef_peelAgElemLeaf _ _ _ _ =
+    leafAbort $ Unsupported callStack $
+      "cannot perform peelAgElem on invalid pointer"
+
+mirRef_peelAgElemMA ::
+    MonadAssert sym bak m =>
+    bak ->
+    IntrinsicTypes sym ->
+    Word {-^ The expected offset -} ->
+    Word {-^ The expected size -} ->
+    MirReferenceMux sym ->
+    m (MirReferenceMux sym)
+mirRef_peelAgElemMA bak iTypes off sz (MirReferenceMux ref) =
+    let sym = backendGetSym bak in
+    readFancyMuxTree' bak (mirRef_peelAgElemLeaf bak off sz)
         (muxRegForType sym iTypes MirReferenceRepr) ref
 
 
