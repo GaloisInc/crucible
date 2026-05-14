@@ -71,7 +71,6 @@ common bldflags
   ghc-options:
     -Wall
     -Werror=ambiguous-fields
-    -Werror=compat-unqualified-imports
     -Werror=deferred-type-errors
     -Werror=deprecated-flags
     -Werror=deprecations
@@ -142,6 +141,10 @@ common bldflags
       -Werror=data-kinds-tc
       -Werror=incomplete-record-selectors
               
+  if impl(ghc < 9.12)
+    ghc-options:
+      -Werror=compat-unqualified-imports
+
   -- TODO(#1308): Enable and fix this warning when GHC 9.6 is dropped from CI
   -- -Werror=deprecated-type-abstractions
 
