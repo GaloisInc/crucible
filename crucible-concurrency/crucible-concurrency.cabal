@@ -36,7 +36,6 @@ common warns
   ghc-options:
     -Wall
     -Werror=ambiguous-fields
-    -Werror=compat-unqualified-imports
     -Werror=deferred-type-errors
     -Werror=deprecated-flags
     -Werror=deprecations
@@ -107,6 +106,10 @@ common warns
       -Werror=data-kinds-tc
       -Werror=deprecated-type-abstractions
       -Werror=incomplete-record-selectors
+
+  if impl(ghc < 9.12)
+    ghc-options:
+      -Werror=compat-unqualified-imports
 
 library
   exposed-modules:     Crucibles.Common
