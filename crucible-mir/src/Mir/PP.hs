@@ -211,7 +211,7 @@ instance Pretty Lvalue where
       parens (pretty lv <+> pretty "as subtype" <+> pretty ty)
 
 instance Pretty Rvalue where
-    pretty (Use a) = pretty_fn1 "use" a
+    pretty (Use a) = pretty a
     pretty (Repeat a b) = brackets (pretty a <> semi <> pretty b)
     pretty (Ref Shared b _c) = pretty "&" <> pretty b
     pretty (Ref Unique b _c) = pretty "&unique" <+> pretty b
@@ -261,9 +261,9 @@ instance Pretty TerminatorKind where
 
 instance Pretty Operand where
     pretty (OpConstant c) = pretty c
-    pretty (Move c) = pretty c
-    pretty (Copy c) = pretty c
-    pretty (Temp c) = pretty c
+    pretty (Move c) = pretty_fn1 "move" c
+    pretty (Copy c) = pretty_fn1 "copy" c
+    pretty (Temp c) = pretty_fn1 "temp" c
 
 instance Pretty Constant where
     pretty (Constant a b) =
@@ -284,9 +284,9 @@ instance Pretty Constant where
         (TyFnDef defId, ConstZST) ->
           pr_id defId
         (_, ConstZST) ->
-          pretty "<ZST:" <+> pretty a <> pretty ">"
+          pretty_fn1 "const" "<ZST:" <+> pretty a <> pretty ">"
         _ ->
-          pretty b
+          pretty_fn1 "const" b
 
 instance Pretty NullOp where
     pretty SizeOf = pretty "sizeof"
