@@ -70,11 +70,11 @@ import qualified Data.BitVector.Sized as BV
 
 import qualified Lang.Crucible.Utils.MuxTree as MT
 
+import qualified What4.Concrete as W4
+import qualified What4.Domains.BV as BVD
 import qualified What4.Interface as W4
 import qualified What4.Partial as W4
-import qualified What4.Concrete as W4
 import qualified What4.Utils.AbstractDomains as W4
-import qualified What4.Utils.BVDomain as BVD
 
 import qualified Data.Parameterized.IntervalsMap as IM
 import           Data.Parameterized.IntervalsMap ( AsOrd(..) )
