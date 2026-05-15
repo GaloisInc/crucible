@@ -35,7 +35,8 @@ common shared
                        mtl,
                        parameterized-utils,
                        text,
-                       what4
+                       what4,
+                       what4-domains
 
 library
   import: shared

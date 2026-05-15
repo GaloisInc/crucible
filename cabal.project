@@ -33,5 +33,6 @@ optional-packages:
   dependencies/llvm-pretty/
   dependencies/llvm-pretty-bc-parser/
   dependencies/what4/what4/
+  dependencies/what4/what4-domains/
   dependencies/rme/rme/
   dependencies/rme/rme-what4/
