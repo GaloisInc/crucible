@@ -48,7 +48,6 @@ common warns
   ghc-options:
     -Wall
     -Werror=ambiguous-fields
-    -Werror=compat-unqualified-imports
     -Werror=deferred-type-errors
     -Werror=deprecated-flags
     -Werror=deprecations
@@ -120,10 +119,14 @@ common warns
       -Werror=deprecated-type-abstractions
       -Werror=incomplete-record-selectors
 
+  if impl(ghc < 9.12)
+    ghc-options:
+      -Werror=compat-unqualified-imports
+
 library
   import: bldflags
   build-depends:
-    base >= 4.13 && < 4.21,
+    base >= 4.13 && < 4.22,
     attoparsec,
     bv-sized >= 1.0.0,
     bytestring,

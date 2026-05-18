@@ -36,7 +36,6 @@ common shared
   ghc-options:
     -Wall
     -Werror=ambiguous-fields
-    -Werror=compat-unqualified-imports
     -Werror=deferred-type-errors
     -Werror=deprecated-flags
     -Werror=deprecations
@@ -107,6 +106,10 @@ common shared
       -Werror=data-kinds-tc
       -Werror=deprecated-type-abstractions
       -Werror=incomplete-record-selectors
+
+  if impl(ghc < 9.12)
+    ghc-options:
+      -Werror=compat-unqualified-imports
 
   ghc-prof-options: -O2 -fprof-auto-top
   default-language: Haskell2010
