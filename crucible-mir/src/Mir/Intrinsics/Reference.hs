@@ -68,6 +68,8 @@ module Mir.Intrinsics.Reference
     mirRef_agElemIO,
     mirRef_agElem_unsizedLeaf,
     mirRef_agElem_unsizedIO,
+    mirRef_vecIndexLeaf,
+    mirRef_vecIndexIO,
     refRootEq,
     refPathEq,
     mirRef_eqLeaf,
@@ -1035,6 +1037,27 @@ subjustMirRefIO ::
     IO (MirReferenceMux sym)
 subjustMirRefIO bak iTypes tpr ref =
     modifyRefMuxMA bak iTypes (subjustMirRefLeaf tpr) ref
+
+
+mirRef_vecIndexLeaf ::
+    RegValue sym UsizeType ->
+    TypeRepr tp ->
+    MirReference sym ->
+    MuxLeafT sym IO (MirReference sym)
+mirRef_vecIndexLeaf idx elemTpr ref =
+  typedLeafOp "Crucible Vector index" (VectorRepr elemTpr) ref $ \root path -> do
+    return $ MirReference elemTpr root (VectorIndex_RefPath elemTpr path idx)
+
+mirRef_vecIndexIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    RegValue sym UsizeType ->
+    TypeRepr tp ->
+    MirReferenceMux sym ->
+    IO (MirReferenceMux sym)
+mirRef_vecIndexIO bak iTypes idx elemTpr ref =
+  modifyRefMuxMA bak iTypes (mirRef_vecIndexLeaf idx elemTpr) ref
 
 
 mirRef_agElemLeaf ::

@@ -667,6 +667,14 @@ mirRef_agElem_unsized ::
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 mirRef_agElem_unsized off ref = G.extensionStmt $ MirRef_AgElem_Unsized off ref
 
+-- | Index into a @crucible::vector::Vector@ (_not_ a @std::vec::Vec@)
+mirRef_vecIndex ::
+  R.Expr MIR s UsizeType ->
+  C.TypeRepr tp ->
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
+mirRef_vecIndex idx elemTpr ref = G.extensionStmt $ MirRef_VecIndex idx elemTpr ref
+
 mirRef_eq ::
   R.Expr MIR s MirReferenceType ->
   R.Expr MIR s MirReferenceType ->

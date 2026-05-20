@@ -349,11 +349,10 @@ vector_as_slice_impl (Substs [t]) =
     Just $ CustomOp $ \_ ops -> case ops of
         [MirExp MirReferenceRepr e] -> do
             Some tpr <- tyToReprM t
-            elemSize <- tySizeM t
             -- This is similar to `&mut [T; n] -> &mut [T]` unsizing.
             v <- readMirRef (C.VectorRepr tpr) e
             let end = R.App $ vectorSizeUsize R.App v
-            e' <- subindexRef tpr e (R.App $ usizeLit 0) elemSize
+            e' <- mirRef_vecIndex (R.App $ usizeLit 0) tpr e
             let tup = S.mkStruct
                     (Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> knownRepr)
                     (Ctx.Empty Ctx.:> e' Ctx.:> end)
