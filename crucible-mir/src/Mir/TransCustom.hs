@@ -449,8 +449,7 @@ array_as_slice_impl (Substs [t]) =
           MirExp UsizeRepr start,
           MirExp UsizeRepr len ] -> do
             Some tpr <- tyToReprM t
-            elemSize <- tySizeM t
-            ptr <- subindexRef tpr e start elemSize
+            ptr <- mirRef_arrayIndex start tpr e
             return $ MirExp MirSliceRepr $ mkSlice ptr len
         _ -> mirFail $ "bad arguments for Array::as_slice: " ++ show ops
 array_as_slice_impl _ = Nothing

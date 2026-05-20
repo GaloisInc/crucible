@@ -68,6 +68,8 @@ module Mir.Intrinsics.Reference
     mirRef_agElemIO,
     mirRef_agElem_unsizedLeaf,
     mirRef_agElem_unsizedIO,
+    mirRef_arrayIndexLeaf,
+    mirRef_arrayIndexIO,
     mirRef_vecIndexLeaf,
     mirRef_vecIndexIO,
     refRootEq,
@@ -1037,6 +1039,30 @@ subjustMirRefIO ::
     IO (MirReferenceMux sym)
 subjustMirRefIO bak iTypes tpr ref =
     modifyRefMuxMA bak iTypes (subjustMirRefLeaf tpr) ref
+
+
+mirRef_arrayIndexLeaf ::
+    RegValue sym UsizeType ->
+    TypeRepr tp ->
+    MirReference sym ->
+    MuxLeafT sym IO (MirReference sym)
+mirRef_arrayIndexLeaf idx elemTpr ref = case asBaseType elemTpr of
+  AsBaseType baseTpr ->
+    typedLeafOp "Crucible Array index" (UsizeArrayRepr baseTpr) ref $ \root path -> do
+      return $ MirReference elemTpr root (ArrayIndex_RefPath baseTpr path idx)
+  _ -> leafAbort $ GenericSimError $
+    "Crucible Array-indexing operates on arrays of a Crucible base type, but saw one of " <> show elemTpr
+
+mirRef_arrayIndexIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    RegValue sym UsizeType ->
+    TypeRepr tp ->
+    MirReferenceMux sym ->
+    IO (MirReferenceMux sym)
+mirRef_arrayIndexIO bak iTypes idx elemTpr ref =
+  modifyRefMuxMA bak iTypes (mirRef_arrayIndexLeaf idx elemTpr) ref
 
 
 mirRef_vecIndexLeaf ::
