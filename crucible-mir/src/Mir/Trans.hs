@@ -393,7 +393,7 @@ staticSlicePlace len ty did = do
             () <- case tpr_found of
                 MirAggregateRepr -> return ()
                 _ -> mirFail $
-                    "staticSlicePlace: wrong type: expected vector, found " ++ show tpr_found
+                    "staticSlicePlace: wrong type: expected aggregate, found " ++ show tpr_found
             ref <- globalMirRef gv
             elemSize <- tySizeM ty
             ref' <- subindexRef tpr ref (R.App $ usizeLit 0) elemSize
