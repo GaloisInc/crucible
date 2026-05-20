@@ -26,7 +26,6 @@
 module Mir.Trans(transCollection,transStatics,RustModule(..)
                 , readMirRef
                 , writeMirRef
-                , subindexRef
                 , evalBinOp
                 , evalOperand
                 , vectorCopy, aggregateCopy_constLen
@@ -283,7 +282,7 @@ transConstVal ty tp cv = mirFail $
 --    * construct a reference to the global variable
 --      (with globalMirRef rather than constMirRef, that's the point of
 --      all this)
---    * apply subindexRef as above
+--    * apply mirRef_agElem
 --    * cons up the length
 --    * call mkStruct
 --    * cons up the final MirExp
@@ -396,7 +395,7 @@ staticSlicePlace len ty did = do
                     "staticSlicePlace: wrong type: expected aggregate, found " ++ show tpr_found
             ref <- globalMirRef gv
             elemSize <- tySizeM ty
-            ref' <- subindexRef tpr ref (R.App $ usizeLit 0) elemSize
+            ref' <- mirRef_agElem (R.App $ usizeLit 0) elemSize tpr ref
             let len' = R.App $ usizeLit $ fromIntegral len
             return $ MirPlace tpr ref' (SliceMeta len')
         Nothing -> mirFail $ "cannot find static variable " ++ fmt did
@@ -980,7 +979,7 @@ evalCast' ck ty1 e ty2  = do
         -> do
           Some tpr <- tyToReprM t1
           elemSize <- tySizeM t1
-          MirExp MirReferenceRepr <$> subindexRef tpr e' (R.App $ usizeLit 0) elemSize
+          MirExp MirReferenceRepr <$> mirRef_agElem (R.App $ usizeLit 0) elemSize tpr e'
 
       --  *const [u8] <-> *const str (no-ops)
       (M.Misc, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m1, M.TyRawPtr M.TyStr m2)
@@ -1162,7 +1161,7 @@ evalCast' ck ty1 e ty2  = do
         Some elem_tp <- tyToReprM ty
         let len   = R.App $ usizeLit (fromIntegral sz)
         elemSize <- tySizeM ty
-        ref' <- subindexRef elem_tp ref (R.App $ usizeLit 0) elemSize
+        ref' <- mirRef_agElem (R.App $ usizeLit 0) elemSize elem_tp ref
         let tup   = S.mkStruct mirSliceCtxRepr
                         (Ctx.Empty Ctx.:> ref' Ctx.:> len)
         return $ MirExp MirSliceRepr tup
@@ -1699,7 +1698,8 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Index idxVar) = case (ty, tpr, meta)
         idx' <- getIdx idxVar
         Some elemTpr <- tyToReprM elemTy
         elemSize <- tySizeM elemTy
-        MirPlace elemTpr <$> subindexRef elemTpr ref idx' elemSize <*> pure NoMeta
+        let elemOff = R.App $ usizeMul idx' (R.App $ usizeLit $ fromIntegral elemSize)
+        MirPlace elemTpr <$> mirRef_agElem elemOff elemSize elemTpr ref <*> pure NoMeta
 
     (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
         idx <- getIdx idxVar
@@ -1722,7 +1722,8 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.ConstantIndex idx _minLen fromEnd) =
         idx' <- getIdx idx (R.App $ usizeLit $ fromIntegral sz) fromEnd
         Some elemTpr <- tyToReprM elemTy
         elemSize <- tySizeM elemTy
-        MirPlace elemTpr <$> subindexRef elemTpr ref idx' elemSize <*> pure NoMeta
+        let elemOff = R.App $ usizeMul idx' (R.App $ usizeLit $ fromIntegral elemSize)
+        MirPlace elemTpr <$> mirRef_agElem elemOff elemSize elemTpr ref <*> pure NoMeta
 
     (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
         idx' <- getIdx idx len fromEnd
