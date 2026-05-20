@@ -130,7 +130,6 @@ import Mir.Intrinsics.Reference
     newMirRefIO,
     readMirRefMA,
     subfieldMirRefIO,
-    subindexMirRefIO,
     subjustMirRefIO,
     subvariantMirRefIO,
     writeMirRefIO,
@@ -186,13 +185,6 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(CtxRepr variantsCtx) ->
      !(f MirReferenceType) ->
      !(Index variantsCtx tp) ->
-     MirStmt f MirReferenceType
-  MirSubindexRef ::
-     !(TypeRepr tp) ->
-     !(f MirReferenceType) ->
-     !(f UsizeType) ->
-     -- | Size of the element, in bytes
-     !Word ->
      MirStmt f MirReferenceType
   MirSubjustRef ::
      !(TypeRepr tp) ->
@@ -415,7 +407,6 @@ instance TypeApp MirStmt where
     MirDropRef _    -> UnitRepr
     MirSubfieldRef _ _ _ -> MirReferenceRepr
     MirSubvariantRef _ _ _ _ -> MirReferenceRepr
-    MirSubindexRef _ _ _ _ -> MirReferenceRepr
     MirSubjustRef _ _ -> MirReferenceRepr
     MirRef_ArrayIndex _ _ _ -> MirReferenceRepr
     MirRef_VecIndex _ _ _ -> MirReferenceRepr
@@ -454,7 +445,6 @@ instance PrettyApp MirStmt where
     MirDropRef x    -> "dropMirRef" <+> pp x
     MirSubfieldRef _ x idx -> "subfieldRef" <+> pp x <+> viaShow idx
     MirSubvariantRef _ _ x idx -> "subvariantRef" <+> pp x <+> viaShow idx
-    MirSubindexRef _ x idx sz -> "subindexRef" <+> pp x <+> pp idx <+> viaShow sz
     MirSubjustRef _ x -> "subjustRef" <+> pp x
     MirRef_ArrayIndex idx _ ref -> "mirRef_arrayIndex" <+> pp idx <+> pp ref
     MirRef_VecIndex idx _ ref -> "mirRef_vecIndex" <+> pp idx <+> pp ref
@@ -522,8 +512,6 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
          readOnly s $ subfieldMirRefIO bak iTypes ctx0 ref idx
        MirSubvariantRef tp0 ctx0 (regValue -> ref) idx ->
          readOnly s $ subvariantMirRefIO bak iTypes tp0 ctx0 ref idx
-       MirSubindexRef tpr (regValue -> ref) (regValue -> idx) elemSize ->
-         readOnly s $ subindexMirRefIO bak iTypes tpr ref idx elemSize
        MirSubjustRef tpr (regValue -> ref) ->
          readOnly s $ subjustMirRefIO bak iTypes tpr ref
        MirRef_ArrayIndex (regValue -> idx) tpr (regValue -> ref) ->

@@ -59,9 +59,6 @@ module Mir.Intrinsics.Reference
     subfieldMirRefIO,
     subvariantMirRefLeaf,
     subvariantMirRefIO,
-    subindexMirRefSim,
-    subindexMirRefIO,
-    subindexMirRefLeaf,
     subjustMirRefLeaf,
     subjustMirRefIO,
     mirRef_agElemLeaf,
@@ -968,58 +965,6 @@ subvariantMirRefIO ::
     IO (MirReferenceMux sym)
 subvariantMirRefIO bak iTypes tp ctx ref idx =
     modifyRefMuxMA bak iTypes (\ref' -> subvariantMirRefLeaf tp ctx ref' idx) ref
-
-
-subindexMirRefSim ::
-    IsSymInterface sym =>
-    sym ->
-    TypeRepr tp ->
-    MirReferenceMux sym ->
-    RegValue sym UsizeType ->
-    -- | Size of the element, in bytes
-    Word ->
-    OverrideSim m sym ext rtp args ret (MirReferenceMux sym)
-subindexMirRefSim sym tpr ref idx elemSize = do
-    modifyRefMuxSim (\ref' -> subindexMirRefLeaf sym tpr ref' idx elemSize) ref
-
-subindexMirRefIO ::
-    IsSymBackend sym bak =>
-    bak ->
-    IntrinsicTypes sym ->
-    TypeRepr tp ->
-    MirReferenceMux sym ->
-    RegValue sym UsizeType ->
-    -- | Size of the element, in bytes
-    Word ->
-    IO (MirReferenceMux sym)
-subindexMirRefIO bak iTypes tpr ref x elemSize =
-    modifyRefMuxMA bak iTypes (\ref' -> subindexMirRefLeaf (backendGetSym bak) tpr ref' x elemSize) ref
-
-subindexMirRefLeaf ::
-    IsSymInterface sym =>
-    sym ->
-    TypeRepr tp ->
-    MirReference sym ->
-    RegValue sym UsizeType ->
-    -- | Size of the element, in bytes
-    Word ->
-    MuxLeafT sym IO (MirReference sym)
-subindexMirRefLeaf sym elemTpr (MirReference tpr root path) idx elemSize
-  | Just Refl <- testEquality tpr (VectorRepr elemTpr) =
-      return $ MirReference elemTpr root (VectorIndex_RefPath elemTpr path idx)
-  | AsBaseType btpr <- asBaseType elemTpr,
-    Just Refl <- testEquality tpr (UsizeArrayRepr btpr) =
-      return $ MirReference elemTpr root (ArrayIndex_RefPath btpr path idx)
-  | Just Refl <- testEquality tpr MirAggregateRepr = do
-      offset <- liftIO $ bvMul sym idx =<< wordLit sym elemSize
-      return $ MirReference elemTpr root (AgElem_RefPath offset elemSize elemTpr path)
-  | otherwise = leafAbort $ GenericSimError $
-      "subindex requires a reference to a VectorRepr, a UsizeArrayRepr of " ++
-      "a Crucible base type, or a MirAggregateRepr, but got a reference to " ++
-      show tpr
-subindexMirRefLeaf _sym _elemTpr (MirReference_Integer {}) _idx _elemSize =
-    leafAbort $ GenericSimError $
-        "attempted subindex on the result of an integer-to-pointer cast"
 
 
 subjustMirRefLeaf ::

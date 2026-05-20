@@ -29,6 +29,10 @@ This release supports [version
   `Mir.Intrinsics`. These are only used by SAW at the moment.
 * Remove `Mir.FancyMuxTree.runMuxLeafIO'`, which does not seem to be used
   anywhere.
+* Remove allocation-agnostic indexing intrinsic (`Mir.Generator.subindexRef`,
+  `Mir.Intrinsics.Reference.subindexMirRef{IO,Leaf,Sim}`), and migrate existing
+  uses to allocation-specific intrinsics for aggregates, sybmolic arrays, and
+  vectors (`Mir.Generator.{mirRef_agElem,mirRef_arrayIndex,mirRef_vecIndex}`).
 
 # 0.6 -- 2026-01-29
 
