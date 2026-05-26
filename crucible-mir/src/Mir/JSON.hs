@@ -156,6 +156,22 @@ instance FromJSON Instance where
             <$> (IkCloneShim <$> v .: "ty" <*> v .: "callees") <*> v .: "def_id" <*> v .: "args"
         Just (String "ClosureFnPointerShim") -> Instance IkClosureFnPointerShim
             <$> v .: "call_mut" <*> pure mempty
+        Just (String "Unsupported") -> do
+            -- `mir-json` emits `"kind": "Unsupported"` for shim variants it
+            -- does not yet model (e.g. `ConstructCoroutineInClosureShim`,
+            -- `FutureDropPollShim`, `AsyncDropGlueCtorShim`, `AsyncDropGlue`,
+            -- `ThreadLocalShim`, `FnPtrAddrShim`). Accept these so that
+            -- modules referencing such shims can still be loaded. If one of
+            -- them is actually called during translation, downstream code
+            -- in `Mir.Trans` raises a clear error including the shim name.
+            shim <- v .:? "shim_kind" .!= "unknown"
+            -- The "Unsupported" payload from older `mir-json` versions
+            -- carries no `def_id` or `args`; use a synthetic placeholder
+            -- crate so the DefId is well-formed but obviously fake. Newer
+            -- versions can optionally provide the original def_id/args.
+            defid <- v .:? "def_id" .!= textId "unsupported_shim/0"
+            args  <- v .:? "args"   .!= mempty
+            return $ Instance (IkUnsupported shim) defid args
         r -> fail $ "unsupported instance: " ++ show r
 
 instance FromJSON FnSig where

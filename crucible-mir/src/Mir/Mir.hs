@@ -230,6 +230,13 @@ data InstanceKind =
     -- ^ Shim used when converting a closure to a function pointer.  This
     -- function builds a dummy closure value and then passes it to `_inDefId`,
     -- which is the closure's `call_mut` method.
+    | IkUnsupported Text
+    -- ^ A shim type that `mir-json` recognized but cannot emit (e.g.
+    -- `ConstructCoroutineInClosureShim`, `FutureDropPollShim`,
+    -- `AsyncDropGlueCtorShim`, `AsyncDropGlue`, `ThreadLocalShim`,
+    -- `FnPtrAddrShim`). Loading a module with such instances succeeds, but
+    -- any attempt to translate or call one of them produces a clear error
+    -- naming the original shim kind (the `Text` payload).
     deriving (Eq, Ord, Show, Generic)
 
 data Adt = Adt
