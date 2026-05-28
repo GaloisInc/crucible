@@ -36,7 +36,6 @@ import qualified Data.BitVector.Sized as BV
 import qualified Data.Char       as Char
 import           Control.Monad
 import           Control.Monad.IO.Class
-import qualified Data.IntMap.Strict as IntMap
 import qualified Data.List       as List
 import           Data.Text (Text)
 import qualified Data.Text       as Text
@@ -100,8 +99,8 @@ import           Mir.Options (MIROptions(..), mirConfig)
 import           Mir.Overrides
 import           Mir.Intrinsics (MIR, mirExtImpl, mirIntrinsicTypes,
                     pattern RustEnumRepr, SomeRustEnumRepr(..),
-                    pattern MirAggregateRepr, MirAggregate(..), MirAggregateEntry(..),
-                    mirAggregate_lookup)
+                    pattern MirAggregateRepr, MirAggregate(..),
+                    mirAggregate_lookup, mirAggregate_chunk)
 import           Mir.Generator
 import           Mir.Generate (generateMIR)
 import qualified Mir.Log as Log
@@ -525,6 +524,28 @@ showRegEntry :: forall sym arg p rtp args ret
   -> C.OverrideSim p sym MIR rtp args ret String
 showRegEntry col mty entry@(C.RegEntry tp rv) =
   case (mty,tp) of
+    {-
+    Note [Printing flattened aggregates]
+
+    When we encounter types represented as `MirAggregate`s (tuples, arrays,
+    structs, etc.), we don't directly access _entries_ in those aggregates to
+    print them. Instead, we access _sub-aggregates_ and recurse on them. This
+    accommodates our aggregates being flattened; if we're printing e.g. a `[[u8;
+    2]; 2]`, we can't simply get the first element of its aggregate and print it
+    as `[u8; 2]`, because that element will be a `u8`.
+
+    This approach eventually yields recursive calls to print values of
+    base/non-aggregate types, but with aggregate representations, which we
+    handle with the case below.
+    -}
+    (ty, MirAggregateRepr) | aggregateLeafType ty -> do
+      C.Some tpr <- case tyToRepr col ty of
+        Right tpr -> pure tpr
+        Left err -> fail err
+      case mirAggregate_lookup 0 tpr rv of
+        Left err -> fail $ "showRegEntry: error accessing aggregate: " <> err
+        Right elemPart -> goMaybe ty tpr elemPart
+
     (TyBool, C.BoolRepr) -> return $ case W4.asConstantPred rv of
                      Just b -> if b then "true" else "false"
                      Nothing -> "Symbolic bool"
@@ -549,7 +570,6 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
                      Nothing -> "Symbolic real"
 
     (tupleTy@(TyTuple tys), MirAggregateRepr) -> do
-      let MirAggregate _ m = rv
       layout <- case Map.lookup tupleTy (col ^. layouts) of
         Just (Just x) -> return x
         Nothing -> fail $ "missing layout for tuple type " ++ show tupleTy
@@ -560,11 +580,12 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
       strs <- forM (zip fieldOffsets tys) $ \(off, ty) -> do
         case col ^? layouts . ix ty . _Just . laySize of
           Just 0 -> showZSTValue ty
-          Just _ -> do
-            case IntMap.lookup (fromIntegral off) m of
-              Just (MirAggregateEntry _ elemTpr elemRvPart) ->
-                goMaybe ty elemTpr elemRvPart
-              Nothing -> return "<uninit>"
+          Just sz -> do
+            -- See Note [Printing flattened aggregates]
+            subAg <- case mirAggregate_chunk (fromIntegral off) (fromIntegral sz) rv of
+              Left err -> fail $ "showRegEntry: error extracting tuple element: " <> err
+              Right ag -> pure ag
+            showRegEntry col ty (C.RegEntry MirAggregateRepr subAg)
           Nothing -> fail $ "impossible: got field offsets for tuple " ++ show tupleTy
             ++ ", but no layout for element " ++ show ty ++ "?"
 
@@ -639,22 +660,34 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
     (TyRef ty Immut, _) -> showRegEntry col ty (C.RegEntry tp rv)
 
     (TyArray ty len, MirAggregateRepr) -> do
-      case tyToRepr col ty of
-        Right (C.Some tpr) -> do
-          tySize <- case tySizedness col ty of
-            Sized s -> pure s
-            Unsized -> fail $ "showRegEntry: array of unsized type: " <> show ty
-          values <- forM (init [0 .. len]) $ \i -> do
-            case mirAggregate_lookup (fromIntegral i * tySize) tpr rv of
-              Left e -> return $ "error accessing " ++ show (pretty mty) ++ " aggregate: " ++ e
-              Right partVal -> goMaybe ty tpr partVal
-          return $ "[" ++ List.intercalate ", " values ++ "]"
-        Left e -> return $ "error handling type " ++ show (pretty ty) ++ ": " ++ e
+      tySize <- case tySizedness col ty of
+        Sized s -> pure s
+        Unsized -> fail $ "showRegEntry: array of unsized type: " <> show ty
+      values <- forM (init [0 .. len]) $ \i -> do
+        -- See Note [Printing flattened aggregates]
+        case mirAggregate_chunk (fromIntegral i * tySize) tySize rv of
+          Left e -> return $ "error accessing " ++ show (pretty mty) ++ " aggregate: " ++ e
+          Right subAg -> showRegEntry col ty (C.RegEntry MirAggregateRepr subAg)
+      return $ "[" ++ List.intercalate ", " values ++ "]"
 
     _ -> return $ "I don't know how to print result of type " ++ show (pretty mty, tp)
 
 
   where
+    -- | Does this type appear as an entry in a `MirAggregate`? Note that this
+    -- is only meant to handle the `Ty` variants that `showRegEntry` handles.
+    aggregateLeafType :: Ty -> Bool
+    aggregateLeafType ty = case ty of
+      TyBool -> True
+      TyChar -> True
+      TyInt _ -> True
+      TyUint _ -> True
+      TyFloat _ -> True
+      TyAdt name _ _
+        | Just adt <- findAdt' col name,
+          Enum _ <- adt ^. adtkind -> True
+      _ -> False
+
     readFields :: FieldCtxRepr ctx -> Ctx.Assignment (C.RegValue' sym) ctx ->
         [C.Some (C.RegEntry sym)]
     readFields Ctx.Empty Ctx.Empty = []
@@ -682,18 +715,17 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
     showAgFields :: Ty -> String -> MirAggregate sym ->
         C.OverrideSim p sym MIR rtp args ret [String]
     showAgFields agTy tyDesc ag = do
-      let MirAggregate _ m = ag
       fields <- case tyFields col agTy of
         Just x -> return x
         Nothing -> fail $ "missing fields for " ++ tyDesc
       strs <- forM fields $ \(off, ty) -> do
         case col ^? layouts . ix ty . _Just . laySize of
           Just 0 -> showZSTValue ty
-          Just _ -> do
-            case IntMap.lookup (fromIntegral off) m of
-              Just (MirAggregateEntry _ elemTpr elemRvPart) ->
-                goMaybe ty elemTpr elemRvPart
-              Nothing -> return "<uninit>"
+          Just sz -> do
+            -- See Note [Printing flattened aggregates]
+            case mirAggregate_chunk off (fromIntegral sz) ag of
+              Left err -> fail $ "showAgFields: error accessing aggregate: " <> show err
+              Right subAg -> showRegEntry col ty (C.RegEntry MirAggregateRepr subAg)
           Nothing -> fail $ "impossible: got field offsets for " ++ tyDesc
             ++ ", but no layout for element " ++ show ty ++ "?"
       return strs
