@@ -569,27 +569,9 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
                      Just f -> show f
                      Nothing -> "Symbolic real"
 
-    (tupleTy@(TyTuple tys), MirAggregateRepr) -> do
-      layout <- case Map.lookup tupleTy (col ^. layouts) of
-        Just (Just x) -> return x
-        Nothing -> fail $ "missing layout for tuple type " ++ show tupleTy
-        Just Nothing -> fail $ "unsupported: unsized tuple type " ++ show tupleTy
-      fieldOffsets <- case layout ^. layFieldOffsets of
-        Just x -> return x
-        Nothing -> fail $ "missing field offsets for " ++ show tupleTy
-      strs <- forM (zip fieldOffsets tys) $ \(off, ty) -> do
-        case col ^? layouts . ix ty . _Just . laySize of
-          Just 0 -> showZSTValue ty
-          Just sz -> do
-            -- See Note [Printing flattened aggregates]
-            subAg <- case mirAggregate_chunk (fromIntegral off) (fromIntegral sz) rv of
-              Left err -> fail $ "showRegEntry: error extracting tuple element: " <> err
-              Right ag -> pure ag
-            showRegEntry col ty (C.RegEntry MirAggregateRepr subAg)
-          Nothing -> fail $ "impossible: got field offsets for tuple " ++ show tupleTy
-            ++ ", but no layout for element " ++ show ty ++ "?"
-
-      return $ "(" ++ List.intercalate ", " strs ++ ")"
+    (TyTuple _, MirAggregateRepr) -> do
+      fields <- showAgFields mty ("tuple type " <> show (pretty mty)) rv
+      return $ "(" ++ List.intercalate ", " fields ++ ")"
 
     -- Tagged union type
     (TyAdt name _ _, _)
