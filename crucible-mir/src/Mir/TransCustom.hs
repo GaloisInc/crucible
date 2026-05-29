@@ -1920,16 +1920,12 @@ allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
         [MirExp UsizeRepr sz] -> do
             -- Create an uninitialized `MirAggregate` of length `len`, and
             -- return a pointer to its first element.
-            Some elemTpr <- tyToReprM elemTy
             elemSize <- tySizeM elemTy
             let agSize = R.App (usizeMul sz (R.App (usizeLit (fromIntegral elemSize))))
             ag <- mirAggregate_uninit agSize
             ref <- newMirRef MirAggregateRepr
             writeMirRef MirAggregateRepr ref All ag
-            -- `mirRef_agElem` doesn't do a bounds check (those happen on deref
-            -- instead), so this works even when len is 0.
-            ptr <- mirRef_agElem (R.App $ usizeLit 0) elemSize elemTpr ref
-            return $ MirExp MirReferenceRepr ptr
+            return $ MirExp MirReferenceRepr ref
         _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
     _ -> Nothing)
 
@@ -1944,8 +1940,7 @@ allocate_zeroed = (["crucible", "alloc", "allocate_zeroed"], \substs -> case sub
 
             ref <- newMirRef MirAggregateRepr
             writeMirRef MirAggregateRepr ref All ag
-            ptr <- mirRef_agElem (R.App $ usizeLit 0) elemSize elemTpr ref
-            return $ MirExp MirReferenceRepr ptr
+            return $ MirExp MirReferenceRepr ref
         _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
     _ -> Nothing)
 

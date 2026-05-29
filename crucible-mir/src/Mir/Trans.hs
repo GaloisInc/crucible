@@ -282,12 +282,11 @@ transConstVal ty tp cv = mirFail $
 --    * construct a reference to the global variable
 --      (with globalMirRef rather than constMirRef, that's the point of
 --      all this)
---    * apply mirRef_agElem
 --    * cons up the length
 --    * call mkStruct
 --    * cons up the final MirExp
 --
--- staticSlicePlace does the first four of these actions; addrOfPlace
+-- staticSlicePlace does the first three of these actions; addrOfPlace
 -- does the last two.
 --
 
@@ -395,10 +394,8 @@ staticSlicePlace len ty did = do
                 _ -> mirFail $
                     "staticSlicePlace: wrong type: expected aggregate, found " ++ show tpr_found
             ref <- globalMirRef gv
-            elemSize <- tySizeM ty
-            ref' <- mirRef_agElem (R.App $ usizeLit 0) elemSize tpr ref
             let len' = R.App $ usizeLit $ fromIntegral len
-            return $ MirPlace tpr ref' (SliceMeta len')
+            return $ MirPlace tpr ref (SliceMeta len')
         Nothing -> mirFail $ "cannot find static variable " ++ fmt did
 
 -- NOTE: The return var in the MIR output is always "_0"
@@ -977,13 +974,9 @@ evalCast' ck ty1 e ty2  = do
         | m1 == m2, MirExp MirSliceRepr e' <- e
         -> return $ MirExp MirReferenceRepr (getSlicePtr e')
 
-      --  *const [T; N] -> *const T (get first element)
+      --  *const [T; N] -> *const T (get first element) - a no-op
       (M.Misc, M.TyRawPtr (M.TyArray t1 _) m1, M.TyRawPtr t2 m2)
-        | t1 == t2, m1 == m2, MirExp MirReferenceRepr e' <- e
-        -> do
-          Some tpr <- tyToReprM t1
-          elemSize <- tySizeM t1
-          MirExp MirReferenceRepr <$> mirRef_agElem (R.App $ usizeLit 0) elemSize tpr e'
+        | t1 == t2, m1 == m2 -> pure e
 
       --  *const [u8] <-> *const str (no-ops)
       (M.Misc, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m1, M.TyRawPtr M.TyStr m2)
@@ -1162,12 +1155,9 @@ evalCast' ck ty1 e ty2  = do
     unsizeArray ty sz ty'
       | ty == ty', MirExp MirReferenceRepr ref <- e
       = do
-        Some elem_tp <- tyToReprM ty
         let len   = R.App $ usizeLit (fromIntegral sz)
-        elemSize <- tySizeM ty
-        ref' <- mirRef_agElem (R.App $ usizeLit 0) elemSize elem_tp ref
         let tup   = S.mkStruct mirSliceCtxRepr
-                        (Ctx.Empty Ctx.:> ref' Ctx.:> len)
+                        (Ctx.Empty Ctx.:> ref Ctx.:> len)
         return $ MirExp MirSliceRepr tup
       | otherwise = mirFail $
         "Type mismatch in cast: " ++ show ck ++ " " ++ show ty1 ++ " as " ++ show ty2
