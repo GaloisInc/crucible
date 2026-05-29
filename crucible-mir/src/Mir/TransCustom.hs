@@ -769,7 +769,7 @@ intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
             srcSnapAg <- readMirRef MirAggregateRepr All srcAg
             srcSnapRoot <- constMirRef MirAggregateRepr srcSnapAg
             let srcElemOff = R.App $ usizeMul srcIdx (R.App $ usizeLit $ fromIntegral elemSize)
-            srcSnap <- mirRef_agElem srcElemOff elemSize elemTpr srcSnapRoot
+            srcSnap <- mirRef_agOffset srcElemOff srcSnapRoot
 
             ptrCopy elemTpr srcSnap dest count elemSize
             MirExp MirAggregateRepr <$> mirAggregate_zst
@@ -1989,7 +1989,6 @@ reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
     Substs [elemTy] -> Just $ CustomOp $ \_ ops -> case ops of
         [ MirExp MirReferenceRepr ptr, MirExp UsizeRepr newLen ] -> do
             elemSize <- tySizeM elemTy
-            Some elemTpr <- tyToReprM elemTy
 
             (agPtr, idx) <- mirRef_peelIndex ptr elemSize
 
@@ -2002,7 +2001,7 @@ reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
             newAg <- mirAggregate_resize oldAg newSize
             newAgPtr <- newMirRef MirAggregateRepr
             writeMirRef MirAggregateRepr newAgPtr All newAg
-            newAgElem <- mirRef_agElem idx elemSize elemTpr newAgPtr
+            newAgElem <- mirRef_agOffset idx newAgPtr
             return $ MirExp MirReferenceRepr newAgElem
         _ -> mirFail $ "BUG: invalid arguments to reallocate: " ++ show ops
     _ -> Nothing)
