@@ -61,8 +61,6 @@ module Mir.Intrinsics.Reference
     subvariantMirRefIO,
     subjustMirRefLeaf,
     subjustMirRefIO,
-    mirRef_agElem_unsizedLeaf,
-    mirRef_agElem_unsizedIO,
     mirRef_agOffsetLeaf,
     mirRef_agOffsetIO,
     mirRef_arrayIndexLeaf,
@@ -117,7 +115,6 @@ import Lens.Micro ((^.), (.~))
 
 import Data.BitVector.Sized qualified as BV
 import Data.Function ((&))
-import Data.IntMap qualified as IntMap
 import Data.Kind (Type)
 import Data.Parameterized.Context
   ( Ctx,
@@ -209,7 +206,6 @@ import Mir.FancyMuxTree
   )
 import Mir.Intrinsics.Aggregate
   ( MirAggregate (..),
-    MirAggregateEntry (..),
     MirAggregateType,
     adjustMirAggregateWithSymOffset,
     readMirAggregateWithSymOffset,
@@ -1042,38 +1038,6 @@ mirRef_vecIndexIO ::
     IO (MirReferenceMux sym)
 mirRef_vecIndexIO bak iTypes idx elemTpr ref =
   modifyRefMuxMA bak iTypes (mirRef_vecIndexLeaf bak idx elemTpr) ref
-
-
-mirRef_agElem_unsizedLeaf ::
-    IsSymBackend sym bak =>
-    bak ->
-    SymGlobalState sym ->
-    IntrinsicTypes sym ->
-    RegValue sym UsizeType ->
-    MirReference sym ->
-    MuxLeafT sym IO (MirReference sym)
-mirRef_agElem_unsizedLeaf bak gs iTypes off ref =
-  typedLeafOp "MirAggregate unsized element projection" bak MirAggregateRepr ref $ \root path -> do
-    offConcrete <- case asBV off of
-      Just bv -> return $ fromIntegral $ BV.asUnsigned bv
-      Nothing -> leafAbort $ GenericSimError $
-        "mirRef_agElem_unsized: offset must be concrete, but got " ++ show (printSymExpr off)
-    MirAggregate _ m <- readMirRefLeaf bak gs iTypes MirAggregateRepr All ref
-    (sz, Some entryTpr) <- case IntMap.lookup offConcrete m of
-      Just (MirAggregateEntry sz entryTpr _) -> return (sz, Some entryTpr)
-      Nothing -> return (0, Some MirAggregateRepr)
-    return $ MirReference entryTpr root (AgElem_RefPath off sz entryTpr path)
-
-mirRef_agElem_unsizedIO ::
-    IsSymBackend sym bak =>
-    bak ->
-    SymGlobalState sym ->
-    IntrinsicTypes sym ->
-    RegValue sym UsizeType ->
-    MirReferenceMux sym ->
-    IO (MirReferenceMux sym)
-mirRef_agElem_unsizedIO bak gs iTypes off ref =
-    modifyRefMuxMA bak iTypes (mirRef_agElem_unsizedLeaf bak gs iTypes off) ref
 
 
 mirRef_agOffsetLeaf ::
