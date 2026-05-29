@@ -767,7 +767,7 @@ intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
             srcSnapAg <- readMirRef MirAggregateRepr All srcAg
             srcSnapRoot <- constMirRef MirAggregateRepr srcSnapAg
             let srcElemOff = R.App $ usizeMul srcIdx (R.App $ usizeLit $ fromIntegral elemSize)
-            srcSnap <- mirRef_agElem srcElemOff elemSize elemTpr srcSnapRoot
+            srcSnap <- mirRef_agOffset srcElemOff srcSnapRoot
 
             ptrCopy elemTpr srcSnap dest count elemSize
             MirExp MirAggregateRepr <$> mirAggregate_zst

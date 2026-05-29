@@ -1697,7 +1697,7 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Index idxVar) = case (ty, tpr, meta)
         Some elemTpr <- tyToReprM elemTy
         elemSize <- tySizeM elemTy
         let elemOff = R.App $ usizeMul idx' (R.App $ usizeLit $ fromIntegral elemSize)
-        MirPlace elemTpr <$> mirRef_agElem elemOff elemSize elemTpr ref <*> pure NoMeta
+        MirPlace elemTpr <$> mirRef_agOffset elemOff ref <*> pure NoMeta
 
     (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
         idx <- getIdx idxVar
@@ -1721,7 +1721,7 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.ConstantIndex idx _minLen fromEnd) =
         Some elemTpr <- tyToReprM elemTy
         elemSize <- tySizeM elemTy
         let elemOff = R.App $ usizeMul idx' (R.App $ usizeLit $ fromIntegral elemSize)
-        MirPlace elemTpr <$> mirRef_agElem elemOff elemSize elemTpr ref <*> pure NoMeta
+        MirPlace elemTpr <$> mirRef_agOffset elemOff ref <*> pure NoMeta
 
     (M.TySlice elemTy, elemTpr, SliceMeta len) -> do
         idx' <- getIdx idx len fromEnd

@@ -64,7 +64,7 @@ import qualified Mir.Mir as M
 import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
     , subfieldRef, subvariantRef, subjustRef
-    , mirRef_agElem_constOffset, mirRef_agElem_unsized
+    , mirRef_agOffset
     , mirAggregate_uninit_constSize
     , mirAggregate_zst, mirAggregate_get, mirAggregate_set
     , cs, collection, discrMap, findAdt, arrayZeroed )
@@ -1632,7 +1632,7 @@ structFieldRef structTy i ref meta = do
       alignExp <- getVtableSlot dynTraitName vtableAlignSlotIdx UsizeRepr vtable
       let offExp = R.App $ usizeLit $ fromIntegral off
       let offExp' = padToAlign offExp alignExp
-      ref' <- mirRef_agElem_unsized offExp' ref
+      ref' <- mirRef_agOffset offExp' ref
       return $ MirPlace C.AnyRepr ref' meta
 
     SliceMeta _len | isLast -> do
@@ -1650,10 +1650,7 @@ structFieldRef structTy i ref meta = do
       -- No need for `padToAlign` here.  The correct alignment for the slice is
       -- statically known based on its element type, and the layout emitted by
       -- mir-json already includes the necessary padding for that alignment.
-      --
-      -- Can't use typed/sized `mirRef_agElem` here because it requires the
-      -- size to be a translation-time constant.
-      ref' <- mirRef_agElem_unsized offExp ref
+      ref' <- mirRef_agOffset offExp ref
 
       case optElemTy of
         Just elemTy -> do
@@ -1668,8 +1665,8 @@ structFieldRef structTy i ref meta = do
 
     _ -> do
       Some valTpr <- tyToReprM ty
-      sz <- tySizeM ty
-      ref' <- mirRef_agElem_constOffset off sz valTpr ref
+      let offExp = R.App $ usizeLit $ fromIntegral off
+      ref' <- mirRef_agOffset offExp ref
       return $ MirPlace valTpr ref' NoMeta
 
 
@@ -1707,8 +1704,8 @@ tupleFieldRef tupleTy i tpr ref = do
         Nothing -> mirFail $ "tupleFieldRef: field index " ++ show i ++
             " is out of range for tuple " ++ show tupleTy
     Some valTpr <- tyToReprM ty
-    sz <- tySizeM ty
-    ref' <- mirRef_agElem_constOffset off sz valTpr ref
+    let offExp = R.App $ usizeLit $ fromIntegral off
+    ref' <- mirRef_agOffset offExp ref
     return $ MirPlace valTpr ref' NoMeta
 
 -- | Provided a reference to a union, acquire a reference to the union field
@@ -1720,8 +1717,9 @@ unionFieldRef ::
   R.Expr MIR s MirReferenceType ->
   MirGenerator h s ret (MirPlace s)
 unionFieldRef unionAdt fieldIdx unionRef = do
-  UnionInfo _unionSize fieldOffset fieldSize fieldTpr <- unionInfo unionAdt fieldIdx
-  fieldRef <- mirRef_agElem_constOffset fieldOffset fieldSize fieldTpr unionRef
+  UnionInfo _unionSize fieldOffset _fieldSize fieldTpr <- unionInfo unionAdt fieldIdx
+  let fieldOffsetExp = R.App $ usizeLit $ fromIntegral fieldOffset
+  fieldRef <- mirRef_agOffset fieldOffsetExp unionRef
   pure $ MirPlace fieldTpr fieldRef NoMeta
 
 testEqualityOrFail :: TestEquality f => f a -> f b -> String -> MirGenerator h s ret (a :~: b)
