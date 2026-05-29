@@ -61,8 +61,6 @@ module Mir.Intrinsics.Reference
     subvariantMirRefIO,
     subjustMirRefLeaf,
     subjustMirRefIO,
-    mirRef_agElemLeaf,
-    mirRef_agElemIO,
     mirRef_agElem_unsizedLeaf,
     mirRef_agElem_unsizedIO,
     mirRef_agOffsetLeaf,
@@ -1045,30 +1043,6 @@ mirRef_vecIndexIO ::
 mirRef_vecIndexIO bak iTypes idx elemTpr ref =
   modifyRefMuxMA bak iTypes (mirRef_vecIndexLeaf bak idx elemTpr) ref
 
-
-mirRef_agElemLeaf ::
-    (IsSymBackend sym bak) =>
-    bak ->
-    RegValue sym UsizeType ->
-    Word ->
-    TypeRepr tp ->
-    MirReference sym ->
-    MuxLeafT sym IO (MirReference sym)
-mirRef_agElemLeaf bak off sz tpr ref =
-  typedLeafOp "MirAggregate element projection" bak MirAggregateRepr ref $ \root path -> do
-    return $ MirReference tpr root (AgElem_RefPath off sz tpr path)
-
-mirRef_agElemIO ::
-    IsSymBackend sym bak =>
-    bak ->
-    IntrinsicTypes sym ->
-    RegValue sym UsizeType ->
-    Word ->
-    TypeRepr tp ->
-    MirReferenceMux sym ->
-    IO (MirReferenceMux sym)
-mirRef_agElemIO bak iTypes off sz tpr ref =
-    modifyRefMuxMA bak iTypes (mirRef_agElemLeaf bak off sz tpr) ref
 
 mirRef_agElem_unsizedLeaf ::
     IsSymBackend sym bak =>
