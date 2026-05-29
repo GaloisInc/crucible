@@ -788,6 +788,11 @@ typedLeafOp desc bak expectTpr (MirReference tpr root path) k
       -- TODO: hardcoded size=0
       let elemPath = AgElem_RefPath off 0 expectTpr origPath
       k root elemPath
+  | MirAggregateRepr <- tpr = do
+      -- See Note [Aggregate zero-offsets]
+      zero <- liftIO $ wordLit (backendGetSym bak) 0
+      let offPath = AgOffset_RefPath zero path
+      typedLeafOp desc bak expectTpr (MirReference tpr root offPath) k
   | otherwise = leafAbort $ GenericSimError $
       desc ++ " requires a reference to " ++ show expectTpr
         ++ ", but got a reference to " ++ show tpr
@@ -795,6 +800,15 @@ typedLeafOp desc _ _ (MirReference_Integer _) _ =
     leafAbort $ GenericSimError $
         "attempted " ++ desc ++ " on the result of an integer-to-pointer cast"
 
+{-
+Note [Aggregate zero-offsets]
+
+We consider a reference path with a `MirAggregate` pointee, but without an
+`AgOffset_RefPath` terminator, to be equivalent to the same path with an
+`AgOffset_RefPath` terminator with an offset of zero. This helps us to mimic
+e.g. Rust's lack of disambiguation between pointers to collections and pointers
+to collections' first element.
+-}
 
 readMirRefSim :: IsSymInterface sym =>
     TypeRepr tp ->
@@ -1173,6 +1187,16 @@ refPathEq sym (AgOffset_RefPath off1 p1) (AgOffset_RefPath off2 p2) = do
     offEq <- liftIO $ bvEq sym off1 off2
     pEq <- refPathEq sym p1 p2
     liftIO $ andPred sym offEq pEq
+refPathEq sym (AgOffset_RefPath off1 p1) p2 = do
+    -- See Note [Aggregate zero-offsets]
+    offEq <- liftIO $ bvEq sym off1 =<< wordLit sym 0
+    pEq <- refPathEq sym p1 p2
+    liftIO $ andPred sym offEq pEq
+refPathEq sym p1 (AgOffset_RefPath off2 p2) = do
+    -- See Note [Aggregate zero-offsets]
+    offEq <- liftIO $ bvEq sym off2 =<< wordLit sym 0
+    pEq <- refPathEq sym p1 p2
+    liftIO $ andPred sym offEq pEq
 
 refPathEq sym Empty_RefPath _ = return $ falsePred sym
 refPathEq sym (Field_RefPath {}) _ = return $ falsePred sym
@@ -1181,7 +1205,6 @@ refPathEq sym (Just_RefPath {}) _ = return $ falsePred sym
 refPathEq sym (VectorIndex_RefPath {}) _ = return $ falsePred sym
 refPathEq sym (ArrayIndex_RefPath {}) _ = return $ falsePred sym
 refPathEq sym (AgElem_RefPath {}) _ = return $ falsePred sym
-refPathEq sym (AgOffset_RefPath {}) _ = return $ falsePred sym
 
 mirRef_eqLeaf ::
     IsSymInterface sym =>
@@ -1357,6 +1380,16 @@ refPathOverlaps sym path1 path2 = do
         overlaps <- liftIO $ bvUge sym offESz offO
         pEq <- go rrp1 rrp2
         liftIO $ andPred sym overlaps pEq
+    go (AgOffset_RefPath off _ `RrpCons` rrp1) rrp2
+      | Just bv <- asBV off
+      , 0 <- BV.asUnsigned bv =
+        -- See Note [Aggregate zero-offsets]
+        go rrp1 rrp2
+    go rrp1 (AgOffset_RefPath off _ `RrpCons` rrp2)
+      | Just bv <- asBV off
+      , 0 <- BV.asUnsigned bv =
+        -- See Note [Aggregate zero-offsets]
+        go rrp1 rrp2
 
     go (Field_RefPath {} `RrpCons` _) _ = return $ falsePred sym
     go (Variant_RefPath {} `RrpCons` _) _ = return $ falsePred sym
@@ -1501,6 +1534,11 @@ mirRef_offsetWrapLeaf bak (MirReference tpr root (AgOffset_RefPath off path)) nu
     extraOff <- liftIO $ bvMul sym numElems =<< wordLit sym elemSize
     off' <- liftIO $ bvAdd sym off extraOff
     return $ MirReference tpr root $ AgOffset_RefPath off' path
+mirRef_offsetWrapLeaf bak (MirReference MirAggregateRepr root path) offset elemSize = do
+    -- See Note [Aggregate zero-offsets]
+    zero <- liftIO $ wordLit (backendGetSym bak) 0
+    let offPath = AgOffset_RefPath zero path
+    mirRef_offsetWrapLeaf bak (MirReference MirAggregateRepr root offPath) offset elemSize
 mirRef_offsetWrapLeaf bak ref@(MirReference _ _ _) offset _elemSize = do
     let sym = backendGetSym bak
     isZero <- liftIO $ bvEq sym offset =<< bvZero sym knownNat
@@ -1525,7 +1563,7 @@ mirRef_tryOffsetFromLeaf ::
     MirReference sym ->
     MirReference sym ->
     MuxLeafT sym IO (RegValue sym (MaybeType IsizeType))
-mirRef_tryOffsetFromLeaf bak elemSize (MirReference _ root1 path1) (MirReference _ root2 path2) = do
+mirRef_tryOffsetFromLeaf bak elemSize r1@(MirReference tp1 root1 path1) r2@(MirReference tp2 root2 path2) = do
     let sym = backendGetSym bak
     rootEq <- refRootEq sym root1 root2
     case (path1, path2) of
@@ -1581,6 +1619,18 @@ mirRef_tryOffsetFromLeaf bak elemSize (MirReference _ root1 path1) (MirReference
                   "offset_from: byte offset not a multiple of `size_of::<T>` (" <> show elemSize <> ")"
 
             return $ mkPE similar elemOffset
+        (AgOffset_RefPath _ _, _)
+          | MirAggregateRepr <- tp2 -> do
+            -- See Note [Aggregate zero-offsets]
+            zero <- wordLit sym 0
+            let r2' = MirReference tp2 root2 (AgOffset_RefPath zero path2)
+            mirRef_tryOffsetFromLeaf bak elemSize r1 r2'
+        (_, AgOffset_RefPath _ _)
+          | MirAggregateRepr <- tp1 -> do
+            -- See Note [Aggregate zero-offsets]
+            zero <- wordLit sym 0
+            let r1' = MirReference tp1 root1 (AgOffset_RefPath zero path1)
+            mirRef_tryOffsetFromLeaf bak elemSize r1' r2
         _ -> do
             pathEq <- refPathEq sym path1 path2
             similar <- liftIO $ andPred sym rootEq pathEq
@@ -1651,6 +1701,12 @@ mirRef_peelIndexLeaf bak elemSize (MirReference _tpr root (AgOffset_RefPath off 
         "expected element offset to be a multiple of element size (" ++ show elemSize ++ ")"
 
     idx <- liftIO $ bvUdiv sym off elemSizeBV
+    let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
+    return $ Empty :> RV ref :> RV idx
+mirRef_peelIndexLeaf bak _elemSize (MirReference MirAggregateRepr root path) = do
+    -- See Note [Aggregate zero-offsets]
+    let sym = backendGetSym bak
+    idx <- liftIO $ wordLit sym 0
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
     return $ Empty :> RV ref :> RV idx
 mirRef_peelIndexLeaf _bak _elemSize (MirReference _ _ _) =
