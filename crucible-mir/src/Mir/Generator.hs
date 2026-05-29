@@ -639,12 +639,6 @@ subjustRef ::
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 subjustRef tp ref = G.extensionStmt (MirSubjustRef tp ref)
 
-mirRef_agElem_unsized ::
-  R.Expr MIR s UsizeType ->
-  R.Expr MIR s MirReferenceType ->
-  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-mirRef_agElem_unsized off ref = G.extensionStmt $ MirRef_AgElem_Unsized off ref
-
 mirRef_agOffset ::
   R.Expr MIR s UsizeType ->
   R.Expr MIR s MirReferenceType ->

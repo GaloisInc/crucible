@@ -117,7 +117,6 @@ import Mir.Intrinsics.Reference
     MirReferenceRoot (..),
     MirReferenceType,
     dropMirRefIO,
-    mirRef_agElem_unsizedIO,
     mirRef_agOffsetIO,
     mirRef_arrayIndexIO,
     mirRef_eqIO,
@@ -193,15 +192,6 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      MirStmt f MirReferenceType
   MirSubjustRef ::
      !(TypeRepr tp) ->
-     !(f MirReferenceType) ->
-     MirStmt f MirReferenceType
-  -- | Like `MirRef_AgElem`, but the size and `TypeRepr` are inferred by
-  -- inspecting the aggregate.  This reads from memory instead of simply
-  -- adjusting the `MirReferencePath`, so it's best avoided if possible.
-  --
-  -- TODO: remove this once `MirRef_AgOffset` is implemented
-  MirRef_AgElem_Unsized ::
-     !(f UsizeType) ->
      !(f MirReferenceType) ->
      MirStmt f MirReferenceType
   -- | Given a reference to an aggregate, produce a reference to the
@@ -405,7 +395,6 @@ instance TypeApp MirStmt where
     MirSubjustRef _ _ -> MirReferenceRepr
     MirRef_ArrayIndex _ _ _ -> MirReferenceRepr
     MirRef_VecIndex _ _ _ -> MirReferenceRepr
-    MirRef_AgElem_Unsized _ _ -> MirReferenceRepr
     MirRef_AgOffset _ _ -> MirReferenceRepr
     MirRef_Eq _ _ -> BoolRepr
     MirRef_Offset _ _ _ -> MirReferenceRepr
@@ -442,7 +431,6 @@ instance PrettyApp MirStmt where
     MirSubjustRef _ x -> "subjustRef" <+> pp x
     MirRef_ArrayIndex idx _ ref -> "mirRef_arrayIndex" <+> pp idx <+> pp ref
     MirRef_VecIndex idx _ ref -> "mirRef_vecIndex" <+> pp idx <+> pp ref
-    MirRef_AgElem_Unsized off ref -> "mirRef_agElem_unsized" <+> pp off <+> pp ref
     MirRef_AgOffset off ref -> "mirRef_agOffset" <+> pp off <+> pp ref
     MirRef_Eq x y -> "mirRef_eq" <+> pp x <+> pp y
     MirRef_Offset p o s -> "mirRef_offset" <+> pp p <+> pp o <+> viaShow s
@@ -511,8 +499,6 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
          readOnly s $ mirRef_arrayIndexIO bak iTypes idx tpr ref
        MirRef_VecIndex (regValue -> idx) tpr (regValue -> ref) ->
          readOnly s $ mirRef_vecIndexIO bak iTypes idx tpr ref
-       MirRef_AgElem_Unsized (regValue -> off) (regValue -> ref) ->
-         readOnly s $ mirRef_agElem_unsizedIO bak gs iTypes off ref
        MirRef_AgOffset (regValue -> off) (regValue -> ref) ->
          readOnly s $ mirRef_agOffsetIO bak iTypes off ref
        MirRef_Eq (regValue -> r1) (regValue -> r2) ->
