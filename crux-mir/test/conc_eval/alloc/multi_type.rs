@@ -1,4 +1,3 @@
-// FAIL: reads/writes still expect a u64 target, even after cast
 // Test storing values of different types in a single allocation.
 
 #[cfg_attr(crux, crux::test)]
