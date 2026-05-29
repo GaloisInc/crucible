@@ -774,13 +774,14 @@ newConstMirRef sym tpr v = MirReferenceMux $ toFancyMuxTree sym $
 -- human-readable description of the operation, which is used in the `leafAbort`
 -- error message.
 typedLeafOp ::
-    Monad m =>
+    (MonadAssert sym bak m, IsSymBackend sym bak) =>
     String ->
+    bak ->
     TypeRepr tp ->
     MirReference sym ->
     (forall tp0. MirReferenceRoot sym tp0 -> MirReferencePath sym tp0 tp -> MuxLeafT sym m a) ->
     MuxLeafT sym m a
-typedLeafOp desc expectTpr (MirReference tpr root path) k
+typedLeafOp desc bak expectTpr (MirReference tpr root path) k
   | Just Refl <- testEquality tpr expectTpr =
       k root path
   | AgOffset_RefPath off origPath <- path = do
@@ -790,7 +791,7 @@ typedLeafOp desc expectTpr (MirReference tpr root path) k
   | otherwise = leafAbort $ GenericSimError $
       desc ++ " requires a reference to " ++ show expectTpr
         ++ ", but got a reference to " ++ show tpr
-typedLeafOp desc _ (MirReference_Integer _) _ =
+typedLeafOp desc _ _ (MirReference_Integer _) _ =
     leafAbort $ GenericSimError $
         "attempted " ++ desc ++ " on the result of an integer-to-pointer cast"
 
@@ -829,7 +830,7 @@ readMirRefLeaf ::
     MirReference sym ->
     MuxLeafT sym m (RegValue sym tp)
 readMirRefLeaf bak gs iTypes tpr readSize ref =
-  typedLeafOp "read" tpr ref $ \root path -> do
+  typedLeafOp "read" bak tpr ref $ \root path -> do
     v <- readRefRoot bak gs root
     v' <- readRefPath bak iTypes v readSize path
     return v'
@@ -878,7 +879,7 @@ writeMirRefLeaf ::
     RegValue sym tp ->
     MuxLeafT sym IO (SymGlobalState sym)
 writeMirRefLeaf bak gs iTypes tpr ref writeSize val =
-  typedLeafOp "write" tpr ref $ \root path ->
+  typedLeafOp "write" bak tpr ref $ \root path ->
     case path of
       Empty_RefPath -> writeRefRoot bak gs iTypes root val
       _ -> do
@@ -912,12 +913,14 @@ dropMirRefIO bak gs (MirReferenceMux ref) =
 
 
 subfieldMirRefLeaf ::
+    (IsSymBackend sym bak) =>
+    bak ->
     CtxRepr ctx ->
     MirReference sym ->
     Index ctx tp ->
     MuxLeafT sym IO (MirReference sym)
-subfieldMirRefLeaf ctx ref idx =
-  typedLeafOp "subfield" (StructRepr ctx) ref $ \root path -> do
+subfieldMirRefLeaf bak ctx ref idx =
+  typedLeafOp "subfield" bak (StructRepr ctx) ref $ \root path -> do
     let tpr = ctx ! idx
     return $ MirReference tpr root (Field_RefPath ctx path idx)
 
@@ -930,17 +933,19 @@ subfieldMirRefIO ::
     Index ctx tp ->
     IO (MirReferenceMux sym)
 subfieldMirRefIO bak iTypes ctx ref idx =
-    modifyRefMuxMA bak iTypes (\ref' -> subfieldMirRefLeaf ctx ref' idx) ref
+    modifyRefMuxMA bak iTypes (\ref' -> subfieldMirRefLeaf bak ctx ref' idx) ref
 
 
 subvariantMirRefLeaf ::
+    (IsSymBackend sym bak) =>
+    bak ->
     TypeRepr discrTp ->
     CtxRepr variantsCtx ->
     MirReference sym ->
     Index variantsCtx tp ->
     MuxLeafT sym IO (MirReference sym)
-subvariantMirRefLeaf discrTpr ctx ref idx =
-  typedLeafOp "subvariant" (RustEnumRepr discrTpr ctx) ref $ \root path -> do
+subvariantMirRefLeaf bak discrTpr ctx ref idx =
+  typedLeafOp "subvariant" bak (RustEnumRepr discrTpr ctx) ref $ \root path -> do
     let tpr = ctx ! idx
     return $ MirReference tpr root (Variant_RefPath discrTpr ctx path idx)
 
@@ -954,15 +959,17 @@ subvariantMirRefIO ::
     Index variantsCtx tp ->
     IO (MirReferenceMux sym)
 subvariantMirRefIO bak iTypes tp ctx ref idx =
-    modifyRefMuxMA bak iTypes (\ref' -> subvariantMirRefLeaf tp ctx ref' idx) ref
+    modifyRefMuxMA bak iTypes (\ref' -> subvariantMirRefLeaf bak tp ctx ref' idx) ref
 
 
 subjustMirRefLeaf ::
+    (IsSymBackend sym bak) =>
+    bak ->
     TypeRepr tp ->
     MirReference sym ->
     MuxLeafT sym IO (MirReference sym)
-subjustMirRefLeaf tpr ref =
-  typedLeafOp "subjust" (MaybeRepr tpr) ref $ \root path -> do
+subjustMirRefLeaf bak tpr ref =
+  typedLeafOp "subjust" bak (MaybeRepr tpr) ref $ \root path -> do
     return $ MirReference tpr root (Just_RefPath tpr path)
 
 subjustMirRefIO ::
@@ -973,17 +980,19 @@ subjustMirRefIO ::
     MirReferenceMux sym ->
     IO (MirReferenceMux sym)
 subjustMirRefIO bak iTypes tpr ref =
-    modifyRefMuxMA bak iTypes (subjustMirRefLeaf tpr) ref
+    modifyRefMuxMA bak iTypes (subjustMirRefLeaf bak tpr) ref
 
 
 mirRef_arrayIndexLeaf ::
+    (IsSymBackend sym bak) =>
+    bak ->
     RegValue sym UsizeType ->
     TypeRepr tp ->
     MirReference sym ->
     MuxLeafT sym IO (MirReference sym)
-mirRef_arrayIndexLeaf idx elemTpr ref = case asBaseType elemTpr of
+mirRef_arrayIndexLeaf bak idx elemTpr ref = case asBaseType elemTpr of
   AsBaseType baseTpr ->
-    typedLeafOp "Crucible Array index" (UsizeArrayRepr baseTpr) ref $ \root path -> do
+    typedLeafOp "Crucible Array index" bak (UsizeArrayRepr baseTpr) ref $ \root path -> do
       return $ MirReference elemTpr root (ArrayIndex_RefPath baseTpr path idx)
   _ -> leafAbort $ GenericSimError $
     "Crucible Array-indexing operates on arrays of a Crucible base type, but saw one of " <> show elemTpr
@@ -997,16 +1006,18 @@ mirRef_arrayIndexIO ::
     MirReferenceMux sym ->
     IO (MirReferenceMux sym)
 mirRef_arrayIndexIO bak iTypes idx elemTpr ref =
-  modifyRefMuxMA bak iTypes (mirRef_arrayIndexLeaf idx elemTpr) ref
+  modifyRefMuxMA bak iTypes (mirRef_arrayIndexLeaf bak idx elemTpr) ref
 
 
 mirRef_vecIndexLeaf ::
+    (IsSymBackend sym bak) =>
+    bak ->
     RegValue sym UsizeType ->
     TypeRepr tp ->
     MirReference sym ->
     MuxLeafT sym IO (MirReference sym)
-mirRef_vecIndexLeaf idx elemTpr ref =
-  typedLeafOp "Crucible Vector index" (VectorRepr elemTpr) ref $ \root path -> do
+mirRef_vecIndexLeaf bak idx elemTpr ref =
+  typedLeafOp "Crucible Vector index" bak (VectorRepr elemTpr) ref $ \root path -> do
     return $ MirReference elemTpr root (VectorIndex_RefPath elemTpr path idx)
 
 mirRef_vecIndexIO ::
@@ -1018,17 +1029,19 @@ mirRef_vecIndexIO ::
     MirReferenceMux sym ->
     IO (MirReferenceMux sym)
 mirRef_vecIndexIO bak iTypes idx elemTpr ref =
-  modifyRefMuxMA bak iTypes (mirRef_vecIndexLeaf idx elemTpr) ref
+  modifyRefMuxMA bak iTypes (mirRef_vecIndexLeaf bak idx elemTpr) ref
 
 
 mirRef_agElemLeaf ::
+    (IsSymBackend sym bak) =>
+    bak ->
     RegValue sym UsizeType ->
     Word ->
     TypeRepr tp ->
     MirReference sym ->
     MuxLeafT sym IO (MirReference sym)
-mirRef_agElemLeaf off sz tpr ref =
-  typedLeafOp "MirAggregate element projection" MirAggregateRepr ref $ \root path -> do
+mirRef_agElemLeaf bak off sz tpr ref =
+  typedLeafOp "MirAggregate element projection" bak MirAggregateRepr ref $ \root path -> do
     return $ MirReference tpr root (AgElem_RefPath off sz tpr path)
 
 mirRef_agElemIO ::
@@ -1041,7 +1054,7 @@ mirRef_agElemIO ::
     MirReferenceMux sym ->
     IO (MirReferenceMux sym)
 mirRef_agElemIO bak iTypes off sz tpr ref =
-    modifyRefMuxMA bak iTypes (mirRef_agElemLeaf off sz tpr) ref
+    modifyRefMuxMA bak iTypes (mirRef_agElemLeaf bak off sz tpr) ref
 
 mirRef_agElem_unsizedLeaf ::
     IsSymBackend sym bak =>
@@ -1052,7 +1065,7 @@ mirRef_agElem_unsizedLeaf ::
     MirReference sym ->
     MuxLeafT sym IO (MirReference sym)
 mirRef_agElem_unsizedLeaf bak gs iTypes off ref =
-  typedLeafOp "MirAggregate unsized element projection" MirAggregateRepr ref $ \root path -> do
+  typedLeafOp "MirAggregate unsized element projection" bak MirAggregateRepr ref $ \root path -> do
     offConcrete <- case asBV off of
       Just bv -> return $ fromIntegral $ BV.asUnsigned bv
       Nothing -> leafAbort $ GenericSimError $
@@ -1076,16 +1089,16 @@ mirRef_agElem_unsizedIO bak gs iTypes off ref =
 
 
 mirRef_agOffsetLeaf ::
-    IsSymInterface sym =>
-    sym ->
+    (IsSymBackend sym bak) =>
+    bak ->
     RegValue sym UsizeType ->
     MirReference sym ->
     MuxLeafT sym IO (MirReference sym)
-mirRef_agOffsetLeaf sym off ref =
-  typedLeafOp "MirAggregate offset" MirAggregateRepr ref $ \root path ->
+mirRef_agOffsetLeaf bak off ref =
+  typedLeafOp "MirAggregate offset" bak MirAggregateRepr ref $ \root path ->
     case path of
       AgOffset_RefPath oldOff oldPath -> do
-        newOff <- liftIO $ bvAdd sym off oldOff
+        newOff <- liftIO $ bvAdd (backendGetSym bak) off oldOff
         return $ MirReference MirAggregateRepr root (AgOffset_RefPath newOff oldPath)
       _ -> return $ MirReference MirAggregateRepr root (AgOffset_RefPath off path)
 
@@ -1097,7 +1110,7 @@ mirRef_agOffsetIO ::
     MirReferenceMux sym ->
     IO (MirReferenceMux sym)
 mirRef_agOffsetIO bak iTypes off ref =
-    modifyRefMuxMA bak iTypes (mirRef_agOffsetLeaf (backendGetSym bak) off) ref
+    modifyRefMuxMA bak iTypes (mirRef_agOffsetLeaf bak off) ref
 
 
 refRootEq ::
@@ -1772,23 +1785,23 @@ mirRef_peelAgElemMA bak iTypes off sz (MirReferenceMux ref) =
 -- If the outermost path segment isn't 'Just_RefPath', this operation raises an
 -- error.
 mirRef_peelJustLeaf ::
-    (IsSymInterface sym, MonadIO m) =>
-    sym ->
+    (IsSymBackend sym bak, MonadAssert sym bak m) =>
+    bak ->
     TypeRepr tp {-^ The type inside the @MaybeType@ -} ->
     MirReference sym ->
     MuxLeafT sym m (MirReferenceMux sym)
-mirRef_peelJustLeaf sym tpr ref =
-  typedLeafOp "peelJust" tpr ref $ \root path ->
+mirRef_peelJustLeaf bak tpr ref =
+  typedLeafOp "peelJust" bak tpr ref $ \root path ->
     case path of
       Just_RefPath _ path' ->
         return $ MirReferenceMux $
-          toFancyMuxTree sym $ MirReference (MaybeRepr tpr) root path'
+          toFancyMuxTree (backendGetSym bak) $ MirReference (MaybeRepr tpr) root path'
       _ ->
         leafAbort $ Unsupported callStack $
           "peelJust not implemented for this RefPath kind"
 
 mirRef_peelJustMA ::
-    MonadAssert sym bak m =>
+    (IsSymBackend sym bak, MonadAssert sym bak m) =>
     bak ->
     IntrinsicTypes sym ->
     TypeRepr tp ->
@@ -1796,7 +1809,7 @@ mirRef_peelJustMA ::
     m (MirReferenceMux sym)
 mirRef_peelJustMA bak iTypes tpr (MirReferenceMux ref) =
     let sym = backendGetSym bak in
-    readFancyMuxTree' bak (mirRef_peelJustLeaf sym tpr)
+    readFancyMuxTree' bak (mirRef_peelJustLeaf bak tpr)
         (muxRegForType sym iTypes MirReferenceRepr) ref
 
 
