@@ -639,23 +639,6 @@ subjustRef ::
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 subjustRef tp ref = G.extensionStmt (MirSubjustRef tp ref)
 
-mirRef_agElem ::
-  R.Expr MIR s UsizeType ->
-  Word ->
-  C.TypeRepr tp ->
-  R.Expr MIR s MirReferenceType ->
-  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-mirRef_agElem off sz tpr ref = G.extensionStmt $ MirRef_AgElem off sz tpr ref
-
-mirRef_agElem_constOffset ::
-  Word ->
-  Word ->
-  C.TypeRepr tp ->
-  R.Expr MIR s MirReferenceType ->
-  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-mirRef_agElem_constOffset off sz tpr ref =
-  mirRef_agElem (R.App $ usizeLit $ fromIntegral off) sz tpr ref
-
 mirRef_agElem_unsized ::
   R.Expr MIR s UsizeType ->
   R.Expr MIR s MirReferenceType ->
