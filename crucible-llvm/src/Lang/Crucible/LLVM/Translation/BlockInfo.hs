@@ -126,10 +126,8 @@ buildSuccSet (s:ss) =
     L.Invoke _ _ _ l1 l2 _ -> Set.fromList [l1,l2]
     L.IndirectBr _ ls -> Set.fromList ls
     L.Switch _ ldef ls -> Set.fromList (ldef:map snd ls)
-    -- Windows SEH terminators.  Even though the simulator refuses to
-    -- execute these, the successor sets must be accurate so that
-    -- predecessor maps and use-set fixpoints stay correct in any
-    -- function that contains SEH.
+    -- Windows SEH terminators: simulation refuses these, but the successor
+    -- sets must stay accurate so predecessor maps remain correct.
     L.CatchRet _ l -> Set.singleton l
     L.CleanupRet _ ml -> maybe Set.empty Set.singleton ml
     L.CatchSwitch _ ls ml ->
