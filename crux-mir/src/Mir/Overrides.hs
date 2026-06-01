@@ -373,8 +373,8 @@ regEval bak baseEval = go
         VectorIndex_RefPath tpr <$> goMirReferencePath p <*> go UsizeRepr idx
     goMirReferencePath (ArrayIndex_RefPath btpr p idx) =
         ArrayIndex_RefPath btpr <$> goMirReferencePath p <*> go UsizeRepr idx
-    goMirReferencePath (AgElem_RefPath off sz tpr p) =
-        AgElem_RefPath <$> go UsizeRepr off <*> pure sz <*> pure tpr <*> goMirReferencePath p
+    goMirReferencePath (AgElem_RefPath off tpr p) =
+        AgElem_RefPath <$> go UsizeRepr off <*> pure tpr <*> goMirReferencePath p
     goMirReferencePath (AgOffset_RefPath off p) =
         AgOffset_RefPath <$> go UsizeRepr off <*> goMirReferencePath p
 
