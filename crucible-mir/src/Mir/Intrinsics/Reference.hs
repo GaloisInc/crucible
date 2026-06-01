@@ -1282,42 +1282,24 @@ refPathOverlaps sym path1 path2 = do
         rrpEq <- go rrp1 rrp2
         idxEq <- liftIO $ bvEq sym idx1 idx2
         liftIO $ andPred sym rrpEq idxEq
-    go (AgElem_RefPath off1 sz1 _tpr1 _ `RrpCons` rrp1)
-        (AgElem_RefPath off2 sz2 _tpr2 _ `RrpCons` rrp2) = do
-        szBv1 <- wordLit sym sz1
-        szBv2 <- wordLit sym sz2
-        offSz1 <- liftIO $ bvAdd sym off1 szBv1
-        offSz2 <- liftIO $ bvAdd sym off2 szBv2
-        -- FIXME: is this math correct?
-        -- Check that `[off1 .. off1 + sz1]` overlaps `[off2 .. off2 + sz2]`.
-        -- This check is unique to AgElem_RefPath because its sub-locations may
-        -- not necessarily be disjoint from each other.
-        overlapsPart1 <- liftIO $ bvUle sym offSz1 off2
-        overlapsPart2 <- liftIO $ bvUle sym offSz2 off1
-        overlaps <- liftIO $ andPred sym overlapsPart1 overlapsPart2
-        -- NB: Don't check the TypeReprs for equality, as pointers with the
-        -- same memory addresses can have different types if pointer casting is
-        -- involved (see the crux-mir/test/conc_eval/tuple/ref_path_equality.rs
-        -- test case for an example).
-        pEq <- go rrp1 rrp2
-        liftIO $ andPred sym overlaps pEq
 
+    -- Overlap checks on paths into aggregates are conservative; we will report
+    -- overlap if two `RefPath`s point to any place within the same aggregate.
+    -- This is in line with Rust's memory model, which generally permits
+    -- (unsafe) access to memory throughout an aggregate from a pointer into
+    -- that aggregate.
+    --
+    -- If this turns out to be overly conservative, we'll likely need to have
+    -- callers provide some extra information about how much memory is
+    -- accessible from the end of a given `RefPath`
+    go (AgElem_RefPath {} `RrpCons` rrp1) (AgElem_RefPath {} `RrpCons` rrp2) = do
+        go rrp1 rrp2
     go (AgOffset_RefPath _ _ `RrpCons` rrp1) (AgOffset_RefPath _ _ `RrpCons` rrp2) =
         go rrp1 rrp2
-    go (AgElem_RefPath offE sz _ _ `RrpCons` rrp2) (AgOffset_RefPath offO _ `RrpCons` rrp1) = do
-        -- These two overlap if `offE + sz > offO`
-        szBv <- wordLit sym sz
-        offESz <- liftIO $ bvAdd sym offE szBv
-        overlaps <- liftIO $ bvUge sym offESz offO
-        pEq <- go rrp1 rrp2
-        liftIO $ andPred sym overlaps pEq
-    go (AgOffset_RefPath offO _ `RrpCons` rrp1) (AgElem_RefPath offE sz _ _ `RrpCons` rrp2) = do
-        -- These two overlap if `offE + sz > offO`
-        szBv <- wordLit sym sz
-        offESz <- liftIO $ bvAdd sym offE szBv
-        overlaps <- liftIO $ bvUge sym offESz offO
-        pEq <- go rrp1 rrp2
-        liftIO $ andPred sym overlaps pEq
+    go (AgElem_RefPath {} `RrpCons` rrp2) (AgOffset_RefPath _ _ `RrpCons` rrp1) = do
+        go rrp1 rrp2
+    go (AgOffset_RefPath _ _ `RrpCons` rrp1) (AgElem_RefPath {} `RrpCons` rrp2) = do
+        go rrp1 rrp2
     go (AgOffset_RefPath off _ `RrpCons` rrp1) rrp2
       | Just bv <- asBV off
       , 0 <- BV.asUnsigned bv =
