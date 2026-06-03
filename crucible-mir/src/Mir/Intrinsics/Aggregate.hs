@@ -755,17 +755,25 @@ writeMirAggregateWithSymOffset bak iteFn off writeSize tpr val ag
 -- valid but there's no entry there, and @Left errorMessage@ if offset is
 -- invalid (in the middle of some entry) or the type @tpr@ is incorrect.
 mirAggregate_lookup ::
+  IsSymInterface sym =>
+  sym ->
+  Word ->
   Word ->
   TypeRepr tp ->
   MirAggregate sym ->
   Either String (RegValue sym (MaybeType tp))
-mirAggregate_lookup off tpr (MirAggregate totalSize m) = do
-  case IntMap.lookupLE (fromIntegral off) m of
+mirAggregate_lookup sym off sz tpr ag@(MirAggregate totalSize m) = case tpr of
+  MirAggregateRepr -> case mirAggregate_split3 off (off + sz) ag of
+    Right (_toLeft, mid, _toRight) -> Right $ justPartExpr sym mid
+    Left err -> die err
+  _ -> case IntMap.lookupLE (fromIntegral off) m of
     _ | off >= totalSize ->
       die $ "offset " ++ show off ++ " is out of range "
         ++ "for aggregate total size " ++ show totalSize
     Nothing -> Right Unassigned
     Just (fromIntegral -> off', MirAggregateEntry sz' tpr' rv)
+      | sz /= sz' -> die $ "size mismatch at offset " ++ show off ++ ": "
+          ++ show sz ++ " != " ++ show sz'
       | off' == off -> do
           case testEquality tpr tpr' of
             Nothing -> die $ "type mismatch at offset " ++ show off ++ ": "
