@@ -332,11 +332,11 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
              -- TODO: think about if/how to present this information when concurrency
              -- is enabled.
              when (not (concurrency mirOpts) && printResultOnly mirOpts) $ do
-                 str <- showRegEntry @sym col resTy res
+                 str <- showRegEntry (C.backendGetSym bak) col resTy res
                  liftIO $ outputLn str
 
              when (not (concurrency mirOpts) && not (printResultOnly mirOpts) && resTy /= TyTuple []) $ do
-                 str <- showRegEntry @sym col resTy res
+                 str <- showRegEntry (C.backendGetSym bak) col resTy res
                  liftIO $ output $ "returned " ++ str ++ ", "
 
     let printTest :: DefId -> Fun p sym ext args C.UnitType
@@ -518,11 +518,12 @@ setSimulatorVerbosity verbosity sym = do
 -------------------------------------------------------
 showRegEntry :: forall sym arg p rtp args ret
    . C.IsSymInterface sym
-  => Collection
+  => sym
+  -> Collection
   -> Ty
   -> C.RegEntry sym arg
   -> C.OverrideSim p sym MIR rtp args ret String
-showRegEntry col mty entry@(C.RegEntry tp rv) =
+showRegEntry sym col mty entry@(C.RegEntry tp rv) =
   case (mty,tp) of
     {-
     Note [Printing flattened aggregates]
@@ -542,7 +543,10 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
       C.Some tpr <- case tyToRepr col ty of
         Right tpr -> pure tpr
         Left err -> fail err
-      case mirAggregate_lookup 0 tpr rv of
+      sz <- case tySizedness col ty of
+        Sized s -> pure s
+        Unsized -> fail $ "showRegEntry: unsized type: " <> show (pretty ty)
+      case mirAggregate_lookup sym 0 sz tpr rv of
         Left err -> fail $ "showRegEntry: error accessing aggregate: " <> err
         Right elemPart -> goMaybe ty tpr elemPart
 
@@ -593,7 +597,7 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
         let showField fIdx fTy
               | Just transFieldIdx <- transFieldIdxM
               , fIdx == transFieldIdx =
-                showRegEntry col fTy entry
+                showRegEntry sym col fTy entry
               | otherwise =
                 showZSTValue fTy
         fieldStrs <- zipWithM showField [0..] fieldTys
@@ -639,7 +643,7 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
             Left err -> return err
             Right (variant, fieldStrs) -> showVariant variant fieldStrs
 
-    (TyRef ty Immut, _) -> showRegEntry col ty (C.RegEntry tp rv)
+    (TyRef ty Immut, _) -> showRegEntry sym col ty (C.RegEntry tp rv)
 
     (TyArray ty len, MirAggregateRepr) -> do
       tySize <- case tySizedness col ty of
@@ -649,7 +653,7 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
         -- See Note [Printing flattened aggregates]
         case mirAggregate_chunk (fromIntegral i * tySize) tySize rv of
           Left e -> return $ "error accessing " ++ show (pretty mty) ++ " aggregate: " ++ e
-          Right subAg -> showRegEntry col ty (C.RegEntry MirAggregateRepr subAg)
+          Right subAg -> showRegEntry sym col ty (C.RegEntry MirAggregateRepr subAg)
       return $ "[" ++ List.intercalate ", " values ++ "]"
 
     _ -> return $ "I don't know how to print result of type " ++ show (pretty mty, tp)
@@ -689,7 +693,7 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
       let fields = readFields fctx vs
       fieldStrs <-
         zipWithM
-          (\fieldTy (C.Some fieldEntry) -> showRegEntry col fieldTy fieldEntry)
+          (\fieldTy (C.Some fieldEntry) -> showRegEntry sym col fieldTy fieldEntry)
           (variant ^.. vfields . each . fty)
           fields
       return fieldStrs
@@ -707,7 +711,7 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
             -- See Note [Printing flattened aggregates]
             case mirAggregate_chunk off (fromIntegral sz) ag of
               Left err -> fail $ "showAgFields: error accessing aggregate: " <> show err
-              Right subAg -> showRegEntry col ty (C.RegEntry MirAggregateRepr subAg)
+              Right subAg -> showRegEntry sym col ty (C.RegEntry MirAggregateRepr subAg)
           Nothing -> fail $ "impossible: got field offsets for " ++ tyDesc
             ++ ", but no layout for element " ++ show ty ++ "?"
       return strs
@@ -721,7 +725,7 @@ showRegEntry col mty entry@(C.RegEntry tp rv) =
       case rvPart of
         W4.Unassigned -> return "<uninitialized>"
         W4.PE p rv'
-          | Just True <- W4.asConstantPred p -> showRegEntry col ty $ C.RegEntry tpr rv'
+          | Just True <- W4.asConstantPred p -> showRegEntry sym col ty $ C.RegEntry tpr rv'
           | otherwise ->return "<possibly uninitialized>"
 
     showVariant ::
