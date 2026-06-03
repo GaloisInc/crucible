@@ -349,11 +349,10 @@ vector_as_slice_impl (Substs [t]) =
     Just $ CustomOp $ \_ ops -> case ops of
         [MirExp MirReferenceRepr e] -> do
             Some tpr <- tyToReprM t
-            elemSize <- tySizeM t
             -- This is similar to `&mut [T; n] -> &mut [T]` unsizing.
             v <- readMirRef (C.VectorRepr tpr) e
             let end = R.App $ vectorSizeUsize R.App v
-            e' <- subindexRef tpr e (R.App $ usizeLit 0) elemSize
+            e' <- mirRef_vecIndex (R.App $ usizeLit 0) tpr e
             let tup = S.mkStruct
                     (Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> knownRepr)
                     (Ctx.Empty Ctx.:> e' Ctx.:> end)
@@ -450,8 +449,7 @@ array_as_slice_impl (Substs [t]) =
           MirExp UsizeRepr start,
           MirExp UsizeRepr len ] -> do
             Some tpr <- tyToReprM t
-            elemSize <- tySizeM t
-            ptr <- subindexRef tpr e start elemSize
+            ptr <- mirRef_arrayIndex start tpr e
             return $ MirExp MirSliceRepr $ mkSlice ptr len
         _ -> mirFail $ "bad arguments for Array::as_slice: " ++ show ops
 array_as_slice_impl _ = Nothing
@@ -768,7 +766,8 @@ intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
             (srcAg, srcIdx) <- mirRef_peelIndex src elemSize
             srcSnapAg <- readMirRef MirAggregateRepr srcAg
             srcSnapRoot <- constMirRef MirAggregateRepr srcSnapAg
-            srcSnap <- subindexRef elemTpr srcSnapRoot srcIdx elemSize
+            let srcElemOff = R.App $ usizeMul srcIdx (R.App $ usizeLit $ fromIntegral elemSize)
+            srcSnap <- mirRef_agElem srcElemOff elemSize elemTpr srcSnapRoot
 
             ptrCopy elemTpr srcSnap dest count elemSize
             MirExp MirAggregateRepr <$> mirAggregate_zst
@@ -1527,7 +1526,7 @@ slice_as_chunks_cast_hook_common mut = (["core", "slice", "{impl}", hookLoc, "cr
                 elemSize <- tySizeM elemTy
                 let chunkSize = elemSize * fromIntegral elemsPerChunk
                 arrayOfChunksPtr <- mirRef_aggregateAsChunks (R.App $ usizeLit $ fromIntegral chunkSize) numChunks elemPtr
-                firstChunkPtr <- subindexRef MirAggregateRepr arrayOfChunksPtr (R.App $ usizeLit 0) chunkSize
+                firstChunkPtr <- mirRef_agElem (R.App $ usizeLit 0) chunkSize MirAggregateRepr arrayOfChunksPtr
                 pure (MirExp MirReferenceRepr firstChunkPtr)
             _ -> mirFail $ "bad monomorphization of "
                 ++ Text.unpack hookLoc ++ "::crucible_cast_hook: "
@@ -1953,9 +1952,9 @@ allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
             ag <- mirAggregate_uninit agSize
             ref <- newMirRef MirAggregateRepr
             writeMirRef MirAggregateRepr ref ag
-            -- `subindexRef` doesn't do a bounds check (those happen on deref
+            -- `mirRef_agElem` doesn't do a bounds check (those happen on deref
             -- instead), so this works even when len is 0.
-            ptr <- subindexRef elemTpr ref (R.App $ usizeLit 0) elemSize
+            ptr <- mirRef_agElem (R.App $ usizeLit 0) elemSize elemTpr ref
             return $ MirExp MirReferenceRepr ptr
         _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
     _ -> Nothing)
@@ -1971,7 +1970,7 @@ allocate_zeroed = (["crucible", "alloc", "allocate_zeroed"], \substs -> case sub
 
             ref <- newMirRef MirAggregateRepr
             writeMirRef MirAggregateRepr ref ag
-            ptr <- subindexRef elemTpr ref (R.App $ usizeLit 0) elemSize
+            ptr <- mirRef_agElem (R.App $ usizeLit 0) elemSize elemTpr ref
             return $ MirExp MirReferenceRepr ptr
         _ -> mirFail $ "BUG: invalid arguments to allocate: " ++ show ops
     _ -> Nothing)

@@ -120,15 +120,16 @@ import Mir.Intrinsics.Reference
     mirRef_agElemIO,
     mirRef_agElem_unsizedIO,
     mirRef_aggregateAsChunksIO,
+    mirRef_arrayIndexIO,
     mirRef_eqIO,
     mirRef_offsetMA,
     mirRef_offsetWrapIO,
     mirRef_peelIndexMA,
     mirRef_tryOffsetFromIO,
+    mirRef_vecIndexIO,
     newMirRefIO,
     readMirRefMA,
     subfieldMirRefIO,
-    subindexMirRefIO,
     subjustMirRefIO,
     subvariantMirRefIO,
     writeMirRefIO,
@@ -185,13 +186,6 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(f MirReferenceType) ->
      !(Index variantsCtx tp) ->
      MirStmt f MirReferenceType
-  MirSubindexRef ::
-     !(TypeRepr tp) ->
-     !(f MirReferenceType) ->
-     !(f UsizeType) ->
-     -- | Size of the element, in bytes
-     !Word ->
-     MirStmt f MirReferenceType
   MirSubjustRef ::
      !(TypeRepr tp) ->
      !(f MirReferenceType) ->
@@ -209,6 +203,18 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   -- TODO: remove this once `MirRef_AgOffset` is implemented
   MirRef_AgElem_Unsized ::
      !(f UsizeType) ->
+     !(f MirReferenceType) ->
+     MirStmt f MirReferenceType
+  -- | Index into a symbolic @crucible::array::Array<T>@ (_not_ a @[T; N]@)
+  MirRef_ArrayIndex ::
+     !(f UsizeType) ->
+     !(TypeRepr tp) ->
+     !(f MirReferenceType) ->
+     MirStmt f MirReferenceType
+  -- | Index into a @crucible::vector::Vector@ (_not_ a @std::vec::Vec@)
+  MirRef_VecIndex ::
+     !(f UsizeType) ->
+     !(TypeRepr tp) ->
      !(f MirReferenceType) ->
      MirStmt f MirReferenceType
   MirRef_Eq ::
@@ -401,8 +407,9 @@ instance TypeApp MirStmt where
     MirDropRef _    -> UnitRepr
     MirSubfieldRef _ _ _ -> MirReferenceRepr
     MirSubvariantRef _ _ _ _ -> MirReferenceRepr
-    MirSubindexRef _ _ _ _ -> MirReferenceRepr
     MirSubjustRef _ _ -> MirReferenceRepr
+    MirRef_ArrayIndex _ _ _ -> MirReferenceRepr
+    MirRef_VecIndex _ _ _ -> MirReferenceRepr
     MirRef_AgElem _ _ _ _ -> MirReferenceRepr
     MirRef_AgElem_Unsized _ _ -> MirReferenceRepr
     MirRef_Eq _ _ -> BoolRepr
@@ -438,8 +445,9 @@ instance PrettyApp MirStmt where
     MirDropRef x    -> "dropMirRef" <+> pp x
     MirSubfieldRef _ x idx -> "subfieldRef" <+> pp x <+> viaShow idx
     MirSubvariantRef _ _ x idx -> "subvariantRef" <+> pp x <+> viaShow idx
-    MirSubindexRef _ x idx sz -> "subindexRef" <+> pp x <+> pp idx <+> viaShow sz
     MirSubjustRef _ x -> "subjustRef" <+> pp x
+    MirRef_ArrayIndex idx _ ref -> "mirRef_arrayIndex" <+> pp idx <+> pp ref
+    MirRef_VecIndex idx _ ref -> "mirRef_vecIndex" <+> pp idx <+> pp ref
     MirRef_AgElem off _ _ ref -> "mirRef_agElem" <+> pp off <+> pp ref
     MirRef_AgElem_Unsized off ref -> "mirRef_agElem_unsized" <+> pp off <+> pp ref
     MirRef_Eq x y -> "mirRef_eq" <+> pp x <+> pp y
@@ -504,10 +512,12 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
          readOnly s $ subfieldMirRefIO bak iTypes ctx0 ref idx
        MirSubvariantRef tp0 ctx0 (regValue -> ref) idx ->
          readOnly s $ subvariantMirRefIO bak iTypes tp0 ctx0 ref idx
-       MirSubindexRef tpr (regValue -> ref) (regValue -> idx) elemSize ->
-         readOnly s $ subindexMirRefIO bak iTypes tpr ref idx elemSize
        MirSubjustRef tpr (regValue -> ref) ->
          readOnly s $ subjustMirRefIO bak iTypes tpr ref
+       MirRef_ArrayIndex (regValue -> idx) tpr (regValue -> ref) ->
+         readOnly s $ mirRef_arrayIndexIO bak iTypes idx tpr ref
+       MirRef_VecIndex (regValue -> idx) tpr (regValue -> ref) ->
+         readOnly s $ mirRef_vecIndexIO bak iTypes idx tpr ref
        MirRef_AgElem (regValue -> off) sz tpr (regValue -> ref) ->
          readOnly s $ mirRef_agElemIO bak iTypes off sz tpr ref
        MirRef_AgElem_Unsized (regValue -> off) (regValue -> ref) ->

@@ -629,15 +629,6 @@ subvariantRef ::
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 subvariantRef tp ctx ref idx = G.extensionStmt (MirSubvariantRef tp ctx ref idx)
 
-subindexRef ::
-  C.TypeRepr tp ->
-  R.Expr MIR s MirReferenceType ->
-  R.Expr MIR s UsizeType ->
-  -- | Size of the element, in bytes
-  Word ->
-  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-subindexRef tp ref idx elemSize = G.extensionStmt (MirSubindexRef tp ref idx elemSize)
-
 subjustRef ::
   C.TypeRepr tp ->
   R.Expr MIR s MirReferenceType ->
@@ -666,6 +657,22 @@ mirRef_agElem_unsized ::
   R.Expr MIR s MirReferenceType ->
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 mirRef_agElem_unsized off ref = G.extensionStmt $ MirRef_AgElem_Unsized off ref
+
+-- | Index into a symbolic @crucible::array::Array<T>@ (_not_ a @[T; N]@)
+mirRef_arrayIndex ::
+  R.Expr MIR s UsizeType ->
+  C.TypeRepr tp ->
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
+mirRef_arrayIndex idx elemTpr ref = G.extensionStmt $ MirRef_ArrayIndex idx elemTpr ref
+
+-- | Index into a @crucible::vector::Vector@ (_not_ a @std::vec::Vec@)
+mirRef_vecIndex ::
+  R.Expr MIR s UsizeType ->
+  C.TypeRepr tp ->
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
+mirRef_vecIndex idx elemTpr ref = G.extensionStmt $ MirRef_VecIndex idx elemTpr ref
 
 mirRef_eq ::
   R.Expr MIR s MirReferenceType ->

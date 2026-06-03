@@ -59,15 +59,16 @@ module Mir.Intrinsics.Reference
     subfieldMirRefIO,
     subvariantMirRefLeaf,
     subvariantMirRefIO,
-    subindexMirRefSim,
-    subindexMirRefIO,
-    subindexMirRefLeaf,
     subjustMirRefLeaf,
     subjustMirRefIO,
     mirRef_agElemLeaf,
     mirRef_agElemIO,
     mirRef_agElem_unsizedLeaf,
     mirRef_agElem_unsizedIO,
+    mirRef_arrayIndexLeaf,
+    mirRef_arrayIndexIO,
+    mirRef_vecIndexLeaf,
+    mirRef_vecIndexIO,
     refRootEq,
     refPathEq,
     mirRef_eqLeaf,
@@ -966,58 +967,6 @@ subvariantMirRefIO bak iTypes tp ctx ref idx =
     modifyRefMuxMA bak iTypes (\ref' -> subvariantMirRefLeaf tp ctx ref' idx) ref
 
 
-subindexMirRefSim ::
-    IsSymInterface sym =>
-    sym ->
-    TypeRepr tp ->
-    MirReferenceMux sym ->
-    RegValue sym UsizeType ->
-    -- | Size of the element, in bytes
-    Word ->
-    OverrideSim m sym ext rtp args ret (MirReferenceMux sym)
-subindexMirRefSim sym tpr ref idx elemSize = do
-    modifyRefMuxSim (\ref' -> subindexMirRefLeaf sym tpr ref' idx elemSize) ref
-
-subindexMirRefIO ::
-    IsSymBackend sym bak =>
-    bak ->
-    IntrinsicTypes sym ->
-    TypeRepr tp ->
-    MirReferenceMux sym ->
-    RegValue sym UsizeType ->
-    -- | Size of the element, in bytes
-    Word ->
-    IO (MirReferenceMux sym)
-subindexMirRefIO bak iTypes tpr ref x elemSize =
-    modifyRefMuxMA bak iTypes (\ref' -> subindexMirRefLeaf (backendGetSym bak) tpr ref' x elemSize) ref
-
-subindexMirRefLeaf ::
-    IsSymInterface sym =>
-    sym ->
-    TypeRepr tp ->
-    MirReference sym ->
-    RegValue sym UsizeType ->
-    -- | Size of the element, in bytes
-    Word ->
-    MuxLeafT sym IO (MirReference sym)
-subindexMirRefLeaf sym elemTpr (MirReference tpr root path) idx elemSize
-  | Just Refl <- testEquality tpr (VectorRepr elemTpr) =
-      return $ MirReference elemTpr root (VectorIndex_RefPath elemTpr path idx)
-  | AsBaseType btpr <- asBaseType elemTpr,
-    Just Refl <- testEquality tpr (UsizeArrayRepr btpr) =
-      return $ MirReference elemTpr root (ArrayIndex_RefPath btpr path idx)
-  | Just Refl <- testEquality tpr MirAggregateRepr = do
-      offset <- liftIO $ bvMul sym idx =<< wordLit sym elemSize
-      return $ MirReference elemTpr root (AgElem_RefPath offset elemSize elemTpr path)
-  | otherwise = leafAbort $ GenericSimError $
-      "subindex requires a reference to a VectorRepr, a UsizeArrayRepr of " ++
-      "a Crucible base type, or a MirAggregateRepr, but got a reference to " ++
-      show tpr
-subindexMirRefLeaf _sym _elemTpr (MirReference_Integer {}) _idx _elemSize =
-    leafAbort $ GenericSimError $
-        "attempted subindex on the result of an integer-to-pointer cast"
-
-
 subjustMirRefLeaf ::
     TypeRepr tp ->
     MirReference sym ->
@@ -1035,6 +984,51 @@ subjustMirRefIO ::
     IO (MirReferenceMux sym)
 subjustMirRefIO bak iTypes tpr ref =
     modifyRefMuxMA bak iTypes (subjustMirRefLeaf tpr) ref
+
+
+mirRef_arrayIndexLeaf ::
+    RegValue sym UsizeType ->
+    TypeRepr tp ->
+    MirReference sym ->
+    MuxLeafT sym IO (MirReference sym)
+mirRef_arrayIndexLeaf idx elemTpr ref = case asBaseType elemTpr of
+  AsBaseType baseTpr ->
+    typedLeafOp "Crucible Array index" (UsizeArrayRepr baseTpr) ref $ \root path -> do
+      return $ MirReference elemTpr root (ArrayIndex_RefPath baseTpr path idx)
+  _ -> leafAbort $ GenericSimError $
+    "Crucible Array-indexing operates on arrays of a Crucible base type, but saw one of " <> show elemTpr
+
+mirRef_arrayIndexIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    RegValue sym UsizeType ->
+    TypeRepr tp ->
+    MirReferenceMux sym ->
+    IO (MirReferenceMux sym)
+mirRef_arrayIndexIO bak iTypes idx elemTpr ref =
+  modifyRefMuxMA bak iTypes (mirRef_arrayIndexLeaf idx elemTpr) ref
+
+
+mirRef_vecIndexLeaf ::
+    RegValue sym UsizeType ->
+    TypeRepr tp ->
+    MirReference sym ->
+    MuxLeafT sym IO (MirReference sym)
+mirRef_vecIndexLeaf idx elemTpr ref =
+  typedLeafOp "Crucible Vector index" (VectorRepr elemTpr) ref $ \root path -> do
+    return $ MirReference elemTpr root (VectorIndex_RefPath elemTpr path idx)
+
+mirRef_vecIndexIO ::
+    IsSymBackend sym bak =>
+    bak ->
+    IntrinsicTypes sym ->
+    RegValue sym UsizeType ->
+    TypeRepr tp ->
+    MirReferenceMux sym ->
+    IO (MirReferenceMux sym)
+mirRef_vecIndexIO bak iTypes idx elemTpr ref =
+  modifyRefMuxMA bak iTypes (mirRef_vecIndexLeaf idx elemTpr) ref
 
 
 mirRef_agElemLeaf ::
