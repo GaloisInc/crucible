@@ -460,10 +460,12 @@ adjustSubaggregateWithSymOffset bak iteFn off f adjSize ag@(MirAggregate agSize 
       adjustConcrete off'
   | otherwise = do
       foldM
-        (\ag' candidateOff -> do
+        (\origAg candidateOff -> do
           isTheOffset <- liftIO $ bvEq sym off =<< offsetLit candidateOff
-          subAg <- adjustConcrete candidateOff
-          liftIO $ iteFn isTheOffset subAg ag')
+          adjustedAgM <- subMuxLeafMA bak (adjustConcrete candidateOff) isTheOffset
+          case adjustedAgM of
+            Just adjustedAg -> liftIO $ iteFn isTheOffset adjustedAg origAg
+            Nothing -> pure origAg)
         ag
         (init [0 .. agSize])
   where
