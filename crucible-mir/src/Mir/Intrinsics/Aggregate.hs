@@ -71,7 +71,6 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans (lift)
 
 import Data.BitVector.Sized qualified as BV
-import Data.Either (fromRight)
 import Data.IntMap (IntMap)
 import Data.IntMap qualified as IntMap
 import Data.Kind (Type)
@@ -353,28 +352,45 @@ readSubaggregateWithSymOffset ::
   RegValue sym UsizeType ->
   MirAggregate sym ->
   MuxLeafT sym m (MirAggregate sym)
-readSubaggregateWithSymOffset bak iteFn readSize off ag@(MirAggregate sz _)
-  | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
-      let err e = leafAbort $ GenericSimError $ "readSubaggregateWithSymOffset: " <> e
-      either err pure (readConcrete off' ag)
+readSubaggregateWithSymOffset bak iteFn readSize off ag@(MirAggregate agSize _)
+  | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off =
+    readConcrete off'
   | otherwise = do
-      liftIO $ foldM
-        (\ag' candidateOff -> do
-          isTheOffset <- bvEq sym off =<< offsetLit candidateOff
-          iteFn isTheOffset (fromRight ag' $ readConcrete candidateOff ag') ag')
-        ag
-        (init [0 .. sz])
+      -- We're muxing together reads of sub-aggregates starting at each possible
+      -- offset in `ag`. If a read operation (via `readConcrete`) at a given
+      -- candidate offset fails, we'll assert that that offset wasn't equal to
+      -- `off`, the actual symbolic offset. (This attempt and potential negative
+      -- assertion occurs via `subMuxLeafMA`.)
+      agPMux <- foldM
+        (\origAgP candidateOff -> do
+          isTheOffset <- liftIO $ bvEq sym off =<< offsetLit candidateOff
+          subAgM <- subMuxLeafMA bak (readConcrete candidateOff) isTheOffset
+          case subAgM of
+            Just subAg -> liftIO $ iteFn' isTheOffset (justPartExpr sym subAg) origAgP
+            Nothing -> pure origAgP)
+        Unassigned
+        (init [0 .. agSize])
+
+      -- We've used `Unassigned` as the base case for the above mux so we'll be
+      -- left with `Unassigned` in failure cases, and can propagate that error
+      -- via `leafReadPartExpr`.
+      let sizeMsg = case readSize of All -> ""; Width w -> " of size " <> show w
+      leafReadPartExpr bak agPMux $
+        GenericSimError $
+          "readSubaggregateWithSymOffset: in aggregate of size " <> show agSize <>
+          ", no subaggregate value" <> sizeMsg <> " at symbolic offset"
   where
-    snd3 (_, x, _) = x
+    readConcrete off' = do
+      let sz = case readSize of All -> agSize - off'; Width w -> w
+      case mirAggregate_chunk off' sz ag of
+        Right a -> pure a
+        Left err -> die err
+
+    iteFn' = liftIteFnMaybe sym MirAggregateRepr iteFn
     sym = backendGetSym bak
     offsetLit = wordLit sym
-
-    readConcrete off' ag' = do
-      case readSize of
-        All ->
-          snd <$> mirAggregate_split off' ag'
-        Width width ->
-          snd3 <$> mirAggregate_split3 off' (off' + width) ag'
+    die err =
+      leafAbort $ GenericSimError $ "readSubaggregateWithSymOffset: " <> err
 
 
 adjustMirAggregateWithSymOffset ::

@@ -1,0 +1,95 @@
+test mux_offset/<DISAMB>::fail_offset_ag[0]: returned [Symbolic BV, Symbolic BV], [Crux] Attempting to prove verification conditions.
+FAILED
+test mux_offset/<DISAMB>::fail_offset_single[0]: returned Symbolic BV, [Crux] Attempting to prove verification conditions.
+FAILED
+test mux_offset/<DISAMB>::index[0]: returned (Symbolic BV, Symbolic BV), [Crux] Attempting to prove verification conditions.
+ok
+test mux_offset/<DISAMB>::offset_ag[0]: returned [Symbolic BV, Symbolic BV], [Crux] Attempting to prove verification conditions.
+ok
+test mux_offset/<DISAMB>::offset_single[0]: returned Symbolic BV, [Crux] Attempting to prove verification conditions.
+ok
+
+failures:
+
+---- mux_offset/<DISAMB>::fail_offset_ag[0] counterexamples ----
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/array/mux_offset.rs:52:14: 52:62: error: in mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux]   readSubaggregateWithSymOffset: entry of size 4 at 8 spans split boundary at 9
+[Crux]   Context:
+[Crux]     test/symb_eval/array/mux_offset.rs:52:14: 52:62: mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/array/mux_offset.rs:52:14: 52:62: error: in mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux]   readSubaggregateWithSymOffset: entry of size 4 at 8 spans split boundary at 10
+[Crux]   Context:
+[Crux]     test/symb_eval/array/mux_offset.rs:52:14: 52:62: mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/array/mux_offset.rs:52:14: 52:62: error: in mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux]   readSubaggregateWithSymOffset: entry of size 4 at 8 spans split boundary at 11
+[Crux]   Context:
+[Crux]     test/symb_eval/array/mux_offset.rs:52:14: 52:62: mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/array/mux_offset.rs:52:14: 52:62: error: in mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux]   readSubaggregateWithSymOffset: entry of size 4 at 12 spans split boundary at 13
+[Crux]   Context:
+[Crux]     test/symb_eval/array/mux_offset.rs:52:14: 52:62: mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/array/mux_offset.rs:52:14: 52:62: error: in mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux]   readSubaggregateWithSymOffset: entry of size 4 at 12 spans split boundary at 14
+[Crux]   Context:
+[Crux]     test/symb_eval/array/mux_offset.rs:52:14: 52:62: mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/array/mux_offset.rs:52:14: 52:62: error: in mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux]   readSubaggregateWithSymOffset: entry of size 4 at 12 spans split boundary at 15
+[Crux]   Context:
+[Crux]     test/symb_eval/array/mux_offset.rs:52:14: 52:62: mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/array/mux_offset.rs:52:14: 52:62: error: in mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux]   readSubaggregateWithSymOffset: entry of size 4 at 16 spans split boundary at 17
+[Crux]   Context:
+[Crux]     test/symb_eval/array/mux_offset.rs:52:14: 52:62: mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/array/mux_offset.rs:52:14: 52:62: error: in mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux]   readSubaggregateWithSymOffset: entry of size 4 at 16 spans split boundary at 18
+[Crux]   Context:
+[Crux]     test/symb_eval/array/mux_offset.rs:52:14: 52:62: mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/array/mux_offset.rs:52:14: 52:62: error: in mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux]   readSubaggregateWithSymOffset: entry of size 4 at 16 spans split boundary at 19
+[Crux]   Context:
+[Crux]     test/symb_eval/array/mux_offset.rs:52:14: 52:62: mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/array/mux_offset.rs:52:14: 52:62: error: in mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux]   readSubaggregateWithSymOffset: entry of size 4 at 20 spans split boundary at 21
+[Crux]   Context:
+[Crux]     test/symb_eval/array/mux_offset.rs:52:14: 52:62: mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/array/mux_offset.rs:52:14: 52:62: error: in mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux]   readSubaggregateWithSymOffset: entry of size 4 at 20 spans split boundary at 22
+[Crux]   Context:
+[Crux]     test/symb_eval/array/mux_offset.rs:52:14: 52:62: mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/array/mux_offset.rs:52:14: 52:62: error: in mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux]   readSubaggregateWithSymOffset: entry of size 4 at 20 spans split boundary at 23
+[Crux]   Context:
+[Crux]     test/symb_eval/array/mux_offset.rs:52:14: 52:62: mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/array/mux_offset.rs:52:14: 52:62: error: in mux_offset/<DISAMB>::fail_offset_ag[0]
+[Crux]   readSubaggregateWithSymOffset: in aggregate of size 24, no subaggregate value of size 8 at symbolic offset
+[Crux]   Context:
+[Crux]     test/symb_eval/array/mux_offset.rs:52:14: 52:62: mux_offset/<DISAMB>::fail_offset_ag[0]
+
+---- mux_offset/<DISAMB>::fail_offset_single[0] counterexamples ----
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/array/mux_offset.rs:61:14: 61:57: error: in mux_offset/<DISAMB>::fail_offset_single[0]
+[Crux]   no value or wrong type: the requested type is BVRepr 32
+[Crux]   Context:
+[Crux]     test/symb_eval/array/mux_offset.rs:61:14: 61:57: mux_offset/<DISAMB>::fail_offset_single[0]
+
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 64
+[Crux]   Proved: 50
+[Crux]   Disproved: 14
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Invalid.
