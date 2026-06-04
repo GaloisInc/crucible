@@ -385,11 +385,12 @@ adjustMirAggregateWithSymOffset ::
   RegValue sym UsizeType ->
   TypeRepr tp ->
   (RegValue sym tp -> MuxLeafT sym IO (RegValue sym tp)) ->
+  OpSize ->
   MirAggregate sym ->
   MuxLeafT sym IO (MirAggregate sym)
-adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m)
+adjustMirAggregateWithSymOffset bak iteFn off tpr f adjSize ag@(MirAggregate totalSize m)
   | MirAggregateRepr <- tpr =
-      adjustSubaggregateWithSymOffset bak iteFn off f ag
+      adjustSubaggregateWithSymOffset bak iteFn off f adjSize ag
   | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
       MirAggregateEntry sz tpr' rvPart <- case IntMap.lookup off' m of
         Just x -> return x
@@ -451,9 +452,10 @@ adjustSubaggregateWithSymOffset ::
   (Pred sym -> MirAggregate sym -> MirAggregate sym -> IO (MirAggregate sym)) ->
   RegValue sym UsizeType ->
   (MirAggregate sym -> MuxLeafT sym IO (MirAggregate sym)) ->
+  OpSize ->
   MirAggregate sym ->
   MuxLeafT sym IO (MirAggregate sym)
-adjustSubaggregateWithSymOffset bak iteFn off f ag@(MirAggregate sz _)
+adjustSubaggregateWithSymOffset bak iteFn off f adjSize ag@(MirAggregate sz _)
   | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off =
       adjustConcrete off'
   | otherwise = do
@@ -744,7 +746,7 @@ writeMirAggregateWithSymOffset bak iteFn off writeSize tpr val ag
   -- Symbolic case: overwrite an existing entry with `adjustMirAggregateWithSymOffset`.
   -- Creating a new entry at a symbolic offset is not allowed.
   | otherwise = do
-      adjustMirAggregateWithSymOffset bak iteFn off tpr (\_oldVal -> return val) ag
+      adjustMirAggregateWithSymOffset bak iteFn off tpr (\_oldVal -> return val) writeSize ag
 
   where
     sym = backendGetSym bak

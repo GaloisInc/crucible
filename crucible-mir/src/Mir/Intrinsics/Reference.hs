@@ -579,11 +579,11 @@ adjustRefPath bak iTypes v path0 adjSize adj = case path0 of
   AgElem_RefPath idx tpr path ->
       adjustRefPath bak iTypes v path All (\v' -> do
         adjustMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr)
-          idx tpr adj v')
+          idx tpr adj adjSize v')
   AgOffset_RefPath off path -> do
       adjustRefPath bak iTypes v path All (\v' ->
         let mux = muxRegForType (backendGetSym bak) iTypes MirAggregateRepr
-         in adjustMirAggregateWithSymOffset bak mux off MirAggregateRepr adj v')
+         in adjustMirAggregateWithSymOffset bak mux off MirAggregateRepr adj adjSize v')
 
 muxRefPath ::
   IsSymInterface sym =>
