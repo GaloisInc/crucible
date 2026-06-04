@@ -519,27 +519,27 @@ writeRefPath ::
 -- There is a similar special case above for MirWriteRef with Empty_RefPath,
 -- which allows writing to an uninitialized MirReferenceRoot.
 writeRefPath bak iTypes v (Just_RefPath _tp path) _writeSize x =
-  adjustRefPath bak iTypes v path (\_ -> return $ justPartExpr (backendGetSym bak) x)
+  adjustRefPath bak iTypes v path All (\_ -> return $ justPartExpr (backendGetSym bak) x)
 -- TODO remove these cases?  should be equivalent to the `adjustRefPath` cases below
 writeRefPath bak iTypes v (VectorIndex_RefPath tp path idx) _writeSize x = do
-  adjustRefPath bak iTypes v path (\vec ->
+  adjustRefPath bak iTypes v path All (\vec ->
     leafAdjustVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) vec idx (\_ ->
       return x))
 writeRefPath bak iTypes v (ArrayIndex_RefPath _btp path idx) _writeSize x = do
-  adjustRefPath bak iTypes v path (\arr ->
+  adjustRefPath bak iTypes v path All (\arr ->
     liftIO $ arrayUpdate (backendGetSym bak) arr (Empty :> idx) x)
 -- For `MirAggregate`, `writeRefPath` with a concrete index can insert a new
 -- entry into the aggregate.
 writeRefPath bak iTypes v (AgElem_RefPath idx tpr path) writeSize x = do
-  adjustRefPath bak iTypes v path (\v' -> do
+  adjustRefPath bak iTypes v path All (\v' -> do
     writeMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr)
       idx writeSize tpr x v')
 writeRefPath bak iTypes v (AgOffset_RefPath off path) writeSize x = do
-  adjustRefPath bak iTypes v path (\v' -> do
+  adjustRefPath bak iTypes v path All (\v' -> do
     let mux = muxRegForType (backendGetSym bak) iTypes MirAggregateRepr
     writeMirAggregateWithSymOffset bak mux off writeSize MirAggregateRepr x v')
 writeRefPath bak iTypes v path _writeSize x =
-  adjustRefPath bak iTypes v path (\_ -> return x)
+  adjustRefPath bak iTypes v path All (\_ -> return x)
 
 adjustRefPath ::
   (IsSymBackend sym bak) =>
@@ -547,40 +547,41 @@ adjustRefPath ::
   IntrinsicTypes sym ->
   RegValue sym tp ->
   MirReferencePath sym tp tp' ->
+  OpSize ->
   (RegValue sym tp' -> MuxLeafT sym IO (RegValue sym tp')) ->
   MuxLeafT sym IO (RegValue sym tp)
-adjustRefPath bak iTypes v path0 adj = case path0 of
+adjustRefPath bak iTypes v path0 adjSize adj = case path0 of
   Empty_RefPath -> adj v
   Field_RefPath _ctx path fld ->
-      adjustRefPath bak iTypes v path
+      adjustRefPath bak iTypes v path All
         (\x -> adjustM (\x' -> RV <$> adj (unRV x')) fld x)
   Variant_RefPath _ _ctx path fld ->
       -- TODO: report an error if variant `fld` is not selected
-      adjustRefPath bak iTypes v path (field @1 (\(RV x) ->
+      adjustRefPath bak iTypes v path All (field @1 (\(RV x) ->
         RV <$> adjustM (\x' -> VB <$> mapM adj (unVB x')) fld x))
   Just_RefPath tp path ->
-      adjustRefPath bak iTypes v path $ \v' -> do
+      adjustRefPath bak iTypes v path All $ \v' -> do
           let msg = ReadBeforeWriteSimError $
                   "attempted to modify uninitialized Maybe of type " ++ show tp
           v'' <- leafReadPartExpr bak v' msg
           mv <- adj v''
           return $ justPartExpr (backendGetSym bak) mv
   VectorIndex_RefPath tp path idx ->
-      adjustRefPath bak iTypes v path (\v' ->
+      adjustRefPath bak iTypes v path All (\v' ->
         leafAdjustVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) v' idx adj)
   ArrayIndex_RefPath _btp path idx ->
-      adjustRefPath bak iTypes v path (\arr -> do
+      adjustRefPath bak iTypes v path All (\arr -> do
         let sym = backendGetSym bak
         let arrIdx = Empty :> idx
         x <- liftIO $ arrayLookup sym arr arrIdx
         x' <- adj x
         liftIO $ arrayUpdate sym arr arrIdx x')
   AgElem_RefPath idx tpr path ->
-      adjustRefPath bak iTypes v path (\v' -> do
+      adjustRefPath bak iTypes v path All (\v' -> do
         adjustMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr)
           idx tpr adj v')
   AgOffset_RefPath off path -> do
-      adjustRefPath bak iTypes v path (\v' ->
+      adjustRefPath bak iTypes v path All (\v' ->
         let mux = muxRegForType (backendGetSym bak) iTypes MirAggregateRepr
          in adjustMirAggregateWithSymOffset bak mux off MirAggregateRepr adj v')
 
