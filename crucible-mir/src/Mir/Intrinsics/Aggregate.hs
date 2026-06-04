@@ -356,6 +356,16 @@ readSubaggregateWithSymOffset bak iteFn readSize off ag@(MirAggregate agSize _)
   | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off =
     readConcrete off'
   | otherwise = do
+      -- Do some static winnowing of the offsets we need to check. Don't try to
+      -- read at an offset if:
+      -- - There isn't a large enough sub-aggregate starting at that offset
+      -- - Extracting a sub-aggregate starting at that offset would split an
+      --   aggregate entry
+      let sizedAgOffsets = case readSize of
+            All -> init [0 .. agSize] -- not sure this `init` is necessary...
+            Width w -> [0 .. agSize - w]
+      let nonSplittingAgOffsets = filter (not . offsetSplitsEntry ag) sizedAgOffsets
+
       -- We're muxing together reads of sub-aggregates starting at each possible
       -- offset in `ag`. If a read operation (via `readConcrete`) at a given
       -- candidate offset fails, we'll assert that that offset wasn't equal to
@@ -369,7 +379,7 @@ readSubaggregateWithSymOffset bak iteFn readSize off ag@(MirAggregate agSize _)
             Just subAg -> liftIO $ iteFn' isTheOffset (justPartExpr sym subAg) origAgP
             Nothing -> pure origAgP)
         Unassigned
-        (init [0 .. agSize])
+        nonSplittingAgOffsets
 
       -- We've used `Unassigned` as the base case for the above mux so we'll be
       -- left with `Unassigned` in failure cases, and can propagate that error
@@ -475,6 +485,16 @@ adjustSubaggregateWithSymOffset bak iteFn off f adjSize ag@(MirAggregate agSize 
   | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off =
       adjustConcrete off'
   | otherwise = do
+      -- Do some static winnowing of the offsets we need to check. Don't try to
+      -- read at an offset if:
+      -- - There isn't a large enough sub-aggregate starting at that offset
+      -- - Extracting a sub-aggregate starting at that offset would split an
+      --   aggregate entry
+      let sizedAgOffsets = case adjSize of
+            All -> init [0 .. agSize] -- not sure this `init` is necessary...
+            Width w -> [0 .. agSize - w]
+      let nonSplittingAgOffsets = filter (not . offsetSplitsEntry ag) sizedAgOffsets
+
       foldM
         (\origAg candidateOff -> do
           isTheOffset <- liftIO $ bvEq sym off =<< offsetLit candidateOff
@@ -483,7 +503,7 @@ adjustSubaggregateWithSymOffset bak iteFn off f adjSize ag@(MirAggregate agSize 
             Just adjustedAg -> liftIO $ iteFn isTheOffset adjustedAg origAg
             Nothing -> pure origAg)
         ag
-        (init [0 .. agSize])
+        nonSplittingAgOffsets
   where
     adjustConcrete off' = do
       let sz = case adjSize of All -> agSize - off'; Width w -> w
@@ -948,6 +968,15 @@ mirAggregate_clear fromM toM (MirAggregate sz entries) = do
               boundaryKind <> " boundary " <> show boundaryOff <>
               " splits entry at " <> show eOff <> ".." <> show (eOff + eSz)
         _ -> pure ()
+
+-- | Does this offset occur in the middle of an entry in this aggregate?
+offsetSplitsEntry :: MirAggregate sym -> Word -> Bool
+offsetSplitsEntry (MirAggregate _ entries) off =
+  case IntMap.lookupLT (fromIntegral off) entries of
+    Just (fromIntegral -> eOff, MirAggregateEntry eSz _ _) ->
+      eOff + eSz > off
+    _ ->
+      False
 
 -- | Concatenate two `MirAggregate`s, producing a new aggregate with all the
 -- entries of the first followed by all the entries of the second.  The entries
