@@ -66,7 +66,7 @@ import GHC.TypeLits
     TypeError,
   )
 
-import Control.Monad (foldM, forM, unless, when)
+import Control.Monad (foldM, forM, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans (lift)
 
@@ -455,7 +455,7 @@ adjustSubaggregateWithSymOffset ::
   OpSize ->
   MirAggregate sym ->
   MuxLeafT sym IO (MirAggregate sym)
-adjustSubaggregateWithSymOffset bak iteFn off f adjSize ag@(MirAggregate sz _)
+adjustSubaggregateWithSymOffset bak iteFn off f adjSize ag@(MirAggregate agSize _)
   | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off =
       adjustConcrete off'
   | otherwise = do
@@ -465,27 +465,34 @@ adjustSubaggregateWithSymOffset bak iteFn off f adjSize ag@(MirAggregate sz _)
           subAg <- adjustConcrete candidateOff
           liftIO $ iteFn isTheOffset subAg ag')
         ag
-        (init [0 .. sz])
+        (init [0 .. agSize])
   where
     adjustConcrete off' = do
-      case mirAggregate_split off' ag of
-        Right (MirAggregate leftSz leftAg, r@(MirAggregate rightSz _rightAg)) -> do
-          MirAggregate rightSz' rightAg' <- f r
-          let rightAg'' = IntMap.mapKeysMonotonic (\o -> o + fromIntegral off') rightAg'
-          when (rightSz /= rightSz') $
-            panic "adjustSubaggregateWithSymOffset"
-              [ "adjusting function changed aggregate size"
-              , "was " <> show rightSz <> ", became " <> show rightSz'
-              ]
-          unless (IntMap.disjoint leftAg rightAg'') $
-            panic "adjustSubaggregateWithSymOffset"
-              [ "aggregates weren't disjoint" ]
-          pure $ MirAggregate (leftSz + rightSz) (rightAg'' <> leftAg)
-        Left err -> leafAbort $ GenericSimError $
-          "adjustSubaggregateWithSymOffset: " <> err
+      let sz = case adjSize of All -> agSize - off'; Width w -> w
+
+      adjAg@(MirAggregate adjAgSz _) <- case mirAggregate_chunk off' sz ag of
+        Right a -> pure a
+        Left err -> die err
+
+      adjAg'@(MirAggregate adjAgSz' _) <- f adjAg
+      when (adjAgSz /= adjAgSz') $
+        panic "adjustSubaggregateWithSymOffset"
+          [ "adjusting function changed aggregate size"
+          , "was " <> show adjAgSz <> ", became " <> show adjAgSz'
+          ]
+
+      ag' <- case mirAggregate_clear (Just off') (Just $ off' + sz) ag of
+        Right a -> pure a
+        Left err -> die err
+      let adjAgEntry = MirAggregateEntry adjAgSz' MirAggregateRepr (justPartExpr sym adjAg')
+      case mirAggregate_insert off' adjAgEntry ag' of
+        Right a -> pure a
+        Left err -> die err
 
     sym = backendGetSym bak
     offsetLit = wordLit sym
+    die err =
+      leafAbort $ GenericSimError $ "adjustSubaggregateWithSymOffset: " <> err
 
 -- | Given a list of valid entry spans @(fromOffset, toOffset)@ in this
 -- aggregate, create a predicate that the provided offset appears among their
@@ -885,6 +892,44 @@ mirAggregate_chunk off chunkSize ag@(MirAggregate totalSize _) = do
       ++ " is too big for aggregate of size " ++ show totalSize
   (_, chunkAg, _) <- mirAggregate_split3 off (off + chunkSize) ag
   return chunkAg
+
+-- | Remove all entries between the given offsets in the aggregate. This will
+-- return an error if an entry overlaps one of the given offsets.
+--
+-- - @mirAggregate_clear (Just off1) (Just off2)@: remove entries starting at or
+--   after offset @off1@ and ending at or before offset @off2@
+-- - @mirAggregate_clear (Just off1) Nothing@: remove all entries starting at or
+--   after offset @off1@
+-- - @mirAggregate_clear Nothing (Just off2)@: remove entries ending at or
+--   before offset @off2@
+-- - @mirAggregate_clear Nothing Nothing@: remove all entries
+mirAggregate_clear ::
+  Maybe Word ->
+  Maybe Word ->
+  MirAggregate sym ->
+  Either String (MirAggregate sym)
+mirAggregate_clear fromM toM (MirAggregate sz entries) = do
+  let from = Maybe.fromMaybe 0 fromM
+  let to = Maybe.fromMaybe sz toM
+
+  let keep (fromIntegral -> eOff) (MirAggregateEntry eSz _ _) =
+        eOff >= to || eOff + eSz <= from
+  let entries' = IntMap.filterWithKey keep entries
+
+  failOnOverlap "left" from entries'
+  failOnOverlap "right" to entries'
+
+  pure (MirAggregate sz entries')
+  where
+    failOnOverlap boundaryKind boundaryOff entries' =
+      case IntMap.lookupLT (fromIntegral boundaryOff) entries' of
+        Just (fromIntegral -> eOff, MirAggregateEntry eSz _ _)
+          | eOff + eSz > boundaryOff ->
+            Left $
+              "mirAggregate_clear: " <>
+              boundaryKind <> " boundary " <> show boundaryOff <>
+              " splits entry at " <> show eOff <> ".." <> show (eOff + eSz)
+        _ -> pure ()
 
 -- | Concatenate two `MirAggregate`s, producing a new aggregate with all the
 -- entries of the first followed by all the entries of the second.  The entries
