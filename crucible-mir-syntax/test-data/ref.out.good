@@ -15,9 +15,9 @@ test-ref
   % 4:21
   $1 = bVLit(8, BV 42)
   % 5:5
-  $2 = writeMirRef $0 <- $1
+  $2 = writeMirRef <alloc> $0 <- $1
   % 6:19
-  $3 = readMirRef $0
+  $3 = readMirRef <alloc> $0
   % 7:14
   $4 = baseIsEq(BaseBVRepr 8, $1, $3)
   % 7:43
