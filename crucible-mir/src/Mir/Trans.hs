@@ -1525,6 +1525,8 @@ evalPlaceProj ty (MirPlace tpr ref NoMeta) M.Deref = do
         CTyBox t -> doRef t
         _ -> mirFail $ "deref not supported on " ++ show ty
   where
+    -- These values presume 64-bit architectures. In the longer term, we'd
+    -- prefer not to hardcode that presumption - see #1384.
     ptrOpSize, fatPtrOpSize :: OpSize
     ptrOpSize = Width 8
     fatPtrOpSize = Width 16
