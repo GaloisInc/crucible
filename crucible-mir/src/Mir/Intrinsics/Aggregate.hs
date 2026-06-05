@@ -136,14 +136,15 @@ import Mir.Mir (OpSize (..))
 --
 -- We enforce an invariant on `MirAggregate`s that they are "flattened" - that
 -- is, no `MirAggregate` will contain an _immediate_ `MirAggregateEntry` that is
--- itself a `MirAggregate`. (A `MirAggregate` can still appear nested within
--- another `MirAggregate.) Clients shouldn't need to care about this flattening;
--- it's legal for a client to insert one `MirAggregate`-type `MirAggregateEntry`
--- into a `MirAggregate` or read one `MirAggregate`-type `MirAggregateEntry`
--- from within a `MirAggregate`, but we implement those operations by inserting
--- each entry from the sub-aggregate into the larger aggregate or by
--- constructing an ad-hoc sub-aggregate with entries from the larger aggregate,
--- respectively.
+-- itself a `MirAggregate`. (A `MirAggregate` can still appear _nested_ within
+-- another `MirAggregate indirectly, e.g. a `MirAggregate` inside a
+-- `RustEnumRepr` inside another `MirAggregate`.) Clients shouldn't need to care
+-- about this flattening; it's legal for a client to insert one
+-- `MirAggregate`-type `MirAggregateEntry` into a `MirAggregate` or read one
+-- `MirAggregate`-type `MirAggregateEntry` from within a `MirAggregate`, but we
+-- implement those operations by inserting each entry from the sub-aggregate
+-- into the larger aggregate or by constructing an ad-hoc sub-aggregate with
+-- entries from the larger aggregate, respectively.
 data MirAggregate sym where
   MirAggregate ::
     -- | Total size in bytes.  No entry can extend beyond this limit.
