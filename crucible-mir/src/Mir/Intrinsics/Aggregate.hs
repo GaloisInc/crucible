@@ -721,9 +721,12 @@ mirAggregate_insert outerAgOff (MirAggregateEntry entrySz MirAggregateRepr entry
     Just False ->
       pure outerAg
     Just True -> do
+      outerAg' <- case mirAggregate_clear (Just outerAgOff) (Just $ outerAgOff + innerAgSz) outerAg of
+        Left err -> Left $ "mirAggregate_insert: error when clearing existing entries: " <> err
+        Right a -> pure a
       let addEntry ag (fromIntegral -> entryOff) entry =
             mirAggregate_insert (outerAgOff + entryOff) entry ag
-      foldMWithKey addEntry outerAg innerAgEntries
+      foldMWithKey addEntry outerAg' innerAgEntries
     -- Note: this case doesn't seem to show up in practice, but if it does,
     -- consider lifting this function to a monadic context in which it can
     -- manipulate predicates, so that it can add entries the conjunction of
