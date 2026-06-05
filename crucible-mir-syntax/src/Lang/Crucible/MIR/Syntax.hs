@@ -36,6 +36,7 @@ import Lang.Crucible.Syntax.Monad qualified as Parse
 
 import Mir.Intrinsics (MIR)
 import Mir.Intrinsics qualified as Mir
+import Mir.Mir (OpSize(..))
 
 -- | A 'ParserHooks' instance that adds no further extensions to the language.
 emptyParserHooks :: ParserHooks ext
@@ -61,6 +62,8 @@ mirParserHooks hooks =
 mirTypeParser :: MonadSyntax Atomic m => m (Some TypeRepr)
 mirTypeParser = Parse.describe "MIR type" $ do
   _ <- referenceTypeParser
+  -- XXX: if you're implementing parsing for `MirAggregateRepr`, please first
+  -- read Note [Reference operation sizes] below.
   pure (Some Mir.MirReferenceRepr)
 
 referenceTypeParser :: MonadSyntax Atomic m => m ()
@@ -96,7 +99,7 @@ mirAtomParser =
             Parse.isType
             (Parse.operands (Ctx.Empty Ctx.:> Mir.MirReferenceRepr))
         let (Ctx.Empty, ref) = Ctx.decompose assign
-        let stmt = Mir.MirReadRef tpr ref
+        let stmt = Mir.MirReadRef tpr opSize ref
         Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
 
       Atom.AtomName "ref-write" -> Parse.describe "MIR ref-write arguments" $ do
@@ -105,7 +108,7 @@ mirAtomParser =
           assign <- Parse.operands (Ctx.Empty Ctx.:> Mir.MirReferenceRepr Ctx.:> tpr)
           let (rest, val) = Ctx.decompose assign
           let (Ctx.Empty, ref) = Ctx.decompose rest
-          let stmt = Mir.MirWriteRef tpr ref val
+          let stmt = Mir.MirWriteRef tpr ref opSize val
           Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
 
       Atom.AtomName "ref-drop" -> Parse.describe "MIR ref-drop arguments" $ do
@@ -116,3 +119,23 @@ mirAtomParser =
         Some <$> Parse.freshAtom loc (Reg.EvalExt stmt)
 
       _ -> empty
+  where
+    {-
+    Note [Reference operation sizes]
+
+    Reference manipulation operations generally require the size of the type on
+    which they're operating, to account for the operation potentially taking
+    place within a `MirAggregate`, where the size of memory on which to operate
+    isn't otherwise obvious. `crucible-mir-syntax` isn't capable of expressing
+    aggregates or operations on them (see #1485), though - it only understands
+    introduction, read/write, and elimination of references to Crucible base
+    types, and we happen to know that these operations ignore their size
+    parameter for those types. So, instead of requiring that the user provide a
+    numeric size, we use the special `All` size.
+
+    This is fine for operations on base types, but if `crucible-mir-syntax` were
+    to support aggregate operations, it would need to also require numeric sizes
+    as arguments to `ref-{read,write}` operations, or implement special
+    `ref-{read,write}-sized` operations for aggregates in particular.
+    -}
+    opSize = All

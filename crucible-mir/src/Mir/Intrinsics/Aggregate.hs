@@ -48,9 +48,7 @@ module Mir.Intrinsics.Aggregate
     mirAggregate_split,
     mirAggregate_split3,
     mirAggregate_chunk,
-    mirAggregate_toChunks,
     mirAggregate_concat,
-    mirAggregate_fromChunks,
     concreteAllocSize,
     mirAggregate_uninitIO,
     mirAggregate_zstSim,
@@ -68,8 +66,7 @@ import GHC.TypeLits
     TypeError,
   )
 
-import Control.Monad (foldM, forM, forM_, liftM, when)
-import Control.Monad.Except (MonadError (..), runExceptT, throwError)
+import Control.Monad (foldM, forM, when)
 import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans (lift)
 
@@ -104,8 +101,8 @@ import Lang.Crucible.Types
   )
 
 import What4.Concrete (fromConcreteBV)
-import What4.Interface (IsExprBuilder (..), Pred, SymExpr, asAffineVar, asBV)
-import What4.Partial (PartExpr, justPartExpr, mergePartial, pattern PE, pattern Unassigned)
+import What4.Interface (IsExprBuilder (..), Pred, SymExpr, asAffineVar, asBV, asConstantPred)
+import What4.Partial (justPartExpr, mergePartial, pattern PE, pattern Unassigned)
 
 import Mir.FancyMuxTree
   ( MonadAssert,
@@ -116,6 +113,7 @@ import Mir.FancyMuxTree
     subMuxLeafMA,
   )
 import Mir.Intrinsics.Size (UsizeType, wordLit)
+import Mir.Mir (OpSize (..))
 
 --------------------------------------------------------------
 -- A MirAggregateType is a collection of elements of any type, with each entry
@@ -135,6 +133,18 @@ import Mir.Intrinsics.Size (UsizeType, wordLit)
 -- to partially overlap old ones - they must either be disjoint from all
 -- existing entries, or fully overwrite an existing entry.  Read operations
 -- must also touch exactly one entry.
+--
+-- We enforce an invariant on `MirAggregate`s that they are "flattened" - that
+-- is, no `MirAggregate` will contain an _immediate_ `MirAggregateEntry` that is
+-- itself a `MirAggregate`. (A `MirAggregate` can still appear _nested_ within
+-- another `MirAggregate indirectly, e.g. a `MirAggregate` inside a
+-- `RustEnumRepr` inside another `MirAggregate`.) Clients shouldn't need to care
+-- about this flattening; it's legal for a client to insert one
+-- `MirAggregate`-type `MirAggregateEntry` into a `MirAggregate` or read one
+-- `MirAggregate`-type `MirAggregateEntry` from within a `MirAggregate`, but we
+-- implement those operations by inserting each entry from the sub-aggregate
+-- into the larger aggregate or by constructing an ad-hoc sub-aggregate with
+-- entries from the larger aggregate, respectively.
 data MirAggregate sym where
   MirAggregate ::
     -- | Total size in bytes.  No entry can extend beyond this limit.
@@ -287,10 +297,13 @@ readMirAggregateWithSymOffset ::
   bak ->
   (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
   RegValue sym UsizeType ->
+  OpSize ->
   TypeRepr tp ->
   MirAggregate sym ->
   MuxLeafT sym m (RegValue sym tp)
-readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
+readMirAggregateWithSymOffset bak iteFn off readSize tpr ag@(MirAggregate totalSize m)
+  | MirAggregateRepr <- tpr =
+      readSubaggregateWithSymOffset bak iteFn readSize off ag
   | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
       case IntMap.lookup off' m of
         Nothing -> leafAbort $ agNoValueAtOffsetSimError off' totalSize
@@ -331,6 +344,66 @@ readMirAggregateWithSymOffset bak iteFn off tpr ag@(MirAggregate totalSize m)
     offsetLit = wordLit sym
     iteFn' = liftIteFnMaybe sym tpr iteFn
 
+readSubaggregateWithSymOffset ::
+  forall sym bak m.
+  MonadAssert sym bak m =>
+  bak ->
+  (Pred sym -> MirAggregate sym -> MirAggregate sym -> IO (MirAggregate sym)) ->
+  OpSize ->
+  RegValue sym UsizeType ->
+  MirAggregate sym ->
+  MuxLeafT sym m (MirAggregate sym)
+readSubaggregateWithSymOffset bak iteFn readSize off ag@(MirAggregate agSize _)
+  | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off =
+    readConcrete off'
+  | otherwise = do
+      -- Do some static winnowing of the offsets we need to check. Don't try to
+      -- read at an offset if:
+      -- - There isn't a large enough sub-aggregate starting at that offset
+      -- - Extracting a sub-aggregate starting at that offset would split an
+      --   aggregate entry
+      let sizedAgOffsets = case readSize of
+            All -> init [0 .. agSize] -- not sure this `init` is necessary...
+            Width w -> [0 .. agSize - w]
+      let nonSplittingAgOffsets = filter (not . offsetSplitsEntry ag) sizedAgOffsets
+
+      -- We're muxing together reads of sub-aggregates starting at each possible
+      -- offset in `ag`. If a read operation (via `readConcrete`) at a given
+      -- candidate offset fails, we'll assert that that offset wasn't equal to
+      -- `off`, the actual symbolic offset. (This attempt and potential negative
+      -- assertion occurs via `subMuxLeafMA`.)
+      agPMux <- foldM
+        (\origAgP candidateOff -> do
+          isTheOffset <- liftIO $ bvEq sym off =<< offsetLit candidateOff
+          subAgM <- subMuxLeafMA bak (readConcrete candidateOff) isTheOffset
+          case subAgM of
+            Just subAg -> liftIO $ iteFn' isTheOffset (justPartExpr sym subAg) origAgP
+            Nothing -> pure origAgP)
+        Unassigned
+        nonSplittingAgOffsets
+
+      -- We've used `Unassigned` as the base case for the above mux so we'll be
+      -- left with `Unassigned` in failure cases, and can propagate that error
+      -- via `leafReadPartExpr`.
+      let sizeMsg = case readSize of All -> ""; Width w -> " of size " <> show w
+      leafReadPartExpr bak agPMux $
+        GenericSimError $
+          "readSubaggregateWithSymOffset: in aggregate of size " <> show agSize <>
+          ", no subaggregate value" <> sizeMsg <> " at symbolic offset"
+  where
+    readConcrete off' = do
+      let sz = case readSize of All -> agSize - off'; Width w -> w
+      case mirAggregate_chunk off' sz ag of
+        Right a -> pure a
+        Left err -> die err
+
+    iteFn' = liftIteFnMaybe sym MirAggregateRepr iteFn
+    sym = backendGetSym bak
+    offsetLit = wordLit sym
+    die err =
+      leafAbort $ GenericSimError $ "readSubaggregateWithSymOffset: " <> err
+
+
 adjustMirAggregateWithSymOffset ::
   forall sym bak tp.
   (IsSymBackend sym bak) =>
@@ -339,9 +412,12 @@ adjustMirAggregateWithSymOffset ::
   RegValue sym UsizeType ->
   TypeRepr tp ->
   (RegValue sym tp -> MuxLeafT sym IO (RegValue sym tp)) ->
+  OpSize ->
   MirAggregate sym ->
   MuxLeafT sym IO (MirAggregate sym)
-adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m)
+adjustMirAggregateWithSymOffset bak iteFn off tpr f adjSize ag@(MirAggregate totalSize m)
+  | MirAggregateRepr <- tpr =
+      adjustSubaggregateWithSymOffset bak iteFn off f adjSize ag
   | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
       MirAggregateEntry sz tpr' rvPart <- case IntMap.lookup off' m of
         Just x -> return x
@@ -396,6 +472,66 @@ adjustMirAggregateWithSymOffset bak iteFn off tpr f ag@(MirAggregate totalSize m
     offsetLit = wordLit sym
     iteFn' = liftIteFnMaybe sym tpr iteFn
 
+adjustSubaggregateWithSymOffset ::
+  forall sym bak.
+  (IsSymBackend sym bak) =>
+  bak ->
+  (Pred sym -> MirAggregate sym -> MirAggregate sym -> IO (MirAggregate sym)) ->
+  RegValue sym UsizeType ->
+  (MirAggregate sym -> MuxLeafT sym IO (MirAggregate sym)) ->
+  OpSize ->
+  MirAggregate sym ->
+  MuxLeafT sym IO (MirAggregate sym)
+adjustSubaggregateWithSymOffset bak iteFn off f adjSize ag@(MirAggregate agSize _)
+  | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off =
+      adjustConcrete off'
+  | otherwise = do
+      -- Do some static winnowing of the offsets we need to check. Don't try to
+      -- read at an offset if:
+      -- - There isn't a large enough sub-aggregate starting at that offset
+      -- - Extracting a sub-aggregate starting at that offset would split an
+      --   aggregate entry
+      let sizedAgOffsets = case adjSize of
+            All -> init [0 .. agSize] -- not sure this `init` is necessary...
+            Width w -> [0 .. agSize - w]
+      let nonSplittingAgOffsets = filter (not . offsetSplitsEntry ag) sizedAgOffsets
+
+      foldM
+        (\origAg candidateOff -> do
+          isTheOffset <- liftIO $ bvEq sym off =<< offsetLit candidateOff
+          adjustedAgM <- subMuxLeafMA bak (adjustConcrete candidateOff) isTheOffset
+          case adjustedAgM of
+            Just adjustedAg -> liftIO $ iteFn isTheOffset adjustedAg origAg
+            Nothing -> pure origAg)
+        ag
+        nonSplittingAgOffsets
+  where
+    adjustConcrete off' = do
+      let sz = case adjSize of All -> agSize - off'; Width w -> w
+
+      adjAg@(MirAggregate adjAgSz _) <- case mirAggregate_chunk off' sz ag of
+        Right a -> pure a
+        Left err -> die err
+
+      adjAg'@(MirAggregate adjAgSz' _) <- f adjAg
+      when (adjAgSz /= adjAgSz') $
+        panic "adjustSubaggregateWithSymOffset"
+          [ "adjusting function changed aggregate size"
+          , "was " <> show adjAgSz <> ", became " <> show adjAgSz'
+          ]
+
+      ag' <- case mirAggregate_clear (Just off') (Just $ off' + sz) ag of
+        Right a -> pure a
+        Left err -> die err
+      let adjAgEntry = MirAggregateEntry adjAgSz' MirAggregateRepr (justPartExpr sym adjAg')
+      case mirAggregate_insert off' adjAgEntry ag' of
+        Right a -> pure a
+        Left err -> die err
+
+    sym = backendGetSym bak
+    offsetLit = wordLit sym
+    die err =
+      leafAbort $ GenericSimError $ "adjustSubaggregateWithSymOffset: " <> err
 
 -- | Given a list of valid entry spans @(fromOffset, toOffset)@ in this
 -- aggregate, create a predicate that the provided offset appears among their
@@ -563,11 +699,42 @@ mirAggregate_entries :: sym -> MirAggregate sym -> [(Word, MirAggregateEntry sym
 mirAggregate_entries _sym (MirAggregate _totalSize m) =
   [(fromIntegral off, entry) | (off, entry) <- IntMap.toList m]
 
+foldMWithKey :: Monad m => (b -> Int -> a -> m b) -> b -> IntMap a -> m b
+foldMWithKey f z m = IntMap.foldlWithKey' f' (pure z) m
+  where
+    f' accM key val = do
+      acc <- accM
+      f acc key val
+
 mirAggregate_insert ::
+  (IsSymInterface sym) =>
   Word ->
   MirAggregateEntry sym ->
   MirAggregate sym ->
   Either String (MirAggregate sym)
+mirAggregate_insert outerAgOff (MirAggregateEntry entrySz MirAggregateRepr entryP) outerAg = case entryP of
+  Unassigned -> pure outerAg
+  PE p (MirAggregate innerAgSz innerAgEntries) -> case asConstantPred p of
+    _ | innerAgSz /= entrySz -> Left $
+      "mirAggregate_insert: when adding a `MirAggregate` as an entry, " <>
+      "the `MirAggregateEntry`-derived size was " <> show entrySz <> ", " <>
+      "but the `MirAggregate` value had size " <> show innerAgSz
+    Just False ->
+      pure outerAg
+    Just True -> do
+      outerAg' <- case mirAggregate_clear (Just outerAgOff) (Just $ outerAgOff + innerAgSz) outerAg of
+        Left err -> Left $ "mirAggregate_insert: error when clearing existing entries: " <> err
+        Right a -> pure a
+      let addEntry ag (fromIntegral -> entryOff) entry =
+            mirAggregate_insert (outerAgOff + entryOff) entry ag
+      foldMWithKey addEntry outerAg' innerAgEntries
+    -- Note: this case doesn't seem to show up in practice, but if it does,
+    -- consider lifting this function to a monadic context in which it can
+    -- manipulate predicates, so that it can add entries the conjunction of
+    -- their own individual predicates and the overarching entry's predicate,
+    -- `entryP`.
+    Nothing -> Left $
+      "mirAggregate_insert: unsupported: `MirAggregate` as entry with symbolic predicate"
 mirAggregate_insert off entry@(MirAggregateEntry sz tpr _) (MirAggregate totalSize m) = do
   -- For now, we require that either there are no entries overlapping the byte
   -- range `off .. off + sz`, or there is an entry covering exactly that range
@@ -605,44 +772,59 @@ writeMirAggregateWithSymOffset ::
   bak ->
   (Pred sym -> RegValue sym tp -> RegValue sym tp -> IO (RegValue sym tp)) ->
   RegValue sym UsizeType ->
-  Word ->
+  OpSize ->
   TypeRepr tp ->
   RegValue sym tp ->
   MirAggregate sym ->
   MuxLeafT sym IO (MirAggregate sym)
-writeMirAggregateWithSymOffset bak iteFn off sz tpr val ag
+writeMirAggregateWithSymOffset bak iteFn off writeSize tpr val ag
   -- Concrete case: insert a new entry or overwrite an existing one with
   -- `mirAggregate_insert`.
   | Just (fromIntegral . BV.asUnsigned -> off') <- asBV off = do
-      let entry = MirAggregateEntry sz tpr $ justPartExpr sym val
-      case mirAggregate_insert off' entry ag of
-        Left err -> leafAbort $ GenericSimError err
-        Right ag' -> return ag'
-
+    entry <- case (writeSize, tpr) of
+      (All, MirAggregateRepr) -> do
+        let MirAggregate subAgSz _ = val
+        pure $ MirAggregateEntry subAgSz tpr $ justPartExpr sym val
+      (All, _) ->
+        die "unsupported: writing non-aggregate value of unknown/unspecified size"
+      (Width w, _) ->
+        pure $ MirAggregateEntry w tpr $ justPartExpr sym val
+    case mirAggregate_insert off' entry ag of
+      Left err -> die err
+      Right ag' -> return ag'
   -- Symbolic case: overwrite an existing entry with `adjustMirAggregateWithSymOffset`.
   -- Creating a new entry at a symbolic offset is not allowed.
   | otherwise = do
-      adjustMirAggregateWithSymOffset bak iteFn off tpr (\_oldVal -> return val) ag
+      adjustMirAggregateWithSymOffset bak iteFn off tpr (\_oldVal -> return val) writeSize ag
 
   where
     sym = backendGetSym bak
+    die msg = leafAbort $ GenericSimError $ "writeMirAggregateWithSymOffset: " <> msg
 
 -- | Look up a value in a `MirAggregate`.  This returns @Right maybeVal@ if it
 -- finds a value at the requested offset, @Right Unassigned@ if the offset is
 -- valid but there's no entry there, and @Left errorMessage@ if offset is
 -- invalid (in the middle of some entry) or the type @tpr@ is incorrect.
 mirAggregate_lookup ::
+  IsSymInterface sym =>
+  sym ->
+  Word ->
   Word ->
   TypeRepr tp ->
   MirAggregate sym ->
   Either String (RegValue sym (MaybeType tp))
-mirAggregate_lookup off tpr (MirAggregate totalSize m) = do
-  case IntMap.lookupLE (fromIntegral off) m of
+mirAggregate_lookup sym off sz tpr ag@(MirAggregate totalSize m) = case tpr of
+  MirAggregateRepr -> case mirAggregate_split3 off (off + sz) ag of
+    Right (_toLeft, mid, _toRight) -> Right $ justPartExpr sym mid
+    Left err -> die err
+  _ -> case IntMap.lookupLE (fromIntegral off) m of
     _ | off >= totalSize ->
       die $ "offset " ++ show off ++ " is out of range "
         ++ "for aggregate total size " ++ show totalSize
     Nothing -> Right Unassigned
     Just (fromIntegral -> off', MirAggregateEntry sz' tpr' rv)
+      | sz /= sz' -> die $ "size mismatch at offset " ++ show off ++ ": "
+          ++ show sz ++ " != " ++ show sz'
       | off' == off -> do
           case testEquality tpr tpr' of
             Nothing -> die $ "type mismatch at offset " ++ show off ++ ": "
@@ -753,25 +935,52 @@ mirAggregate_chunk off chunkSize ag@(MirAggregate totalSize _) = do
   (_, chunkAg, _) <- mirAggregate_split3 off (off + chunkSize) ag
   return chunkAg
 
--- | Split a `MirAggregate` into an array of equal-sized chunks.
-mirAggregate_toChunks ::
-  IsSymInterface sym =>
-  sym ->
-  -- | Starting offset within the input aggregate
-  Word ->
-  -- | Size in bytes of each chunk
-  Word ->
-  -- | Number of chunks to produce
-  Word ->
-  -- | Input aggregate
+-- | Remove all entries between the given offsets in the aggregate. This will
+-- return an error if an entry overlaps one of the given offsets.
+--
+-- - @mirAggregate_clear (Just off1) (Just off2)@: remove entries starting at or
+--   after offset @off1@ and ending at or before offset @off2@
+-- - @mirAggregate_clear (Just off1) Nothing@: remove all entries starting at or
+--   after offset @off1@
+-- - @mirAggregate_clear Nothing (Just off2)@: remove entries ending at or
+--   before offset @off2@
+-- - @mirAggregate_clear Nothing Nothing@: remove all entries
+mirAggregate_clear ::
+  Maybe Word ->
+  Maybe Word ->
   MirAggregate sym ->
   Either String (MirAggregate sym)
-mirAggregate_toChunks sym off chunkSize numChunks ag = do
-  entries <- forM (init [0 .. numChunks]) $ \i -> do
-    chunk <- mirAggregate_chunk (off + i * chunkSize) chunkSize ag
-    return (fromIntegral $ i * chunkSize,
-      MirAggregateEntry chunkSize MirAggregateRepr (justPartExpr sym chunk))
-  return $ MirAggregate (numChunks * chunkSize) (IntMap.fromAscList entries)
+mirAggregate_clear fromM toM (MirAggregate sz entries) = do
+  let from = Maybe.fromMaybe 0 fromM
+  let to = Maybe.fromMaybe sz toM
+
+  let keep (fromIntegral -> eOff) (MirAggregateEntry eSz _ _) =
+        eOff >= to || eOff + eSz <= from
+  let entries' = IntMap.filterWithKey keep entries
+
+  failOnOverlap "left" from entries'
+  failOnOverlap "right" to entries'
+
+  pure (MirAggregate sz entries')
+  where
+    failOnOverlap boundaryKind boundaryOff entries' =
+      case IntMap.lookupLT (fromIntegral boundaryOff) entries' of
+        Just (fromIntegral -> eOff, MirAggregateEntry eSz _ _)
+          | eOff + eSz > boundaryOff ->
+            Left $
+              "mirAggregate_clear: " <>
+              boundaryKind <> " boundary " <> show boundaryOff <>
+              " splits entry at " <> show eOff <> ".." <> show (eOff + eSz)
+        _ -> pure ()
+
+-- | Does this offset occur in the middle of an entry in this aggregate?
+offsetSplitsEntry :: MirAggregate sym -> Word -> Bool
+offsetSplitsEntry (MirAggregate _ entries) off =
+  case IntMap.lookupLT (fromIntegral off) entries of
+    Just (fromIntegral -> eOff, MirAggregateEntry eSz _ _) ->
+      eOff + eSz > off
+    _ ->
+      False
 
 -- | Concatenate two `MirAggregate`s, producing a new aggregate with all the
 -- entries of the first followed by all the entries of the second.  The entries
@@ -783,91 +992,6 @@ mirAggregate_concat ::
 mirAggregate_concat (MirAggregate totalSize1 m1) (MirAggregate totalSize2 m2) =
   let m' = m1 <> IntMap.mapKeysMonotonic (+ fromIntegral totalSize1) m2
   in MirAggregate (totalSize1 + totalSize2) m'
-
--- | Merge an array of chunks into a single `MirAggregate`.  Each entry of
--- the input aggregate should be a `MirAggregate`; the entries of that
--- sub-aggregate will be placed in the output starting at an offset computed
--- from the offset of the sub-aggregate.  Returns `Left` if some aggregates in
--- the input would cover overlapping ranges.
---
--- Returns `Left` if any of the sub-aggregates has a zero-sized entry at the
--- end of its range (i.e. with @off == totalSize@).  This check can be removed
--- once we properly enforce the invariant that `MirAggregate`s must not contain
--- zero-sized entries.
-mirAggregate_fromChunks ::
-  forall sym.
-  IsSymInterface sym =>
-  sym ->
-  -- | Input aggregate
-  MirAggregate sym ->
-  IO (Either String (MirAggregate sym))
-mirAggregate_fromChunks sym chunkedAg@(MirAggregate chunkedTotalSize _) = runExceptT $ do
-  let chunkedEntries = mirAggregate_entries sym chunkedAg
-  -- For each initialized chunk, we collect:
-  -- 1. The offset of the chunk within the outer aggregate
-  -- 2. The "outer size" of the chunk, meaning the size of its entry within the
-  --    outer aggregate
-  -- 3. The predicate under which the chunk is initialized (each chunk, like
-  --    any aggregate entry, may be conditionally uninitialized)
-  -- 4. The map of offsets and entries within the aggrgegate.
-  chunkParts <- do
-    let f :: MonadError String m => (Word, MirAggregateEntry sym) ->
-          m (Maybe (Word, Word, Pred sym, IntMap (MirAggregateEntry sym)))
-        f (off, MirAggregateEntry chunkEntrySize tpr rv) = do
-          case tpr of
-            MirAggregateRepr ->
-              case rv of
-                Unassigned -> return Nothing
-                PE outerPred (MirAggregate chunkAgSize m) ->
-                  if chunkEntrySize /= chunkAgSize
-                    then panic "mirAggregate_fromChunks"
-                          ["chunk entry size " <> show chunkEntrySize <> " does not match its aggregate's size " <> show chunkAgSize ]
-                    else return $ Just (off, chunkAgSize, outerPred, m)
-            _ -> throwError $
-              "expected all chunks to be MirAggregateRepr, but got " ++ show tpr
-                ++ " (size " ++ show chunkEntrySize ++ ") at offset " ++ show off
-    liftM Maybe.catMaybes $ mapM f chunkedEntries
-
-  -- Check for disjointness.  `chunkParts` is sorted by starting offset, so we
-  -- can just compare pairs of consecutive elements.
-  forM_ (zip chunkParts (Prelude.drop 1 chunkParts)) $
-    \((off1, sz1, _, _), (off2, sz2, _, _)) -> do
-      when (off1 > off2 || off2 - off1 < sz1) $ panic "mirAggregate_fromChunks"
-        [ "overlapping chunks"
-        , "at " ++ show off1 ++ " .. " ++ show (off1 + sz1)
-        , "and " ++ show off2 ++ " .. " ++ show (off2 + sz2)
-        ]
-
-  ms <- forM chunkParts $ \(off, sz, outerPred, m) -> do
-    -- Check that there are no zero-sized entries at the end.
-    when (IntMap.member (fromIntegral sz) m) $ throwError $
-      "unsupported zero-sized entry at chunk end, in chunk at " ++ show off
-
-    -- Check that the chunk doesn't extend past the expected end of the
-    -- combined aggregate.
-    let start = off
-    let end = start + sz
-    when (end > chunkedTotalSize) $ throwError $
-      "chunk at " ++ show off ++ " extends past end: covers "
-        ++ show start ++ " .. " ++ show end
-        ++ " in output of size " ++ show chunkedTotalSize
-
-    -- Entries within each aggregate are valid only if the outer aggregate is
-    -- itself valid.
-    let restrictPred :: MonadIO m => PartExpr (Pred sym) a ->
-          m (PartExpr (Pred sym) a)
-        restrictPred Unassigned = return Unassigned
-        restrictPred (PE innerPred rv) = do
-          restrictedPred <- liftIO $ andPred sym outerPred innerPred
-          return $ PE restrictedPred rv
-    m' <- forM m $ \(MirAggregateEntry sz' tpr rv) ->
-      MirAggregateEntry sz' tpr <$> restrictPred rv
-
-    -- Adjust offsets.
-    return $ IntMap.mapKeysMonotonic (+ fromIntegral start) m'
-
-  let combinedM = mconcat ms
-  return $ MirAggregate chunkedTotalSize combinedM
 
 concreteAllocSize ::
     IsSymBackend sym bak =>
@@ -911,11 +1035,17 @@ mirAggregate_replicateIO bak elemSz elemTpr elemVal lenSym = do
   let sym = backendGetSym bak
   len <- concreteAllocSize bak lenSym
   let totalSize = fromIntegral len * elemSz
+  let ag = MirAggregate totalSize mempty
   let entries =
-        [(fromIntegral i * fromIntegral elemSz,
+        [(fromIntegral i * elemSz,
           MirAggregateEntry elemSz elemTpr (justPartExpr sym elemVal))
         | i <- init [0 .. len]]
-  return $ MirAggregate totalSize (IntMap.fromAscList entries)
+  let insert ag' (off, entry) = mirAggregate_insert off entry ag'
+  case foldM insert ag entries of
+    Right ag' ->
+      pure ag'
+    Left err ->
+      addFailedAssertion bak $ GenericSimError $ "mirAggregate_replicateIO: " <> err
 
 mirAggregate_resizeIO ::
     IsSymBackend sym bak =>
@@ -935,6 +1065,10 @@ mirAggregate_getIO ::
     TypeRepr tp ->
     MirAggregate sym ->
     IO (RegValue sym tp)
+mirAggregate_getIO bak off sz MirAggregateRepr ag =
+  case mirAggregate_split3 off (off + sz) ag of
+    Right (_toLeft, mid, _toRight) -> pure mid
+    Left err -> addFailedAssertion bak $ GenericSimError $ "mirAggregate_getIO: " <> err
 mirAggregate_getIO bak off sz tpr (MirAggregate _ m) = do
   -- TODO: deduplicate logic between this and readMirAg* concrete case?
   MirAggregateEntry sz' tpr' rvPart <- case IntMap.lookup (fromIntegral off) m of

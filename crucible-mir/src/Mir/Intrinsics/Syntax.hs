@@ -117,9 +117,7 @@ import Mir.Intrinsics.Reference
     MirReferenceRoot (..),
     MirReferenceType,
     dropMirRefIO,
-    mirRef_agElemIO,
-    mirRef_agElem_unsizedIO,
-    mirRef_aggregateAsChunksIO,
+    mirRef_agOffsetIO,
     mirRef_arrayIndexIO,
     mirRef_eqIO,
     mirRef_offsetMA,
@@ -142,6 +140,7 @@ import Mir.Intrinsics.Size
     pattern UsizeRepr,
   )
 import Mir.Intrinsics.Vector (vectorDropIO, vectorTakeIO)
+import Mir.Mir (OpSize)
 
 -- | Sigil type indicating the MIR syntax extension
 data MIR
@@ -165,11 +164,16 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      MirStmt f MirReferenceType
   MirReadRef ::
      !(TypeRepr tp) ->
+     -- | The size of the value to read, in bytes. This must be known concretely
+     -- at symbolic execution time.
+     !OpSize ->
      !(f MirReferenceType) ->
      MirStmt f tp
   MirWriteRef ::
      !(TypeRepr tp) ->
      !(f MirReferenceType) ->
+     -- | The size of the value to write.
+     !OpSize ->
      !(f tp) ->
      MirStmt f UnitType
   MirDropRef ::
@@ -190,18 +194,9 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      !(TypeRepr tp) ->
      !(f MirReferenceType) ->
      MirStmt f MirReferenceType
-  MirRef_AgElem ::
-     !(f UsizeType) ->
-     !Word ->
-     !(TypeRepr tp) ->
-     !(f MirReferenceType) ->
-     MirStmt f MirReferenceType
-  -- | Like `MirRef_AgElem`, but the size and `TypeRepr` are inferred by
-  -- inspecting the aggregate.  This reads from memory instead of simply
-  -- adjusting the `MirReferencePath`, so it's best avoided if possible.
-  --
-  -- TODO: remove this once `MirRef_AgOffset` is implemented
-  MirRef_AgElem_Unsized ::
+  -- | Given a reference to an aggregate, produce a reference to the
+  -- tail of that aggregate, starting at the given offset.
+  MirRef_AgOffset ::
      !(f UsizeType) ->
      !(f MirReferenceType) ->
      MirStmt f MirReferenceType
@@ -258,16 +253,6 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      -- | The size of the element, in bytes
      !Word ->
      MirStmt f (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType))
-  -- | Given a pointer to an element, return a pointer to an array constructed
-  -- by viewing the next @chunkSize * numChunks@ elements as an array of
-  -- arrays.
-  MirRef_AggregateAsChunks ::
-     -- | Size in bytes of each chunk (must be concrete)
-     !(f UsizeType) ->
-     -- | Number of chunks to produce (must be concrete)
-     !(f UsizeType) ->
-     !(f MirReferenceType) ->
-     MirStmt f MirReferenceType
   -- | Print the internal representation of a `MirReference` for debugging.
   -- This is similar to the behavior of @crucible::dump_rv@, but it's easier to
   -- call an intrinsic from inside `Mir.Trans` / `Mir.TransCustom` cases than
@@ -402,22 +387,20 @@ instance TypeApp MirStmt where
     MirIntegerToRef _ -> MirReferenceRepr
     MirGlobalRef _ -> MirReferenceRepr
     MirConstRef _ _ -> MirReferenceRepr
-    MirReadRef tp _ -> tp
-    MirWriteRef _ _ _ -> UnitRepr
+    MirReadRef tp _ _ -> tp
+    MirWriteRef _ _ _ _ -> UnitRepr
     MirDropRef _    -> UnitRepr
     MirSubfieldRef _ _ _ -> MirReferenceRepr
     MirSubvariantRef _ _ _ _ -> MirReferenceRepr
     MirSubjustRef _ _ -> MirReferenceRepr
     MirRef_ArrayIndex _ _ _ -> MirReferenceRepr
     MirRef_VecIndex _ _ _ -> MirReferenceRepr
-    MirRef_AgElem _ _ _ _ -> MirReferenceRepr
-    MirRef_AgElem_Unsized _ _ -> MirReferenceRepr
+    MirRef_AgOffset _ _ -> MirReferenceRepr
     MirRef_Eq _ _ -> BoolRepr
     MirRef_Offset _ _ _ -> MirReferenceRepr
     MirRef_OffsetWrap _ _ _ -> MirReferenceRepr
     MirRef_TryOffsetFrom _ _ _ -> MaybeRepr IsizeRepr
     MirRef_PeelIndex _ _ -> StructRepr (Empty :> MirReferenceRepr :> UsizeRepr)
-    MirRef_AggregateAsChunks _ _ _ -> MirReferenceRepr
     DebugPrintMirRef _ _ -> UnitRepr
     VectorSnoc tp _ _ -> VectorRepr tp
     VectorHead tp _ -> MaybeRepr tp
@@ -440,22 +423,20 @@ instance PrettyApp MirStmt where
     MirIntegerToRef i -> "integerToMirRef" <+> pp i
     MirGlobalRef gv -> "globalMirRef" <+> pretty gv
     MirConstRef _ v -> "constMirRef" <+> pp v
-    MirReadRef _ x  -> "readMirRef" <+> pp x
-    MirWriteRef _ x y -> "writeMirRef" <+> pp x <+> "<-" <+> pp y
+    MirReadRef _ sz x  -> "readMirRef" <+> pretty sz <+> pp x
+    MirWriteRef _ x sz y -> "writeMirRef" <+> pretty sz <+> pp x <+> "<-" <+> pp y
     MirDropRef x    -> "dropMirRef" <+> pp x
     MirSubfieldRef _ x idx -> "subfieldRef" <+> pp x <+> viaShow idx
     MirSubvariantRef _ _ x idx -> "subvariantRef" <+> pp x <+> viaShow idx
     MirSubjustRef _ x -> "subjustRef" <+> pp x
     MirRef_ArrayIndex idx _ ref -> "mirRef_arrayIndex" <+> pp idx <+> pp ref
     MirRef_VecIndex idx _ ref -> "mirRef_vecIndex" <+> pp idx <+> pp ref
-    MirRef_AgElem off _ _ ref -> "mirRef_agElem" <+> pp off <+> pp ref
-    MirRef_AgElem_Unsized off ref -> "mirRef_agElem_unsized" <+> pp off <+> pp ref
+    MirRef_AgOffset off ref -> "mirRef_agOffset" <+> pp off <+> pp ref
     MirRef_Eq x y -> "mirRef_eq" <+> pp x <+> pp y
     MirRef_Offset p o s -> "mirRef_offset" <+> pp p <+> pp o <+> viaShow s
     MirRef_OffsetWrap p o s -> "mirRef_offsetWrap" <+> pp p <+> pp o <+> viaShow s
     MirRef_TryOffsetFrom p o s -> "mirRef_tryOffsetFrom" <+> pp p <+> pp o <+> viaShow s
     MirRef_PeelIndex p s -> "mirRef_peelIndex" <+> pp p <+> viaShow s
-    MirRef_AggregateAsChunks chunkSize numChunks p -> "mirRef_aggregateAsChunks" <+> pp chunkSize <+> pp numChunks <+> pp p
     DebugPrintMirRef s p -> "debugPrintMirRef" <+> pp s <+> pp p
     VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
     VectorHead _ v -> "vectorHead" <+> pp v
@@ -502,10 +483,10 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
          do let r = MirReference tpr (Const_RefRoot tpr v) Empty_RefPath
             return (mkRef r, s)
 
-       MirReadRef tpr (regValue -> ref) ->
-         readOnly s $ readMirRefMA bak gs iTypes tpr ref
-       MirWriteRef tpr (regValue -> ref) (regValue -> x) ->
-         writeOnly s $ writeMirRefIO bak gs iTypes tpr ref x
+       MirReadRef tpr readSize (regValue -> ref) ->
+         readOnly s $ readMirRefMA bak gs iTypes tpr readSize ref
+       MirWriteRef tpr (regValue -> ref) writeSize (regValue -> x) ->
+         writeOnly s $ writeMirRefIO bak gs iTypes tpr ref writeSize x
        MirDropRef (regValue -> ref) ->
          writeOnly s $ dropMirRefIO bak gs ref
        MirSubfieldRef ctx0 (regValue -> ref) idx ->
@@ -518,10 +499,8 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
          readOnly s $ mirRef_arrayIndexIO bak iTypes idx tpr ref
        MirRef_VecIndex (regValue -> idx) tpr (regValue -> ref) ->
          readOnly s $ mirRef_vecIndexIO bak iTypes idx tpr ref
-       MirRef_AgElem (regValue -> off) sz tpr (regValue -> ref) ->
-         readOnly s $ mirRef_agElemIO bak iTypes off sz tpr ref
-       MirRef_AgElem_Unsized (regValue -> off) (regValue -> ref) ->
-         readOnly s $ mirRef_agElem_unsizedIO bak gs iTypes off ref
+       MirRef_AgOffset (regValue -> off) (regValue -> ref) ->
+         readOnly s $ mirRef_agOffsetIO bak iTypes off ref
        MirRef_Eq (regValue -> r1) (regValue -> r2) ->
          readOnly s $ mirRef_eqIO bak r1 r2
        MirRef_Offset (regValue -> ref) (regValue -> off) elemSize ->
@@ -532,8 +511,6 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
          readOnly s $ mirRef_tryOffsetFromIO bak iTypes elemSize r1 r2
        MirRef_PeelIndex (regValue -> ref) elemSize -> do
          readOnly s $ mirRef_peelIndexMA bak iTypes ref elemSize
-       MirRef_AggregateAsChunks (regValue -> chunkSize) (regValue -> numChunks) (regValue -> ref) -> do
-         readOnly s $ mirRef_aggregateAsChunksIO bak iTypes chunkSize numChunks ref
        DebugPrintMirRef (regValue -> desc) (regValue -> ref) -> do
          readOnly s $ putStrLn $ "debugPrintMirRef (" ++ show (printSymExpr desc)
            ++ "): " ++ show ref

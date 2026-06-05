@@ -211,11 +211,17 @@ sanitizeGoldenTestOutput = go
       | Just (before, _matched :: BS.ByteString, after, [preDisamb])
           <- matchM disambRE out
       = before <> preDisamb <> "<DISAMB>::" <> go after
+      | Just (before, _matched :: BS.ByteString, after, [] :: [BS.ByteString])
+          <- matchM nonceRE out
+      = before <> "<NONCE>" <> go after
       | otherwise
       = out
 
     disambRE :: Regex
     disambRE = makeRegex disambBS
+
+    nonceRE :: Regex
+    nonceRE = makeRegex nonceBS
 
     -- A disambiguator looks something like foo/a1b4j89a, i.e., an alphanumeric
     -- string that starts with an alphabetic character, followed by a forward
@@ -224,6 +230,13 @@ sanitizeGoldenTestOutput = go
     -- present when printing out a full DefId (e.g., foo/a1b4j89a::Bar::Baz).
     disambBS :: BS.ByteString
     disambBS = "([A-Za-z_]" <> alphaNum <> "*/)" <> mconcat (replicate 8 alphaNum) <> "::"
+
+    -- This is the `Show`n form of `Data.Parameterized.Nonce.Nonce`, which
+    -- contains a fresh integer value. `Nonce`s exist in `MirReferenceRoot`s,
+    -- and so appear in the output of `crucible::dump_rv` applied to a
+    -- `MirReference`.
+    nonceBS :: BS.ByteString
+    nonceBS = "Nonce \\{indexValue = [0-9]+\\}"
 
     alphaNum :: BS.ByteString
     alphaNum = "[A-Za-z0-9_]"

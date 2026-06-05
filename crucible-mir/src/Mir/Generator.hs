@@ -603,16 +603,20 @@ dropMirRef refExp = void $ G.extensionStmt (MirDropRef refExp)
 
 readMirRef ::
   C.TypeRepr tp ->
+  -- | The size of the value to read.
+  OpSize ->
   R.Expr MIR s MirReferenceType ->
   MirGenerator h s ret (R.Expr MIR s tp)
-readMirRef tp refExp = G.extensionStmt (MirReadRef tp refExp)
+readMirRef tp tySize refExp = G.extensionStmt (MirReadRef tp tySize refExp)
 
 writeMirRef ::
   C.TypeRepr tp ->
   R.Expr MIR s MirReferenceType ->
+  -- | The size of the value to write.
+  OpSize ->
   R.Expr MIR s tp ->
   MirGenerator h s ret ()
-writeMirRef tp ref x = void $ G.extensionStmt (MirWriteRef tp ref x)
+writeMirRef tp ref writeSize x = void $ G.extensionStmt (MirWriteRef tp ref writeSize x)
 
 subfieldRef ::
   C.CtxRepr ctx ->
@@ -635,28 +639,11 @@ subjustRef ::
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 subjustRef tp ref = G.extensionStmt (MirSubjustRef tp ref)
 
-mirRef_agElem ::
-  R.Expr MIR s UsizeType ->
-  Word ->
-  C.TypeRepr tp ->
-  R.Expr MIR s MirReferenceType ->
-  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-mirRef_agElem off sz tpr ref = G.extensionStmt $ MirRef_AgElem off sz tpr ref
-
-mirRef_agElem_constOffset ::
-  Word ->
-  Word ->
-  C.TypeRepr tp ->
-  R.Expr MIR s MirReferenceType ->
-  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-mirRef_agElem_constOffset off sz tpr ref =
-  mirRef_agElem (R.App $ usizeLit $ fromIntegral off) sz tpr ref
-
-mirRef_agElem_unsized ::
+mirRef_agOffset ::
   R.Expr MIR s UsizeType ->
   R.Expr MIR s MirReferenceType ->
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-mirRef_agElem_unsized off ref = G.extensionStmt $ MirRef_AgElem_Unsized off ref
+mirRef_agOffset off ref = G.extensionStmt $ MirRef_AgOffset off ref
 
 -- | Index into a symbolic @crucible::array::Array<T>@ (_not_ a @[T; N]@)
 mirRef_arrayIndex ::
@@ -714,14 +701,6 @@ mirRef_peelIndex ::
 mirRef_peelIndex ref elemSize = do
     pair <- G.extensionStmt $ MirRef_PeelIndex ref elemSize
     return (S.getStruct i1of2 pair, S.getStruct i2of2 pair)
-
-mirRef_aggregateAsChunks ::
-  R.Expr MIR s UsizeType ->
-  R.Expr MIR s UsizeType ->
-  R.Expr MIR s MirReferenceType ->
-  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-mirRef_aggregateAsChunks chunkSize numChunks ref =
-    G.extensionStmt $ MirRef_AggregateAsChunks chunkSize numChunks ref
 
 debugPrintMirRef ::
   String ->

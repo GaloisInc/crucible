@@ -1,0 +1,14 @@
+test same_repr/<DISAMB>::crux_test[0]: u = {0..1 -> ite ccond@1:b 0x2a:[8] 0x54:[8]
+, 1..2 -> ite ccond@1:b 0x54:[8] 0x2a:[8]
+, size 2}
+[Crux] Attempting to prove verification conditions.
+ok
+
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 2
+[Crux]   Proved: 2
+[Crux]   Disproved: 0
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Valid.
