@@ -45,7 +45,7 @@ jobs:
       release: ${{ steps.config.outputs.release }}
       retention-days: ${{ steps.config.outputs.retention-days }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 0
 
@@ -86,7 +86,7 @@ jobs:
           # We want Windows soon, but it doesn't need to be now
     name: crux-mir - GHC v${{ matrix.ghc }} - ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.2
         with:
           submodules: true
 
@@ -248,7 +248,7 @@ jobs:
             image-repo: GaloisInc/crux
             cache: ghcr.io/galoisinc/cache-crux-mir
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.2
         with:
           submodules: true
 
