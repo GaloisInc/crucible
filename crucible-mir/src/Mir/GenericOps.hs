@@ -110,7 +110,6 @@ instance GenericOps TerminatorKind
 instance GenericOps Operand
 instance GenericOps Constant
 instance GenericOps PlaceElem
-instance GenericOps NullOp
 instance GenericOps BorrowKind
 instance GenericOps UnOp
 instance GenericOps BinOp

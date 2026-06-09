@@ -349,7 +349,6 @@ instance FromJSON Rvalue where
                                               Just (String "Len") -> Len <$> v .: "lv"
                                               Just (String "Cast") -> Cast <$> v .: "type" <*> v .: "op" <*> v .: "ty"
                                               Just (String "BinaryOp") -> BinaryOp <$> v .: "op" <*> v .: "L" <*> v .: "R"
-                                              Just (String "NullaryOp") -> NullaryOp <$> v .: "op" <*> v .: "ty"
                                               Just (String "UnaryOp") -> UnaryOp <$> v .: "uop" <*> v .: "op"
                                               Just (String "Discriminant") -> Discriminant <$> v .: "val" <*> v .: "ty"
                                               Just (String "Aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
@@ -396,13 +395,6 @@ instance FromJSON Operand where
                                                Just (String "Copy") -> Copy <$> v .: "data"
                                                Just (String "Constant") -> OpConstant <$> v .: "data"
                                                x -> fail ("base operand: " ++ show x)
-
-instance FromJSON NullOp where
-    parseJSON = withObject "NullOp" $ \v -> case lookupKM "kind" v of
-                                             Just (String "SizeOf") -> pure SizeOf
-                                             Just (String "AlignOf") -> pure AlignOf
-                                             Just (String "UbChecks") -> pure UbChecks
-                                             x -> fail ("bad nullOp: " ++ show x)
 
 instance FromJSON BorrowKind where
     parseJSON = withText "BorrowKind" $ \t ->
