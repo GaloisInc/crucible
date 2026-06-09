@@ -394,6 +394,7 @@ instance FromJSON Operand where
                                                Just (String "Move") -> Move <$> v .: "data"
                                                Just (String "Copy") -> Copy <$> v .: "data"
                                                Just (String "Constant") -> OpConstant <$> v .: "data"
+                                               Just (String "RuntimeChecks") -> OpRuntimeChecks <$> v .: "data"
                                                x -> fail ("base operand: " ++ show x)
 
 instance FromJSON BorrowKind where
@@ -405,6 +406,13 @@ instance FromJSON BorrowKind where
       else if T.isPrefixOf "Mut" t then pure Mutable
       else fail ("bad borrowKind: " ++ show t)
 
+instance FromJSON RuntimeChecks where
+    parseJSON = withObject "BinOp" $ \v ->
+        case lookupKM "kind" v of
+            Just (String "UbChecks") -> pure UbChecks
+            Just (String "ContractChecks") -> pure ContractChecks
+            Just (String "OverflowChecks") -> pure OverflowChecks
+            x -> fail ("bad RuntimeChecks variant: " ++ show x)
 
 
 

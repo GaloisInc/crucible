@@ -111,6 +111,7 @@ instance GenericOps Operand
 instance GenericOps Constant
 instance GenericOps PlaceElem
 instance GenericOps BorrowKind
+instance GenericOps RuntimeChecks
 instance GenericOps UnOp
 instance GenericOps BinOp
 instance GenericOps VtableItem

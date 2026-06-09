@@ -414,6 +414,15 @@ evalOperand (M.Move lv) = evalPlace lv >>= readPlace (M.typeOf lv)
 evalOperand (M.OpConstant (M.Constant conty constval)) = do
     Some tpr <- tyToReprM conty
     transConstVal conty (Some tpr) constval
+evalOperand (M.OpRuntimeChecks rc) = do
+    let enable = case rc of
+            -- Disable undefined behavior checks.
+            -- TODO: re-enable this later, and fix the tests that break
+            -- (see https://github.com/GaloisInc/mir-json/issues/107)
+            UbChecks -> False
+            ContractChecks -> True
+            OverflowChecks -> True
+    return $ MirExp C.BoolRepr $ R.App $ E.BoolLit enable
 evalOperand (M.Temp rv) = evalRval rv
 
 -- | Dereference a `MirExp` (which must be `MirReferenceRepr` pointing to a
