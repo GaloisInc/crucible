@@ -714,18 +714,6 @@ evalBinOp bop mat me1 me2 =
                 (S.app $ E.BVEq w y $ S.app $ eBVLit w ((1 `shiftL` w') - 1))
       where w' = fromIntegral $ intValue w
 
--- Nullary ops in rust are used for resource allocation, so are not interpreted
-transNullaryOp ::  M.NullOp -> M.Ty -> MirGenerator h s ret (MirExp s)
-transNullaryOp nop ty =
-  case nop of
-    M.AlignOf -> getLayoutFieldAsMirExp "AlignOf" layAlign ty
-    M.SizeOf -> getLayoutFieldAsMirExp "SizeOf" laySize ty
-    M.UbChecks -> do
-      -- Disable undefined behavior checks.
-      -- TODO: re-enable this later, and fix the tests that break
-      -- (see https://github.com/GaloisInc/mir-json/issues/107)
-      return $ MirExp C.BoolRepr $ R.App $ E.BoolLit False
-
 transUnaryOp :: M.UnOp -> M.Operand -> MirGenerator h s ret (MirExp s)
 transUnaryOp uop op = do
     mop <- evalOperand op
@@ -1373,7 +1361,6 @@ evalRval (M.Len lv) =
         ty -> mirFail $ "don't know how to take Len of " ++ show ty
 evalRval (M.Cast ck op ty) = evalCast ck op ty
 evalRval (M.BinaryOp binop op1 op2) = transBinOp binop op1 op2
-evalRval (M.NullaryOp nop nty) = transNullaryOp  nop nty
 evalRval (M.UnaryOp uop op) = transUnaryOp  uop op
 evalRval (M.Discriminant lv discrTy) = do
     let enumTy = typeOf lv

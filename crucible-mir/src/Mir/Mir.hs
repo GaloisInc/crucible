@@ -437,7 +437,6 @@ data Rvalue =
         -- ^ load length from a slice
       | Cast { _cck :: CastKind, _cop :: Operand, _cty :: Ty }
       | BinaryOp { _bop :: BinOp, _bop1 :: Operand, _bop2 :: Operand }
-      | NullaryOp { _nuop :: NullOp, _nty :: Ty }
       | UnaryOp { _unop :: UnOp, _unoperand :: Operand}
       | Discriminant { _dvar :: Lvalue,
                        -- | The type of the discriminant. That is, /not/ the
@@ -521,12 +520,6 @@ data Operand =
       -- rustc-generated MIR, but we produce them internally in some cases.
       | Temp Rvalue
       deriving (Show, Eq, Ord, Generic)
-
-data NullOp =
-        SizeOf
-      | AlignOf
-      | UbChecks
-      deriving (Show,Eq, Ord, Generic)
 
 
 
@@ -854,10 +847,6 @@ instance TypeOf Rvalue where
             Unchecked op'' -> f op''
             WithOverflow op'' -> TyTuple [f op'', TyBool]
     in f op
-  typeOf (NullaryOp op _ty) = case op of
-    SizeOf -> TyUint USize
-    AlignOf -> TyUint USize
-    UbChecks -> TyBool
   typeOf (UnaryOp op x) =
     let ty = typeOf x
     in case op of

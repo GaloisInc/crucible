@@ -217,7 +217,6 @@ instance Pretty Rvalue where
     pretty (Len a) = pretty_fn1 "len" a
     pretty (Cast a b c) = pretty_fn3 "Cast" a b c
     pretty (BinaryOp a b c) = pretty b <+> pretty a <+> pretty c
-    pretty (NullaryOp a _b) = pretty a
     pretty (UnaryOp a b) = pretty a <+> pretty b
     pretty (Discriminant a b) = pretty_fn2 "Discriminant" a b
     pretty (Aggregate a b) = pretty_fn2 "Aggregate" a b
@@ -283,11 +282,6 @@ instance Pretty Constant where
           pretty_fn1 "const" "<ZST:" <+> pretty a <> pretty ">"
         _ ->
           pretty_fn1 "const" b
-
-instance Pretty NullOp where
-    pretty SizeOf = pretty "sizeof"
-    pretty AlignOf = pretty "alignof"
-    pretty UbChecks = pretty "ub_checks"
 
 instance Pretty BorrowKind where
     pretty = viaShow
