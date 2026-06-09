@@ -86,6 +86,7 @@ instance Pretty Ty where
     pretty (TyFloat floatKind) = pretty floatKind
     pretty (TyDowncast adt i)    = parens (pretty adt <+> pretty "as" <+> pretty i)
     pretty TyNever = pretty "never"
+    pretty (TyPat ty) = pretty "pat" <+> pretty ty
     pretty TyLifetime = pretty "lifetime"
     pretty (TyConst c) = braces (pretty c)
       -- Using braces is redundant for constants like `2`, but it would be
