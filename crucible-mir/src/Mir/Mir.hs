@@ -100,6 +100,7 @@ data Ty =
       | TyDowncast !Ty !Integer     -- result type of downcasting an ADT. Ty must be an ADT type
       | TyNever
       | TyForeign       -- External types, of unknown size and alignment
+      | TyPat !Ty       -- Pattern type.  We treat this as a new type and ignore the pattern.
 
       | TyConst !ConstVal
         -- ^ Represents constants in 'Substs'. This has no effect on the

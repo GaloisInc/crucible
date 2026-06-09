@@ -106,6 +106,7 @@ instance FromJSON InlineTy where
       Just (String "Float") -> TyFloat <$> v .: "size"
       Just (String "Never") -> pure TyNever
       Just (String "Foreign") -> pure TyForeign
+      Just (String "Pat") -> TyPat <$> v .: "ty"
       Just (String "Const") -> TyConst <$> v .: "constant"
       r -> fail $ "unsupported ty: " ++ show r
 
