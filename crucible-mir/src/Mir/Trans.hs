@@ -101,7 +101,6 @@ import qualified Mir.DefId as M
 
 import Mir.Intrinsics
 import Mir.Generator
-import Mir.GenericOps
 import Mir.TransTy
 
 import Mir.PP (fmt, fmtDoc)
@@ -3079,7 +3078,7 @@ transVirtCall colState intrName' methName dynTraitName methIndex
 
 mkDiscrMap :: M.Collection -> Map M.AdtName [Integer]
 mkDiscrMap col = mconcat
-    [ Map.singleton (adt ^. M.adtname) (adtIndices adt col)
+    [ Map.singleton (adt ^. M.adtname) (map (\v -> v ^. M.discrval) $ adt ^. M.adtvariants)
     | adt <- Map.elems $ col ^. M.adts, M.isEnum (adt ^. M.adtkind) ]
 
 -- | Gather all of the 'M.DefId's in a 'M.Collection' and construct a

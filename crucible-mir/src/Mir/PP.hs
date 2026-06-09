@@ -105,10 +105,6 @@ instance Pretty Adt where
 instance Pretty AdtKind where
   pretty = viaShow
 
-instance Pretty VariantDiscr where
-  pretty (Explicit a) = pretty_fn1 "Explicit" a
-  pretty (Relative a) = pretty_fn1 "Relative" a
-
 instance Pretty CoroutineArgs where
   pretty (CoroutineArgs discrTy upvarTys savedTys fieldMap) =
     pretty discrTy
@@ -121,9 +117,9 @@ instance Pretty CtorKind where
   pretty = viaShow
 
 instance Pretty Variant where
-  pretty (Variant nm dscr flds knd mbVal inh) =
+  pretty (Variant nm flds knd discrVal inh) =
     pretty "Variant" <>
-      tupled [pretty nm, pretty dscr, pretty flds, pretty knd, pretty mbVal, pretty inh]
+      tupled [pretty nm, pretty flds, pretty knd, pretty discrVal, pretty inh]
 
 instance Pretty Field where
     pretty (Field nm ty) = pretty_fn2 "Field" nm ty

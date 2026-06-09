@@ -702,7 +702,7 @@ findUnsizedTailM ty = do
     return $ findUnsizedTail col ty
 
 variantFields :: TransTyConstraint => M.Collection -> M.Variant -> Either String (Some C.CtxRepr)
-variantFields col (M.Variant _vn _vd vfs _vct _mbVal _inh) = do
+variantFields col (M.Variant _vn vfs _vct _discrVal _inh) = do
     frs <- traverse (\field -> mapSome fieldType <$> tyToFieldRepr col (field ^. M.fty)) vfs
     tyReprListToCtx frs (\repr -> Right (Some repr))
 
@@ -738,7 +738,7 @@ tyToFieldRepr col ty
   | otherwise = viewSome (Some . FieldRepr . FkMaybe) <$> tyToRepr col ty
 
 variantFields' :: TransTyConstraint => M.Collection -> M.Variant -> Either String (Some FieldCtxRepr)
-variantFields' col (M.Variant _vn _vd vfs _vct _mbVal _inh) = do
+variantFields' col (M.Variant _vn vfs _vct _discrVal _inh) = do
     frs <- traverse (tyToFieldRepr col . (^. M.fty)) vfs
     return (fieldReprListToCtx frs Some)
 

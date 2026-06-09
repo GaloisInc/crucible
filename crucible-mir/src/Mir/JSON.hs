@@ -182,12 +182,6 @@ instance FromJSON AdtKind where
         Just (String "Union") -> pure Union
         mbKind -> fail $ "unsupported adt kind " ++ show mbKind
 
-instance FromJSON VariantDiscr where
-    parseJSON = withObject "VariantDiscr" $ \v -> case lookupKM "kind" v of
-                                                    Just (String "Explicit") -> Explicit <$> v .: "name"
-                                                    Just (String "Relative") -> Relative <$> v .: "index"
-                                                    _ -> fail "unspported variant discriminator"
-
 instance FromJSON CtorKind where
     parseJSON = withObject "CtorKind" $ \v -> case lookupKM "kind" v of
                                                 Just (String "Fn") -> pure FnKind
@@ -196,11 +190,9 @@ instance FromJSON CtorKind where
 instance FromJSON Variant where
     parseJSON = withObject "Variant" $ \v ->
         Variant <$> v .: "name"
-                <*> v .: "discr"
                 <*> v .: "fields"
                 <*> v .: "ctor_kind"
-                <*> do  val <- v .:? "discr_value"
-                        convertIntegerText `traverse` val
+                <*> (v .: "discr_value" >>= convertIntegerText)
                 <*> v .: "inhabited"
 
 instance FromJSON Field where

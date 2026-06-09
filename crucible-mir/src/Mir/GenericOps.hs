@@ -29,7 +29,6 @@ import Data.Text (Text)
 import Data.Vector(Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
-import Lens.Micro ((^.))
 
 import Mir.DefId
 import Mir.Mir
@@ -56,37 +55,6 @@ class GenericOps a where
   default uninternTys :: (Generic a, GenericOps' (Rep a), HasCallStack) => (Text -> Ty) -> a -> a
   uninternTys f x = to (uninternTys' f (from x))
 
-
---------------------------------------------------------------------------------------
-
--- | Find the discriminant values used for each variant of an enum.  Some
--- generated `PartialEq` impls use `Rvalue::Discriminant` and compare the
--- result to the constants from the enum definition.
-adtIndices :: Adt -> Collection -> [Integer]
-adtIndices (Adt _aname _kind vars _ _ _ _) col = go 0 vars
-  where
-    go _ [] = []
-    go lastExplicit (v : vs) =
-        let discr = getDiscr lastExplicit v
-            lastExplicit' = if isExplicit v then discr else lastExplicit
-        in discr : go lastExplicit' vs
-
-    getDiscr _ (Variant _ _ _ _ (Just i) _) = i
-
-    getDiscr _ (Variant name (Explicit did) _fields _knd _ _) = case Map.lookup did (_functions col) of
-        Just fn -> case fn ^. fbody.mblocks of
-            ( BasicBlock _info (BasicBlockData [Statement (Assign _lhs (Use (OpConstant (Constant _ty (ConstInt i))))) _loc] _term) ):_ ->
-                fromIntegerLit i
-
-            _ -> error ("enum discriminant constant should only have one basic block [variant id:" ++ show _aname ++ " discr index:" ++ show name ++ "]")
-
-        Nothing -> error $ "cannot find discriminant constant " ++ show did ++
-            " for variant " ++ show name
-    getDiscr lastExplicit (Variant _vname (Relative i) _fields _kind _ _) =
-        lastExplicit + toInteger i
-
-    isExplicit (Variant _ (Explicit _) _ _ _ _) = True
-    isExplicit _ = False
 
 --------------------------------------------------------------------------------------
 
@@ -121,7 +89,6 @@ instance GenericOps BaseSize
 instance GenericOps FloatKind
 instance GenericOps FnSig
 instance GenericOps Adt
-instance GenericOps VariantDiscr
 instance GenericOps AdtKind
 instance GenericOps CtorKind
 instance GenericOps Variant
