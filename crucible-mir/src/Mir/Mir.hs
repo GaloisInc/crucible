@@ -516,10 +516,17 @@ data Operand =
         Copy Lvalue
       | Move Lvalue
       | OpConstant Constant
+      | OpRuntimeChecks RuntimeChecks
       -- | The result of evaluating an Rvalue.  This never appears in
       -- rustc-generated MIR, but we produce them internally in some cases.
       | Temp Rvalue
       deriving (Show, Eq, Ord, Generic)
+
+data RuntimeChecks =
+        UbChecks
+      | ContractChecks
+      | OverflowChecks
+      deriving (Show,Eq, Ord, Generic)
 
 
 
@@ -873,6 +880,7 @@ instance TypeOf Operand where
     typeOf (Move lv) = typeOf lv
     typeOf (Copy lv) = typeOf lv
     typeOf (OpConstant c) = typeOf c
+    typeOf (OpRuntimeChecks _) = TyBool
     typeOf (Temp rv) = typeOf rv
 
 instance TypeOf Constant where

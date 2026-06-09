@@ -258,6 +258,7 @@ instance Pretty Operand where
     pretty (OpConstant c) = pretty c
     pretty (Move c) = pretty_fn1 "move" c
     pretty (Copy c) = pretty_fn1 "copy" c
+    pretty (OpRuntimeChecks rc) = pretty_fn1 "runtime_checks" rc
     pretty (Temp c) = pretty_fn1 "temp" c
 
 instance Pretty Constant where
@@ -284,6 +285,9 @@ instance Pretty Constant where
           pretty_fn1 "const" b
 
 instance Pretty BorrowKind where
+    pretty = viaShow
+
+instance Pretty RuntimeChecks where
     pretty = viaShow
 
 
