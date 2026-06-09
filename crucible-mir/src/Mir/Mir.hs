@@ -256,11 +256,6 @@ isEnum :: AdtKind -> Bool
 isEnum (Enum {}) = True
 isEnum _ = False
 
-data VariantDiscr
-  = Explicit DefId
-  | Relative Int
-  deriving (Eq, Ord, Show, Generic)
-
 
 data CtorKind
   = FnKind
@@ -270,12 +265,11 @@ data CtorKind
 
 data Variant = Variant {
   _vname :: DefId,
-  _vdiscr :: VariantDiscr,
   -- | Fields of the variant.  For structs/variants with named fields, these go
   -- in declaration order.
   _vfields :: [Field],
   _vctorkind :: Maybe CtorKind,
-  _discrval :: Maybe Integer,
+  _discrval :: Integer,
   _vinhabited :: Bool }
     deriving (Eq, Ord,Show, Generic)
 
