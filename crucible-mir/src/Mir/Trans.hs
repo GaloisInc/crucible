@@ -1410,21 +1410,30 @@ evalRval rv@(M.Aggregate ak ops) =
             -- representation as tuples.
             evalTupleRval (typeOf rv) ops
         M.AKRawPtr ty _mutbl -> do
-            args <- mapM evalOperand ops
-            (MirExp tprPtr ptr, MirExp tprMeta meta) <- case args of
+            col <- use $ cs . collection
+            (opPtr, opMeta) <- case ops of
                 [p, m] -> return (p, m)
                 _ -> mirFail $ "evalRval: expected exactly two operands for " ++ show ak
-                    ++ ", but got " ++ show args
-            case ty of
-                TySlice _ -> case (tprPtr, tprMeta) of
-                    (MirReferenceRepr, UsizeRepr) -> do
-                        let tup = S.mkStruct
-                                (Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> knownRepr)
-                                (Ctx.Empty Ctx.:> ptr Ctx.:> meta)
-                        return $ MirExp MirSliceRepr tup
-                    _ -> mirFail $ "evalRval: unexpected reprs " ++ show (tprPtr, tprMeta)
-                        ++ " for aggregate " ++ show ak
-                _ -> mirFail $ "evalRval: unsupported output type for " ++ show ak
+                    ++ ", but got " ++ show ops
+            MirExp tprPtr ptr <- evalOperand opPtr
+            MirExp tprMeta meta <- evalOperand opMeta
+            case (ty, tprPtr, tprMeta) of
+                (TySlice _, MirReferenceRepr, UsizeRepr) -> do
+                    let tup = S.mkStruct
+                            (Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> knownRepr)
+                            (Ctx.Empty Ctx.:> ptr Ctx.:> meta)
+                    return $ MirExp MirSliceRepr tup
+                (TyStr, MirReferenceRepr, UsizeRepr) -> do
+                    let tup = S.mkStruct
+                            (Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> knownRepr)
+                            (Ctx.Empty Ctx.:> ptr Ctx.:> meta)
+                    return $ MirExp MirSliceRepr tup
+                (_, MirReferenceRepr, MirAggregateRepr)
+                  | Nothing <- findUnsizedTail col ty
+                  , TyTuple [] <- typeOf opMeta -> do
+                    return $ MirExp MirReferenceRepr ptr
+                _ -> mirFail $ "evalRval: AKRawPtr: unsupported input types "
+                    ++ show (typeOf opPtr, typeOf opMeta) ++ " and output type " ++ show ty
 evalRval (M.RAdtAg (M.AdtAg adt agv ops ty optField)) = do
     case ty of
       -- It's not legal to construct a MethodSpec using a Rust struct
