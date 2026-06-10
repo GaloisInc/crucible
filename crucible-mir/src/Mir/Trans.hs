@@ -1034,6 +1034,10 @@ evalCast' ck ty1 e ty2  = do
       -- we decide to track that, this needs to be updated.
       (M.UnsafeFnPointer, _, _) | ty1 == ty2 -> pure e
 
+      -- Subtype is a no-op, as it is only present in the MIR to making subtyping
+      -- explicit during optimizations and codegen.
+      (M.Subtype, _, _) -> pure e
+
       _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++
         "\n  ty: " ++ (show ty1) ++ "\n  as: " ++ (show ty2)
   where
@@ -1736,9 +1740,6 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.ConstantIndex idx _minLen fromEnd) =
 -- Downcast is a no-op - it only affects the type reported by `M.type_of`.  The
 -- `PField` case above looks for `TyDowncast` to handle enum accesses.
 evalPlaceProj _ pl (M.Downcast _idx) = return pl
--- Subtype is a no-op, as it is only present in the MIR to making subtyping
--- explicit during optimizations and codegen.
-evalPlaceProj _ pl (M.Subtype _ty) = return pl
 -- Subslicing is defined on slices and arrays. See the haddock for `Subslice`
 -- for details on the semantics of `fromIndex` and `toIndex`.
 evalPlaceProj ty (MirPlace tpr ref meta) (M.Subslice fromIndex toIndex fromEnd) =

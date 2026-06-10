@@ -415,7 +415,6 @@ data PlaceElem =
         -- beginning - so if @s@ has length @len@, elements are instead selected
         -- from the (still half-open) range @[from, len - to)@.
       | Downcast Integer
-      | Subtype Ty
       deriving (Show, Eq, Ord, Generic)
 
 -- Called "Place" in rustc itself, hence the names of PlaceBase and PlaceElem
@@ -597,6 +596,7 @@ data CastKind =
   | UnsizeVtable VtableName
   | MutToConstPointer
   | Transmute
+  | Subtype
   deriving (Show,Eq, Ord, Generic)
 
 data Constant = Constant Ty ConstVal
@@ -807,7 +807,6 @@ typeOfProj elm baseTy = case elm of
     ConstantIndex{} -> peelIdx baseTy
     Downcast i      -> TyDowncast baseTy i   --- TODO: check this
     Subslice{}      -> TySlice (peelIdx baseTy)
-    Subtype t       -> t
   where
     peelRef :: Ty -> Ty
     peelRef (TyRef t _) = t

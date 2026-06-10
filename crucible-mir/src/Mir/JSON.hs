@@ -333,7 +333,6 @@ instance FromJSON PlaceElem where
         Just (String "ConstantIndex") -> ConstantIndex <$> v .: "offset" <*> v .: "min_length" <*> v .: "from_end"
         Just (String "Subslice") -> Subslice <$> v .: "from" <*> v .: "to" <*> v .: "from_end"
         Just (String "Downcast") -> Downcast <$> v .: "variant"
-        Just (String "Subtype") -> Subtype <$> v .: "ty"
         x -> fail ("bad PlaceElem: " ++ show x)
 
 instance FromJSON Lvalue where
@@ -494,6 +493,7 @@ instance FromJSON CastKind where
             Just (String "PtrToPtr") -> pure Misc
             Just (String "FnPtrToPtr") -> pure Misc
             Just (String "Transmute") -> pure Transmute
+            Just (String "Subtype") -> pure Subtype
             x -> fail ("bad CastKind: " ++ show x)
 
 instance FromJSON Constant where
