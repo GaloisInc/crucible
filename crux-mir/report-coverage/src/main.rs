@@ -660,7 +660,7 @@ impl Reporter {
     /// ✅ if `fun` was called, and has 100% branch coverage
     /// 🚧 if `fun` was called, but the coverage is less than 100%
     /// ❌ if `fun` was not called
-    fn coverage_stats(&self, fun: &str, called: bool, branch_seen: usize, branch_tot: usize) {
+    fn coverage_stats(&self, fun: &str, called: bool, branch_seen: usize, branch_tot: usize) -> usize {
         use std::io::Write;
         use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 
@@ -686,6 +686,7 @@ impl Reporter {
 
         stdout.set_color(ColorSpec::new().set_bold(true).set_fg(Some(color))).unwrap();
         writeln!(&mut stdout, "{}/{}", branch_seen, branch_tot).unwrap();
+        perc
     }
 
     fn warn(&mut self, span: &str, msg: impl Display) {
@@ -896,11 +897,16 @@ fn report_all(reporter: &mut Reporter, cov: &Coverage) {
         summary.push((fun, fn_cov.fn_called, seen, tot));
     }
 
-
+    let mut sum_coverage = 0;
+    let mut iter = 0;
     for (fun, called, seen,tot) in summary.into_iter() {
-        reporter.coverage_stats(fun, called, seen, tot);
+        sum_coverage = sum_coverage + reporter.coverage_stats(fun, called, seen, tot);
+        iter = iter + 1;
     }
-    
+
+    let average_coverage = sum_coverage as f32 / iter as f32;
+    println!("Average coverage: {}%, {} visited functions", average_coverage, iter);
+
 }
 
 
