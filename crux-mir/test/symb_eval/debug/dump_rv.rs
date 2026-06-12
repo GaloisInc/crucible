@@ -18,14 +18,16 @@ fn test() {
     let mut v = [0u8, 1u8];
     dump_rv("d", v);
     let mut vp = v.as_mut_ptr();
-    crucible::alloc::reallocate(vp, 5);
+    vp = crucible::alloc::reallocate(vp, 4);
     unsafe {
         *vp.offset(2) = 42;
         if v[0] == 0 {
             *vp.offset(3) = 27;
         }
     }
-    crucible::dump_rv("e", v);
+    let v_slice: &[u8] = unsafe { std::slice::from_raw_parts(vp, 4) };
+    let v_array: [u8; 4] = v_slice.try_into().unwrap();
+    crucible::dump_rv("e", v_array);
 
     let mut arr = Array::<u8>::zeroed();
     arr = arr.update(2, 42);
