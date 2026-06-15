@@ -5,7 +5,7 @@ use std::fs;
 use std::hash::{Hash, Hasher, SipHasher};
 use std::path::Path;
 use std::process;
-use clap::{App, Arg, ArgMatches};
+use clap::{App, Arg, ArgMatches, crate_version};
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::files::{SimpleFiles, Files};
 use serde_json::Value;
@@ -33,9 +33,15 @@ fn parse_args() -> ArgMatches<'static> {
              .long("no-merge-monos")
              .help("don't merge corresponding branches in different monomorphizations of the \
                     same function"))
+        .arg(Arg::with_name("ignore-hash")
+             .long("ignore-hash")
+             .short("i")
+             .help("Ignore hash mismatches in the coverage report. This is useful when \
+             collating coverage from multiple compilation units."))
         .arg(Arg::with_name("no-color")
              .long("no-color")
              .help("don't colorize output"))
+        .version(crate_version!())
         .get_matches()
 }
 
@@ -972,15 +978,21 @@ fn main() {
               top_crates.insert(c);
             }
         }
-        
+
         let trans_bytes = fs::read(trans_path).unwrap();
         let cur_trans_hash = hash(&trans_bytes);
         if let Some(old_trans_hash) = trans_hash {
-            assert!(
-                cur_trans_hash == old_trans_hash,
-                "translation hashes for {:?} and {:?} do not match",
-                report_path_str, m.value_of_os("input").unwrap(),
-            );
+            if m.is_present("ignore-hash") {
+                println!("Warning! Translation hashes for {:?} and {:?} do not match",
+                    report_path_str, m.value_of_os("input").unwrap());
+            }
+            else {
+                assert!(
+                    cur_trans_hash == old_trans_hash,
+                    "translation hashes for {:?} and {:?} do not match",
+                    report_path_str, m.value_of_os("input").unwrap(),
+                );
+            }
         } else {
             let trans_json: Value = serde_json::from_slice(&trans_bytes).unwrap();
             drop(trans_bytes);
