@@ -692,6 +692,7 @@ impl Reporter {
 
         stdout.set_color(ColorSpec::new().set_bold(true).set_fg(Some(color))).unwrap();
         writeln!(&mut stdout, "{}/{}", branch_seen, branch_tot).unwrap();
+        stdout.set_color(ColorSpec::new().set_fg(None)).unwrap();
         perc
     }
 
