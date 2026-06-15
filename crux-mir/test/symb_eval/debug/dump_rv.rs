@@ -21,7 +21,7 @@ fn test() {
     vp = crucible::alloc::reallocate(vp, 4);
     unsafe {
         *vp.offset(2) = 42;
-        if v[0] == 0 {
+        if *vp == 0 {
             *vp.offset(3) = 27;
         }
     }
