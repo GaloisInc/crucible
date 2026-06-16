@@ -1979,12 +1979,13 @@ mkZero :: C.TypeRepr tp -> MirGenerator h s ret (R.Expr MIR s tp)
 mkZero (C.BVRepr w) = return $ R.App $ eBVLit w 0
 mkZero tpr = mirFail $ "don't know how to zero-initialize " ++ show tpr
 
--- fn reallocate<T>(ptr: *mut T, new_len: usize)
+-- fn reallocate<T>(ptr: *mut T, new_len: usize) -> *mut T
 reallocate :: (ExplodedDefId, CustomRHS)
 reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
     Substs [elemTy] -> Just $ CustomOp $ \_ ops -> case ops of
         [ MirExp MirReferenceRepr ptr, MirExp UsizeRepr newLen ] -> do
             elemSize <- tySizeM elemTy
+            Some elemTpr <- tyToReprM elemTy
 
             (agPtr, idx) <- mirRef_peelIndex ptr elemSize
 
@@ -1995,8 +1996,10 @@ reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
             oldAg <- readMirRef MirAggregateRepr agPtr
             let newSize = R.App (usizeMul newLen (R.App (usizeLit (fromIntegral elemSize))))
             newAg <- mirAggregate_resize oldAg newSize
-            writeMirRef MirAggregateRepr agPtr newAg
-            MirExp MirAggregateRepr <$> mirAggregate_zst
+            newAgPtr <- newMirRef MirAggregateRepr
+            writeMirRef MirAggregateRepr newAgPtr newAg
+            newAgElem <- mirRef_agElem idx elemSize elemTpr newAgPtr
+            return $ MirExp MirReferenceRepr newAgElem
         _ -> mirFail $ "BUG: invalid arguments to reallocate: " ++ show ops
     _ -> Nothing)
 
