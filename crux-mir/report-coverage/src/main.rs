@@ -26,7 +26,10 @@ fn parse_args() -> ArgMatches<'static> {
              .long("filter")
              .takes_value(true)
              .value_name("FILE[:[LINE]-[LINE]]")
-             .help("only report uncovered branches in the indicated source region(s)")
+             .help("only report uncovered branches in the indicated source region(s).\
+                    Use filter to remove functions from the calculated coverage,\
+                    in that case the visited functions that contain the filter value\
+                    are skipped (useful for removing tests and similar from the coverage")
              .multiple(true)
              .number_of_values(1))
         .arg(Arg::with_name("no-merge-monos")
@@ -38,6 +41,10 @@ fn parse_args() -> ArgMatches<'static> {
              .short("i")
              .help("Ignore hash mismatches in the coverage report. This is useful when \
              collating coverage from multiple compilation units."))
+        .arg(Arg::with_name("average")
+             .long("average")
+             .short("a")
+             .help("Print average coverage (percent and functions)."))
         .arg(Arg::with_name("no-color")
              .long("no-color")
              .help("don't colorize output"))
@@ -830,7 +837,7 @@ impl Filter {
 }
 
 
-fn report_all(reporter: &mut Reporter, cov: &Coverage) {
+fn report_all(reporter: &mut Reporter, cov: &Coverage) -> (f32, i32) {
 
     let mut summary = vec![];
 
@@ -907,12 +914,26 @@ fn report_all(reporter: &mut Reporter, cov: &Coverage) {
     let mut sum_coverage = 0;
     let mut iter = 0;
     for (fun, called, seen,tot) in summary.into_iter() {
+        let mut skip = false;
+        if let Some(filters) = &reporter.filters {
+            // see if the function contains any of the filters
+            for val in filters {
+                if fun.contains(&val.filename) {
+                    skip = true;
+                    break
+                }
+            }
+        }
+        if skip {
+            continue;
+        }
         sum_coverage = sum_coverage + reporter.coverage_stats(fun, called, seen, tot);
         iter = iter + 1;
     }
 
     let average_coverage = sum_coverage as f32 / iter as f32;
-    println!("Average coverage: {}%, {} visited functions", average_coverage, iter);
+
+    (average_coverage, iter)
 
 }
 
@@ -1025,5 +1046,9 @@ fn main() {
         termcolor::ColorChoice::Auto
     };
     let mut reporter = Reporter::new(filters, color_choice);
-    report_all(&mut reporter, &coverage);
+    let (average_coverage, iter) = report_all(&mut reporter, &coverage);
+
+    if m.is_present("average") {
+        println!("Average coverage: {}%, {} visited functions", average_coverage, iter);
+    }
 }
