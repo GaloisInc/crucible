@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -Eeuxo pipefail
 
-DATE=$(date "+%Y-%m-%d")
 [[ "$RUNNER_OS" == 'Windows' ]] && IS_WIN=true || IS_WIN=false
 BIN=bin
 EXT=""
@@ -136,9 +135,7 @@ bundle_crux_llvm_files() {
   fi
   cp crux-llvm/README.md dist/doc
   cp -r crux-llvm/c-src dist
-  VERSION=${VERSION:-$DATE}
   strip dist/bin/*
-  zip_dist crux-llvm
 }
 
 bundle_crux_mir_files() {
@@ -147,9 +144,7 @@ bundle_crux_mir_files() {
   cp crux-mir/README.md dist/doc
   # It's less fragile to have users install mir-json themselves
   # (cd dependencies/mir-json && cargo install --locked --force --root ../../dist)
-  VERSION=${VERSION:-$DATE}
   strip dist/bin/*
-  zip_dist crux-mir
 }
 
 output() { echo "::set-output name=$1::$2"; }
