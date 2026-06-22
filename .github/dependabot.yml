@@ -8,3 +8,15 @@ updates:
   # https://docs.zizmor.sh/audits/#dependabot-cooldown
   cooldown:
     default-days: 7
+  # We pin github-actions dependencies to major version tags (e.g., vX) so that
+  # we automatically get the latest minor/patch release (e.g., vX.Y.Z) without
+  # needing to constantly update the tag number. For inexplicable reasons,
+  # however, dependabot will sometimes recommend that you switch out major
+  # version tags with explicit minor/patch version tags, which would defeat
+  # the point of using major version tags. As such, we explicitly instruct
+  # dependabot not to recommend minor/patch updates to avoid this.
+  ignore:
+    - dependency-name: "*"
+      update-types:
+        - "version-update:semver-minor"
+        - "version-update:semver-patch"
