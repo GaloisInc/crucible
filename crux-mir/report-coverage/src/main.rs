@@ -695,11 +695,16 @@ impl Reporter {
 
         let mut stdout = StandardStream::stdout(self.color_choice);
         stdout.set_color(ColorSpec::new().set_fg(None)).unwrap();
-        write!(&mut stdout, "{} {:3}% {}: ", call_stat, perc, fun).unwrap();
+        write!(&mut stdout, "{} {:3}% {}", call_stat, perc, fun).unwrap();
 
-        stdout.set_color(ColorSpec::new().set_bold(true).set_fg(Some(color))).unwrap();
-        writeln!(&mut stdout, "{}/{}", branch_seen, branch_tot).unwrap();
-        stdout.set_color(ColorSpec::new().set_fg(None)).unwrap();
+        // Don't print branch coverage for 0/0 cases that were called
+        if branch_seen == 0 && branch_tot == 0 && called{
+            writeln!(&mut stdout).unwrap();
+        } else {
+            stdout.set_color(ColorSpec::new().set_bold(true).set_fg(Some(color))).unwrap();
+            writeln!(&mut stdout, ": {}/{}", branch_seen, branch_tot).unwrap();
+            stdout.set_color(ColorSpec::new().set_fg(None)).unwrap();
+        }
         perc
     }
 
