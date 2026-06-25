@@ -2328,7 +2328,7 @@ coroutine_field = (["crucible", "coroutine", "coroutine_field"],
                     if actualU == expectU then
                         pure (MirExp MirReferenceRepr u)
                     else
-                        mirFail ("crucible::coroutine::coroutine_field expected type " ++ show expectU ++ " got type " ++ show actualU) 
+                        mirFail ("crucible::coroutine::coroutine_field expected type " ++ show expectU ++ " got type " ++ show actualU)
                 _ -> mirFail "BUG: coroutine_field pointer argument not a reference"
         _ -> Nothing
     )
