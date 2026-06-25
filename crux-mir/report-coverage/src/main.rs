@@ -33,12 +33,12 @@ fn parse_args() -> ArgMatches<'static> {
              .number_of_values(1))
         .arg(Arg::with_name("no-merge-monos")
              .long("no-merge-monos")
-             .help("don't merge corresponding branches in different monomorphizations of the \
+             .help("don't merge corresponding branches in different monomorphizations of the\
                     same function"))
-        .arg(Arg::with_name("ignore-hash")
-             .long("ignore-hash")
-             .short("i")
-             .help("Ignore hash mismatches in the coverage report. This is useful when \
+        .arg(Arg::with_name("warn-hash")
+             .long("warn-hash")
+             .short("w")
+             .help("Only warn if hash mismatches in the coverage report are detected. This is useful when\
              collating coverage from multiple compilation units."))
         .arg(Arg::with_name("average")
              .long("average")
@@ -1008,7 +1008,7 @@ fn main() {
         let trans_bytes = fs::read(trans_path).unwrap();
         let cur_trans_hash = hash(&trans_bytes);
         if let Some(old_trans_hash) = trans_hash {
-            if m.is_present("ignore-hash") {
+            if m.is_present("warn-hash") {
                 println!("Warning! Translation hashes for {:?} and {:?} do not match",
                     report_path_str, m.value_of_os("input").unwrap());
             }
