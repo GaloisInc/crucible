@@ -126,6 +126,7 @@ customOpDefs = Map.fromList $ [
                          , align_of_val
                          , intrinsics_assume
                          , assert_inhabited
+                         , black_box
                          , unlikely
                          , bitreverse
                          , volatile_load
@@ -2177,13 +2178,24 @@ atomic_funcs =
 
 --------------------------------------------------------------------------------------------------------------------------
 
+black_box :: (ExplodedDefId, CustomRHS)
+black_box = (name, rhs)
+    where
+        name = ["core", "intrinsics", "black_box"]
+        rhs = identity_rhs "black_box"
+
 unlikely :: (ExplodedDefId, CustomRHS)
 unlikely = (name, rhs)
     where
         name = ["core", "intrinsics", "unlikely"]
-        rhs _substs = Just $ CustomOp $ \_ ops -> case ops of
-          [op] -> pure op
-          _ -> mirFail $ "bad arguments to intrinsics::unlikely: " ++ show ops
+        rhs = identity_rhs "unlikely"
+
+-- | An implementation for intrinsics whose overrides take a single argument
+-- and return it unchanged.
+identity_rhs :: String -> CustomRHS
+identity_rhs name _substs = Just $ CustomOp $ \_ ops -> case ops of
+    [op] -> pure op
+    _ -> mirFail $ "bad arguments to " ++ name ++ ": " ++ show ops
 
 
 
@@ -2328,7 +2340,7 @@ coroutine_field = (["crucible", "coroutine", "coroutine_field"],
                     if actualU == expectU then
                         pure (MirExp MirReferenceRepr u)
                     else
-                        mirFail ("crucible::coroutine::coroutine_field expected type " ++ show expectU ++ " got type " ++ show actualU) 
+                        mirFail ("crucible::coroutine::coroutine_field expected type " ++ show expectU ++ " got type " ++ show actualU)
                 _ -> mirFail "BUG: coroutine_field pointer argument not a reference"
         _ -> Nothing
     )
