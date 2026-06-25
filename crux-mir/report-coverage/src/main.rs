@@ -5,7 +5,7 @@ use std::fs;
 use std::hash::{Hash, Hasher, SipHasher};
 use std::path::Path;
 use std::process;
-use clap::{App, Arg, ArgMatches};
+use clap::{App, Arg, ArgMatches, crate_version};
 use codespan_reporting::diagnostic::{Diagnostic, Label};
 use codespan_reporting::files::{SimpleFiles, Files};
 use serde_json::Value;
@@ -26,16 +26,28 @@ fn parse_args() -> ArgMatches<'static> {
              .long("filter")
              .takes_value(true)
              .value_name("FILE[:[LINE]-[LINE]]")
-             .help("only report uncovered branches in the indicated source region(s)")
+             .help("Only report uncovered branches in the indicated source region(s).\
+                    Any visited functions whose names contain the filter value are skipped\
+                    when computing the calculated coverage.")
              .multiple(true)
              .number_of_values(1))
         .arg(Arg::with_name("no-merge-monos")
              .long("no-merge-monos")
-             .help("don't merge corresponding branches in different monomorphizations of the \
+             .help("don't merge corresponding branches in different monomorphizations of the\
                     same function"))
+        .arg(Arg::with_name("warn-hash")
+             .long("warn-hash")
+             .short("w")
+             .help("Only warn if hash mismatches in the coverage report are detected. This is useful when\
+             collating coverage from multiple compilation units."))
+        .arg(Arg::with_name("average")
+             .long("average")
+             .short("a")
+             .help("Print average coverage (percent and functions)."))
         .arg(Arg::with_name("no-color")
              .long("no-color")
              .help("don't colorize output"))
+        .version(crate_version!())
         .get_matches()
 }
 
@@ -660,7 +672,7 @@ impl Reporter {
     /// ✅ if `fun` was called, and has 100% branch coverage
     /// 🚧 if `fun` was called, but the coverage is less than 100%
     /// ❌ if `fun` was not called
-    fn coverage_stats(&self, fun: &str, called: bool, branch_seen: usize, branch_tot: usize) {
+    fn coverage_stats(&self, fun: &str, called: bool, branch_seen: usize, branch_tot: usize) -> usize {
         use std::io::Write;
         use termcolor::{Color, ColorSpec, StandardStream, WriteColor};
 
@@ -682,10 +694,17 @@ impl Reporter {
 
         let mut stdout = StandardStream::stdout(self.color_choice);
         stdout.set_color(ColorSpec::new().set_fg(None)).unwrap();
-        write!(&mut stdout, "{} {:3}% {}: ", call_stat, perc, fun).unwrap();
+        write!(&mut stdout, "{} {:3}% {}", call_stat, perc, fun).unwrap();
 
-        stdout.set_color(ColorSpec::new().set_bold(true).set_fg(Some(color))).unwrap();
-        writeln!(&mut stdout, "{}/{}", branch_seen, branch_tot).unwrap();
+        // Don't print branch coverage for 0/0 cases that were called
+        if branch_seen == 0 && branch_tot == 0 && called{
+            writeln!(&mut stdout).unwrap();
+        } else {
+            stdout.set_color(ColorSpec::new().set_bold(true).set_fg(Some(color))).unwrap();
+            writeln!(&mut stdout, ": {}/{}", branch_seen, branch_tot).unwrap();
+            stdout.set_color(ColorSpec::new().set_fg(None)).unwrap();
+        }
+        perc
     }
 
     fn warn(&mut self, span: &str, msg: impl Display) {
@@ -822,7 +841,7 @@ impl Filter {
 }
 
 
-fn report_all(reporter: &mut Reporter, cov: &Coverage) {
+fn report_all(reporter: &mut Reporter, cov: &Coverage) -> (f32, usize) {
 
     let mut summary = vec![];
 
@@ -896,11 +915,24 @@ fn report_all(reporter: &mut Reporter, cov: &Coverage) {
         summary.push((fun, fn_cov.fn_called, seen, tot));
     }
 
-
-    for (fun, called, seen,tot) in summary.into_iter() {
-        reporter.coverage_stats(fun, called, seen, tot);
+    let mut sum_coverage = 0;
+    let visited_fns = summary.len();
+    'outer: for (fun, called, seen,tot) in summary.into_iter() {
+        if let Some(filters) = &reporter.filters {
+            // see if the function contains any of the filters
+            for val in filters {
+                if fun.contains(&val.filename) {
+                    continue 'outer;
+                }
+            }
+        }
+        sum_coverage = sum_coverage + reporter.coverage_stats(fun, called, seen, tot);
     }
-    
+
+    let average_coverage = sum_coverage as f32 / visited_fns as f32;
+
+    (average_coverage, visited_fns)
+
 }
 
 
@@ -966,15 +998,21 @@ fn main() {
               top_crates.insert(c);
             }
         }
-        
+
         let trans_bytes = fs::read(trans_path).unwrap();
         let cur_trans_hash = hash(&trans_bytes);
         if let Some(old_trans_hash) = trans_hash {
-            assert!(
-                cur_trans_hash == old_trans_hash,
-                "translation hashes for {:?} and {:?} do not match",
-                report_path_str, m.value_of_os("input").unwrap(),
-            );
+            if m.is_present("warn-hash") {
+                println!("Warning! Translation hashes for {:?} and {:?} do not match",
+                    report_path_str, m.value_of_os("input").unwrap());
+            }
+            else {
+                assert!(
+                    cur_trans_hash == old_trans_hash,
+                    "translation hashes for {:?} and {:?} do not match",
+                    report_path_str, m.value_of_os("input").unwrap(),
+                );
+            }
         } else {
             let trans_json: Value = serde_json::from_slice(&trans_bytes).unwrap();
             drop(trans_bytes);
@@ -1006,5 +1044,9 @@ fn main() {
         termcolor::ColorChoice::Auto
     };
     let mut reporter = Reporter::new(filters, color_choice);
-    report_all(&mut reporter, &coverage);
+    let (average_coverage, visited_fns) = report_all(&mut reporter, &coverage);
+
+    if m.is_present("average") {
+        println!("Average coverage: {}%, {} visited functions", average_coverage, visited_fns);
+    }
 }
