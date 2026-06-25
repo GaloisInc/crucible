@@ -841,7 +841,7 @@ impl Filter {
 }
 
 
-fn report_all(reporter: &mut Reporter, cov: &Coverage) -> (f32, i32) {
+fn report_all(reporter: &mut Reporter, cov: &Coverage) -> (f32, usize) {
 
     let mut summary = vec![];
 
@@ -916,28 +916,22 @@ fn report_all(reporter: &mut Reporter, cov: &Coverage) -> (f32, i32) {
     }
 
     let mut sum_coverage = 0;
-    let mut iter = 0;
-    for (fun, called, seen,tot) in summary.into_iter() {
-        let mut skip = false;
+    let visited_fns = summary.len();
+    'outer: for (fun, called, seen,tot) in summary.into_iter() {
         if let Some(filters) = &reporter.filters {
             // see if the function contains any of the filters
             for val in filters {
                 if fun.contains(&val.filename) {
-                    skip = true;
-                    break
+                    continue 'outer;
                 }
             }
         }
-        if skip {
-            continue;
-        }
         sum_coverage = sum_coverage + reporter.coverage_stats(fun, called, seen, tot);
-        iter = iter + 1;
     }
 
-    let average_coverage = sum_coverage as f32 / iter as f32;
+    let average_coverage = sum_coverage as f32 / visited_fns as f32;
 
-    (average_coverage, iter)
+    (average_coverage, visited_fns)
 
 }
 
@@ -1050,9 +1044,9 @@ fn main() {
         termcolor::ColorChoice::Auto
     };
     let mut reporter = Reporter::new(filters, color_choice);
-    let (average_coverage, iter) = report_all(&mut reporter, &coverage);
+    let (average_coverage, visited_fns) = report_all(&mut reporter, &coverage);
 
     if m.is_present("average") {
-        println!("Average coverage: {}%, {} visited functions", average_coverage, iter);
+        println!("Average coverage: {}%, {} visited functions", average_coverage, visited_fns);
     }
 }
