@@ -26,10 +26,9 @@ fn parse_args() -> ArgMatches<'static> {
              .long("filter")
              .takes_value(true)
              .value_name("FILE[:[LINE]-[LINE]]")
-             .help("only report uncovered branches in the indicated source region(s).\
-                    Use filter to remove functions from the calculated coverage,\
-                    in that case the visited functions that contain the filter value\
-                    are skipped (useful for removing tests and similar from the coverage")
+             .help("Only report uncovered branches in the indicated source region(s).\
+                    Any visited functions whose names contain the filter value are skipped\
+                    when computing the calculated coverage.")
              .multiple(true)
              .number_of_values(1))
         .arg(Arg::with_name("no-merge-monos")
