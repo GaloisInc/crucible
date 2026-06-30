@@ -101,7 +101,6 @@ import qualified Mir.DefId as M
 
 import Mir.Intrinsics
 import Mir.Generator
-import Mir.GenericOps
 import Mir.TransTy
 
 import Mir.PP (fmt, fmtDoc)
@@ -415,6 +414,15 @@ evalOperand (M.Move lv) = evalPlace lv >>= readPlace (M.typeOf lv)
 evalOperand (M.OpConstant (M.Constant conty constval)) = do
     Some tpr <- tyToReprM conty
     transConstVal conty (Some tpr) constval
+evalOperand (M.OpRuntimeChecks rc) = do
+    let enable = case rc of
+            -- Disable undefined behavior checks.
+            -- TODO: re-enable this later, and fix the tests that break
+            -- (see https://github.com/GaloisInc/mir-json/issues/107)
+            UbChecks -> False
+            ContractChecks -> True
+            OverflowChecks -> True
+    return $ MirExp C.BoolRepr $ R.App $ E.BoolLit enable
 evalOperand (M.Temp rv) = evalRval rv
 
 -- | Dereference a `MirExp` (which must be `MirReferenceRepr` pointing to a
@@ -714,18 +722,6 @@ evalBinOp bop mat me1 me2 =
                 (S.app $ E.BVEq w x $ S.app $ eBVLit w (1 `shiftL` (w' - 1)))
                 (S.app $ E.BVEq w y $ S.app $ eBVLit w ((1 `shiftL` w') - 1))
       where w' = fromIntegral $ intValue w
-
--- Nullary ops in rust are used for resource allocation, so are not interpreted
-transNullaryOp ::  M.NullOp -> M.Ty -> MirGenerator h s ret (MirExp s)
-transNullaryOp nop ty =
-  case nop of
-    M.AlignOf -> getLayoutFieldAsMirExp "AlignOf" layAlign ty
-    M.SizeOf -> getLayoutFieldAsMirExp "SizeOf" laySize ty
-    M.UbChecks -> do
-      -- Disable undefined behavior checks.
-      -- TODO: re-enable this later, and fix the tests that break
-      -- (see https://github.com/GaloisInc/mir-json/issues/107)
-      return $ MirExp C.BoolRepr $ R.App $ E.BoolLit False
 
 transUnaryOp :: M.UnOp -> M.Operand -> MirGenerator h s ret (MirExp s)
 transUnaryOp uop op = do
@@ -1037,6 +1033,10 @@ evalCast' ck ty1 e ty2  = do
       -- Since we don't track safeness this is just a no-op for now, but if
       -- we decide to track that, this needs to be updated.
       (M.UnsafeFnPointer, _, _) | ty1 == ty2 -> pure e
+
+      -- Subtype is a no-op, as it is only present in the MIR to making subtyping
+      -- explicit during optimizations and codegen.
+      (M.Subtype, _, _) -> pure e
 
       _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++
         "\n  ty: " ++ (show ty1) ++ "\n  as: " ++ (show ty2)
@@ -1374,7 +1374,6 @@ evalRval (M.Len lv) =
         ty -> mirFail $ "don't know how to take Len of " ++ show ty
 evalRval (M.Cast ck op ty) = evalCast ck op ty
 evalRval (M.BinaryOp binop op1 op2) = transBinOp binop op1 op2
-evalRval (M.NullaryOp nop nty) = transNullaryOp  nop nty
 evalRval (M.UnaryOp uop op) = transUnaryOp  uop op
 evalRval (M.Discriminant lv discrTy) = do
     let enumTy = typeOf lv
@@ -1411,21 +1410,30 @@ evalRval rv@(M.Aggregate ak ops) =
             -- representation as tuples.
             evalTupleRval (typeOf rv) ops
         M.AKRawPtr ty _mutbl -> do
-            args <- mapM evalOperand ops
-            (MirExp tprPtr ptr, MirExp tprMeta meta) <- case args of
+            col <- use $ cs . collection
+            (opPtr, opMeta) <- case ops of
                 [p, m] -> return (p, m)
                 _ -> mirFail $ "evalRval: expected exactly two operands for " ++ show ak
-                    ++ ", but got " ++ show args
-            case ty of
-                TySlice _ -> case (tprPtr, tprMeta) of
-                    (MirReferenceRepr, UsizeRepr) -> do
-                        let tup = S.mkStruct
-                                (Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> knownRepr)
-                                (Ctx.Empty Ctx.:> ptr Ctx.:> meta)
-                        return $ MirExp MirSliceRepr tup
-                    _ -> mirFail $ "evalRval: unexpected reprs " ++ show (tprPtr, tprMeta)
-                        ++ " for aggregate " ++ show ak
-                _ -> mirFail $ "evalRval: unsupported output type for " ++ show ak
+                    ++ ", but got " ++ show ops
+            MirExp tprPtr ptr <- evalOperand opPtr
+            MirExp tprMeta meta <- evalOperand opMeta
+            case (ty, tprPtr, tprMeta) of
+                (TySlice _, MirReferenceRepr, UsizeRepr) -> do
+                    let tup = S.mkStruct
+                            (Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> knownRepr)
+                            (Ctx.Empty Ctx.:> ptr Ctx.:> meta)
+                    return $ MirExp MirSliceRepr tup
+                (TyStr, MirReferenceRepr, UsizeRepr) -> do
+                    let tup = S.mkStruct
+                            (Ctx.Empty Ctx.:> MirReferenceRepr Ctx.:> knownRepr)
+                            (Ctx.Empty Ctx.:> ptr Ctx.:> meta)
+                    return $ MirExp MirSliceRepr tup
+                (_, MirReferenceRepr, MirAggregateRepr)
+                  | Nothing <- findUnsizedTail col ty
+                  , TyTuple [] <- typeOf opMeta -> do
+                    return $ MirExp MirReferenceRepr ptr
+                _ -> mirFail $ "evalRval: AKRawPtr: unsupported input types "
+                    ++ show (typeOf opPtr, typeOf opMeta) ++ " and output type " ++ show ty
 evalRval (M.RAdtAg (M.AdtAg adt agv ops ty optField)) = do
     case ty of
       -- It's not legal to construct a MethodSpec using a Rust struct
@@ -1741,9 +1749,6 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.ConstantIndex idx _minLen fromEnd) =
 -- Downcast is a no-op - it only affects the type reported by `M.type_of`.  The
 -- `PField` case above looks for `TyDowncast` to handle enum accesses.
 evalPlaceProj _ pl (M.Downcast _idx) = return pl
--- Subtype is a no-op, as it is only present in the MIR to making subtyping
--- explicit during optimizations and codegen.
-evalPlaceProj _ pl (M.Subtype _ty) = return pl
 -- Subslicing is defined on slices and arrays. See the haddock for `Subslice`
 -- for details on the semantics of `fromIndex` and `toIndex`.
 evalPlaceProj ty (MirPlace tpr ref meta) (M.Subslice fromIndex toIndex fromEnd) =
@@ -3079,7 +3084,7 @@ transVirtCall colState intrName' methName dynTraitName methIndex
 
 mkDiscrMap :: M.Collection -> Map M.AdtName [Integer]
 mkDiscrMap col = mconcat
-    [ Map.singleton (adt ^. M.adtname) (adtIndices adt col)
+    [ Map.singleton (adt ^. M.adtname) (map (\v -> v ^. M.discrval) $ adt ^. M.adtvariants)
     | adt <- Map.elems $ col ^. M.adts, M.isEnum (adt ^. M.adtkind) ]
 
 -- | Gather all of the 'M.DefId's in a 'M.Collection' and construct a

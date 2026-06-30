@@ -100,6 +100,7 @@ data Ty =
       | TyDowncast !Ty !Integer     -- result type of downcasting an ADT. Ty must be an ADT type
       | TyNever
       | TyForeign       -- External types, of unknown size and alignment
+      | TyPat !Ty       -- Pattern type.  We treat this as a new type and ignore the pattern.
 
       | TyConst !ConstVal
         -- ^ Represents constants in 'Substs'. This has no effect on the
@@ -256,11 +257,6 @@ isEnum :: AdtKind -> Bool
 isEnum (Enum {}) = True
 isEnum _ = False
 
-data VariantDiscr
-  = Explicit DefId
-  | Relative Int
-  deriving (Eq, Ord, Show, Generic)
-
 
 data CtorKind
   = FnKind
@@ -270,12 +266,11 @@ data CtorKind
 
 data Variant = Variant {
   _vname :: DefId,
-  _vdiscr :: VariantDiscr,
   -- | Fields of the variant.  For structs/variants with named fields, these go
   -- in declaration order.
   _vfields :: [Field],
   _vctorkind :: Maybe CtorKind,
-  _discrval :: Maybe Integer,
+  _discrval :: Integer,
   _vinhabited :: Bool }
     deriving (Eq, Ord,Show, Generic)
 
@@ -420,7 +415,6 @@ data PlaceElem =
         -- beginning - so if @s@ has length @len@, elements are instead selected
         -- from the (still half-open) range @[from, len - to)@.
       | Downcast Integer
-      | Subtype Ty
       deriving (Show, Eq, Ord, Generic)
 
 -- Called "Place" in rustc itself, hence the names of PlaceBase and PlaceElem
@@ -443,7 +437,6 @@ data Rvalue =
         -- ^ load length from a slice
       | Cast { _cck :: CastKind, _cop :: Operand, _cty :: Ty }
       | BinaryOp { _bop :: BinOp, _bop1 :: Operand, _bop2 :: Operand }
-      | NullaryOp { _nuop :: NullOp, _nty :: Ty }
       | UnaryOp { _unop :: UnOp, _unoperand :: Operand}
       | Discriminant { _dvar :: Lvalue,
                        -- | The type of the discriminant. That is, /not/ the
@@ -523,15 +516,16 @@ data Operand =
         Copy Lvalue
       | Move Lvalue
       | OpConstant Constant
+      | OpRuntimeChecks RuntimeChecks
       -- | The result of evaluating an Rvalue.  This never appears in
       -- rustc-generated MIR, but we produce them internally in some cases.
       | Temp Rvalue
       deriving (Show, Eq, Ord, Generic)
 
-data NullOp =
-        SizeOf
-      | AlignOf
-      | UbChecks
+data RuntimeChecks =
+        UbChecks
+      | ContractChecks
+      | OverflowChecks
       deriving (Show,Eq, Ord, Generic)
 
 
@@ -602,6 +596,7 @@ data CastKind =
   | UnsizeVtable VtableName
   | MutToConstPointer
   | Transmute
+  | Subtype
   deriving (Show,Eq, Ord, Generic)
 
 data Constant = Constant Ty ConstVal
@@ -812,7 +807,6 @@ typeOfProj elm baseTy = case elm of
     ConstantIndex{} -> peelIdx baseTy
     Downcast i      -> TyDowncast baseTy i   --- TODO: check this
     Subslice{}      -> TySlice (peelIdx baseTy)
-    Subtype t       -> t
   where
     peelRef :: Ty -> Ty
     peelRef (TyRef t _) = t
@@ -860,10 +854,6 @@ instance TypeOf Rvalue where
             Unchecked op'' -> f op''
             WithOverflow op'' -> TyTuple [f op'', TyBool]
     in f op
-  typeOf (NullaryOp op _ty) = case op of
-    SizeOf -> TyUint USize
-    AlignOf -> TyUint USize
-    UbChecks -> TyBool
   typeOf (UnaryOp op x) =
     let ty = typeOf x
     in case op of
@@ -890,6 +880,7 @@ instance TypeOf Operand where
     typeOf (Move lv) = typeOf lv
     typeOf (Copy lv) = typeOf lv
     typeOf (OpConstant c) = typeOf c
+    typeOf (OpRuntimeChecks _) = TyBool
     typeOf (Temp rv) = typeOf rv
 
 instance TypeOf Constant where

@@ -106,6 +106,7 @@ instance FromJSON InlineTy where
       Just (String "Float") -> TyFloat <$> v .: "size"
       Just (String "Never") -> pure TyNever
       Just (String "Foreign") -> pure TyForeign
+      Just (String "Pat") -> TyPat <$> v .: "ty"
       Just (String "Const") -> TyConst <$> v .: "constant"
       r -> fail $ "unsupported ty: " ++ show r
 
@@ -182,12 +183,6 @@ instance FromJSON AdtKind where
         Just (String "Union") -> pure Union
         mbKind -> fail $ "unsupported adt kind " ++ show mbKind
 
-instance FromJSON VariantDiscr where
-    parseJSON = withObject "VariantDiscr" $ \v -> case lookupKM "kind" v of
-                                                    Just (String "Explicit") -> Explicit <$> v .: "name"
-                                                    Just (String "Relative") -> Relative <$> v .: "index"
-                                                    _ -> fail "unspported variant discriminator"
-
 instance FromJSON CtorKind where
     parseJSON = withObject "CtorKind" $ \v -> case lookupKM "kind" v of
                                                 Just (String "Fn") -> pure FnKind
@@ -196,11 +191,9 @@ instance FromJSON CtorKind where
 instance FromJSON Variant where
     parseJSON = withObject "Variant" $ \v ->
         Variant <$> v .: "name"
-                <*> v .: "discr"
                 <*> v .: "fields"
                 <*> v .: "ctor_kind"
-                <*> do  val <- v .:? "discr_value"
-                        convertIntegerText `traverse` val
+                <*> (v .: "discr_value" >>= convertIntegerText)
                 <*> v .: "inhabited"
 
 instance FromJSON Field where
@@ -340,7 +333,6 @@ instance FromJSON PlaceElem where
         Just (String "ConstantIndex") -> ConstantIndex <$> v .: "offset" <*> v .: "min_length" <*> v .: "from_end"
         Just (String "Subslice") -> Subslice <$> v .: "from" <*> v .: "to" <*> v .: "from_end"
         Just (String "Downcast") -> Downcast <$> v .: "variant"
-        Just (String "Subtype") -> Subtype <$> v .: "ty"
         x -> fail ("bad PlaceElem: " ++ show x)
 
 instance FromJSON Lvalue where
@@ -357,7 +349,6 @@ instance FromJSON Rvalue where
                                               Just (String "Len") -> Len <$> v .: "lv"
                                               Just (String "Cast") -> Cast <$> v .: "type" <*> v .: "op" <*> v .: "ty"
                                               Just (String "BinaryOp") -> BinaryOp <$> v .: "op" <*> v .: "L" <*> v .: "R"
-                                              Just (String "NullaryOp") -> NullaryOp <$> v .: "op" <*> v .: "ty"
                                               Just (String "UnaryOp") -> UnaryOp <$> v .: "uop" <*> v .: "op"
                                               Just (String "Discriminant") -> Discriminant <$> v .: "val" <*> v .: "ty"
                                               Just (String "Aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
@@ -403,14 +394,8 @@ instance FromJSON Operand where
                                                Just (String "Move") -> Move <$> v .: "data"
                                                Just (String "Copy") -> Copy <$> v .: "data"
                                                Just (String "Constant") -> OpConstant <$> v .: "data"
+                                               Just (String "RuntimeChecks") -> OpRuntimeChecks <$> v .: "data"
                                                x -> fail ("base operand: " ++ show x)
-
-instance FromJSON NullOp where
-    parseJSON = withObject "NullOp" $ \v -> case lookupKM "kind" v of
-                                             Just (String "SizeOf") -> pure SizeOf
-                                             Just (String "AlignOf") -> pure AlignOf
-                                             Just (String "UbChecks") -> pure UbChecks
-                                             x -> fail ("bad nullOp: " ++ show x)
 
 instance FromJSON BorrowKind where
     parseJSON = withText "BorrowKind" $ \t ->
@@ -421,6 +406,13 @@ instance FromJSON BorrowKind where
       else if T.isPrefixOf "Mut" t then pure Mutable
       else fail ("bad borrowKind: " ++ show t)
 
+instance FromJSON RuntimeChecks where
+    parseJSON = withObject "BinOp" $ \v ->
+        case lookupKM "kind" v of
+            Just (String "UbChecks") -> pure UbChecks
+            Just (String "ContractChecks") -> pure ContractChecks
+            Just (String "OverflowChecks") -> pure OverflowChecks
+            x -> fail ("bad RuntimeChecks variant: " ++ show x)
 
 
 
@@ -501,6 +493,7 @@ instance FromJSON CastKind where
             Just (String "PtrToPtr") -> pure Misc
             Just (String "FnPtrToPtr") -> pure Misc
             Just (String "Transmute") -> pure Transmute
+            Just (String "Subtype") -> pure Subtype
             x -> fail ("bad CastKind: " ++ show x)
 
 instance FromJSON Constant where

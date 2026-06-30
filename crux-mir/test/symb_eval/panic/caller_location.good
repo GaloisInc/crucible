@@ -1,0 +1,5 @@
+test caller_location/<DISAMB>::crux_test[0]: returned 0, ok
+
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] All goals discharged through internal simplification.
+[Crux] Overall status: Valid.

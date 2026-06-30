@@ -272,6 +272,11 @@ tyToRepr col t0 = case t0 of
     Some ctx <- coroutineFieldTypes col ca
     Right (Some (C.StructRepr ctx))
 
+  -- Use the same representation as the underlying type.  We still need to
+  -- track the types `t` and `TyPat t` separately because they may implement
+  -- different traits.
+  M.TyPat t -> tyToRepr col t
+
   M.TyLifetime -> Right (Some C.AnyRepr)
   M.TyForeign -> Right (Some C.AnyRepr)
   M.TyErased -> Right (Some C.AnyRepr)
@@ -545,6 +550,8 @@ canInitialize col ty = case ty of
     -- Others
     M.TyArray {} -> True
 
+    M.TyPat t -> canInitialize col t
+
     M.TyFnDef {} -> False
     M.TyNever {} -> False
     -- Note: `Mir.Trans.dispatchFromDyn` relies on `TyRef` and `TyRawPtr`
@@ -585,6 +592,7 @@ isZeroSized col = go
         | otherwise -> P.panic "isZeroSized" ["unknown ADT", show name]
       M.TyFnDef {} -> True
       M.TyNever -> True
+      M.TyPat t -> isZeroSized col t
 
       M.TyBool {} -> False
       M.TyChar {} -> False
@@ -702,7 +710,7 @@ findUnsizedTailM ty = do
     return $ findUnsizedTail col ty
 
 variantFields :: TransTyConstraint => M.Collection -> M.Variant -> Either String (Some C.CtxRepr)
-variantFields col (M.Variant _vn _vd vfs _vct _mbVal _inh) = do
+variantFields col (M.Variant _vn vfs _vct _discrVal _inh) = do
     frs <- traverse (\field -> mapSome fieldType <$> tyToFieldRepr col (field ^. M.fty)) vfs
     tyReprListToCtx frs (\repr -> Right (Some repr))
 
@@ -738,7 +746,7 @@ tyToFieldRepr col ty
   | otherwise = viewSome (Some . FieldRepr . FkMaybe) <$> tyToRepr col ty
 
 variantFields' :: TransTyConstraint => M.Collection -> M.Variant -> Either String (Some FieldCtxRepr)
-variantFields' col (M.Variant _vn _vd vfs _vct _mbVal _inh) = do
+variantFields' col (M.Variant _vn vfs _vct _discrVal _inh) = do
     frs <- traverse (tyToFieldRepr col . (^. M.fty)) vfs
     return (fieldReprListToCtx frs Some)
 
@@ -2005,6 +2013,7 @@ initialValue (M.TyAdt nm _ _) = do
             in Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize unionSize
 initialValue (M.TyFnDef _) = Just . MirExp MirAggregateRepr <$> mirAggregate_zst
 initialValue M.TyNever     = Just . MirExp MirAggregateRepr <$> mirAggregate_zst
+initialValue (M.TyPat t) = initialValue t
 
 -- Remaining `Nothing` cases
 initialValue (M.TyRef {}) = return Nothing

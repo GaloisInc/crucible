@@ -8,6 +8,8 @@ pub fn f() {
     let xs = [1, 2, 3, 4];
     let xs: &[u8] = &xs;
 
+    // During Rust toolchain upgrades, errors here most likely originate in
+    // `core::slice::as_array`, even though the immediate error location is in `core::array`.
     assert!(<&[u8; 3] as TryFrom<_>>::try_from(xs).is_err());
     assert!(<&[u8; 5] as TryFrom<_>>::try_from(xs).is_err());
     let ys = <&[u8; 4] as TryFrom<_>>::try_from(xs).unwrap();

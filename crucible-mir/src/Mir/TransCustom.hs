@@ -114,6 +114,7 @@ customOpDefs = Map.fromList $ [
                          , unchecked_rem
                          , unchecked_shl
                          , unchecked_shr
+                         , carrying_mul_add
                          , ctlz
                          , ctlz_nonzero
                          , cttz
@@ -1028,6 +1029,39 @@ unchecked_shr =
     ( ["core","intrinsics", "unchecked_shr"]
     , makeUncheckedArith "unchecked_shr" Shr
     )
+
+
+carrying_mul_add :: (ExplodedDefId, CustomRHS)
+carrying_mul_add = (["core", "intrinsics", "carrying_mul_add"],
+  \substs -> case substs of
+    Substs [tyT, _] -> Just $ CustomOp $ \_ ops -> case ops of
+      [MirExp (C.BVRepr w) m1,
+          MirExp (C.BVRepr (testEquality w -> Just Refl)) m2,
+          MirExp (C.BVRepr (testEquality w -> Just Refl)) a1,
+          MirExp (C.BVRepr (testEquality w -> Just Refl)) a2]
+          -- Check `1 <= w`
+        | Just LeqProof <- testLeq (knownNat @1) w
+        -- Prove `w + 1 <= w + w`
+        , LeqProof <- leqAdd2 (leqProof w w) (leqProof (knownNat @1) w)
+        -- Prove `1 <= w + w`
+        , LeqProof <- leqAdd (leqProof (knownNat @1) w) w
+        -> do
+          let w2 = addNat w w
+          let bvExt = case tyT of
+                TyInt _ -> \bv -> R.App $ E.BVSext w2 w bv
+                TyUint _ -> \bv -> R.App $ E.BVZext w2 w bv
+                _ -> panic "carrying_mul_add" ["non-integer input type", show tyT]
+          let prodBv = R.App $ E.BVMul w2 (bvExt m1) (bvExt m2)
+          let sumBv = R.App $ E.BVAdd w2 (bvExt a1) (bvExt a2)
+          let result = R.App $ E.BVAdd w2 prodBv sumBv
+          let resultLo = R.App $ E.BVTrunc w w2 result
+          let resultHi = R.App $ E.BVSelect w w w2 result
+          buildTupleMaybeM (TyTuple [tyT, tyT]) $
+              [Just $ MirExp (C.BVRepr w) resultLo, Just $ MirExp (C.BVRepr w) resultHi]
+      _ -> mirFail $ "carrying_mul_add: bad arguments: " ++ show ops
+    _ -> Nothing)
+
+
 
 -- Implement the [`core::intrinsics::exact_div`] intrinsic.
 -- This operation performs integer division that triggers undefined behavior
