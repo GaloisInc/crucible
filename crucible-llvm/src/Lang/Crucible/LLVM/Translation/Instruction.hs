@@ -150,12 +150,12 @@ instrResultType instr =
     L.UnaryArith _ x -> liftMemType (L.typedType x)
     L.Bit _ x _   -> liftMemType (L.typedType x)
     L.Conv _ _ ty -> liftMemType ty
-    L.Call _ (L.FunTy ty _ _) _ _ -> liftMemType ty
-    L.Call _ ty _ _ -> throwError $ unwords ["unexpected non-function type in call:", show ty]
-    L.Invoke (L.FunTy ty _ _) _ _ _ _ -> liftMemType ty
-    L.Invoke ty _ _ _ _ -> throwError $ unwords ["unexpected non-function type in invoke:", show ty]
-    L.CallBr (L.FunTy ty _ _) _ _ _ _ -> liftMemType ty
-    L.CallBr ty _ _ _ _ -> throwError $ unwords ["unexpected non-function type in callbr:", show ty]
+    L.Call _ (L.FunTy ty _ _) _ _ _ -> liftMemType ty
+    L.Call _ ty _ _ _ -> throwError $ unwords ["unexpected non-function type in call:", show ty]
+    L.Invoke (L.FunTy ty _ _) _ _ _ _ _ -> liftMemType ty
+    L.Invoke ty _ _ _ _ _ -> throwError $ unwords ["unexpected non-function type in invoke:", show ty]
+    L.CallBr (L.FunTy ty _ _) _ _ _ _ _ -> liftMemType ty
+    L.CallBr ty _ _ _ _ _ -> throwError $ unwords ["unexpected non-function type in callbr:", show ty]
     L.Alloca ty _ _ -> liftMemType (L.PtrTo ty)
     L.Load tp _ _ _ -> liftMemType tp
     L.ICmp _samesign _op tv _ -> do
@@ -1754,14 +1754,14 @@ generateInstr retType lab instr assign_f k =
          assign_f v
          k
 
-    L.Call tailcall fnTy fn args ->
+    L.Call tailcall fnTy fn args _bundles ->
       callFunction instr tailcall fnTy fn args assign_f >> k
 
-    L.Invoke fnTy fn args normLabel _unwindLabel -> do
+    L.Invoke fnTy fn args normLabel _unwindLabel _bundles -> do
       do callFunction instr False fnTy fn args assign_f
          definePhiBlock lab normLabel
 
-    L.CallBr fnTy fn args normLabel otherLabels -> do
+    L.CallBr fnTy fn args normLabel otherLabels _bundles -> do
       do callFunction instr False fnTy fn args assign_f
          for_ otherLabels $ \lab' -> void (definePhiBlock lab lab')
          definePhiBlock lab normLabel
@@ -1919,6 +1919,13 @@ generateInstr retType lab instr assign_f k =
     L.Unwind{} -> unsupported
     L.LandingPad{} -> unsupported
     L.Resume{} -> unsupported
+
+    -- Windows SEH instructions, not currently supported for simulation
+    L.CleanupPad{} -> unsupported
+    L.CatchPad{} -> unsupported
+    L.CleanupRet{} -> unsupported
+    L.CatchRet{} -> unsupported
+    L.CatchSwitch{} -> unsupported
 
     -- indirect branch could be supported, but requires some nontrivial work to deal
     -- properly with mapping basic-block labels to pointer values.
