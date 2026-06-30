@@ -94,7 +94,7 @@ jobs:
       # sign the binaries after they have been built.
       # Do not run this step in forks, as this requires repo-specific secrets.
       - name: Import signing certificate (macOS)
-        uses: apple-actions/import-codesign-certs@v3
+        uses: apple-actions/import-codesign-certs@v7
         if: runner.os == 'macOS' &&
             github.event.pull_request.head.repo.fork == false &&
             github.repository_owner == 'GaloisInc' &&
