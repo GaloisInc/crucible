@@ -261,6 +261,30 @@ leafUpdatePartExpr bak mux x (PE q y) = do
             xy <- lift $ mux p x y
             return $ mkPE pq xy
 
+-- | Like `leafUpdatePartExpr`, but instead of unconditionally writing a new
+-- value, modify an already-existing value if one exists.
+leafModifyPartExpr ::
+    (IsSymBackend sym bak, MonadIO m) =>
+    bak ->
+    (Pred sym -> a -> a -> m a) ->
+    (Maybe a -> m a) ->
+    PartExpr (Pred sym) a ->
+    MuxLeafT sym m (PartExpr (Pred sym) a)
+leafModifyPartExpr _bak _mux modify Unassigned =
+    mkPE <$> leafPredicate <*> lift (modify Nothing)
+leafModifyPartExpr bak mux modify (PE oldPred oldVal) = do
+    let sym = backendGetSym bak
+    currPred <- leafPredicate
+    case asConstantPred currPred of
+        Just True -> mkPE (truePred sym) <$> lift (modify (Just oldVal))
+        Just False -> return $ PE oldPred oldVal
+        Nothing -> do
+            newPred <- liftIO $ orPred sym currPred oldPred
+            muxed <- lift $ do
+                newVal <- modify (Just oldVal)
+                mux currPred newVal oldVal
+            return $ mkPE newPred muxed
+
 -- | Set a PartExpr to Unassigned, conditional on the current leaf being
 -- active.
 leafClearPartExpr :: (IsSymBackend sym bak, MonadIO m) =>

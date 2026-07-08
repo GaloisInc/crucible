@@ -40,6 +40,7 @@ module Mir.Intrinsics.Aggregate
     addToRun,
     mkRun,
     Run (..),
+    mirAggregate_capacity,
     mirAggregate_entries,
     mirAggregate_insert,
     writeMirAggregateWithSymOffset,
@@ -532,6 +533,10 @@ adjustSubaggregateWithSymOffset bak iteFn off f adjSize ag@(MirAggregate agSize 
     offsetLit = wordLit sym
     die err =
       leafAbort $ GenericSimError $ "adjustSubaggregateWithSymOffset: " <> err
+
+-- | The capacity, in bytes, of the aggregate
+mirAggregate_capacity :: MirAggregate sym -> Word
+mirAggregate_capacity (MirAggregate l _) = l
 
 -- | Given a list of valid entry spans @(fromOffset, toOffset)@ in this
 -- aggregate, create a predicate that the provided offset appears among their

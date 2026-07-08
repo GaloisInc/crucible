@@ -196,6 +196,7 @@ import Mir.FancyMuxTree
     leafClearPartExpr,
     leafPredicate,
     leafReadPartExpr,
+    leafModifyPartExpr,
     leafUpdatePartExpr,
     mapFancyMuxTree,
     mergeFancyMuxTree,
@@ -210,6 +211,9 @@ import Mir.Intrinsics.Aggregate
     adjustMirAggregateWithSymOffset,
     readMirAggregateWithSymOffset,
     writeMirAggregateWithSymOffset,
+    mirAggregate_capacity,
+    mirAggregate_insert,
+    MirAggregateEntry (..),
     pattern MirAggregateRepr,
   )
 import Mir.Intrinsics.Array (UsizeArrayType, pattern UsizeArrayRepr)
@@ -423,6 +427,41 @@ writeRefRoot bak gs iTypes (GlobalVar_RefRoot gv) v = do
                 show gv ++ " of type " ++ show tpr
     return $ insertGlobal gv newv gs
 writeRefRoot _bak _gs _iTypes (Const_RefRoot tpr _) _ =
+    leafAbort $ GenericSimError $
+        "Cannot write to Const_RefRoot (of type " ++ show tpr ++ ")"
+
+-- | Like `writeRefRoot`, but instead of unconditionally writing the new value,
+-- apply a modification to an existing value, if there is one.
+modifyRefRoot :: forall sym bak tp.
+    (IsSymBackend sym bak) =>
+    bak ->
+    SymGlobalState sym ->
+    IntrinsicTypes sym ->
+    MirReferenceRoot sym tp ->
+    (Maybe (RegValue sym tp) -> IO (RegValue sym tp)) ->
+    MuxLeafT sym IO (SymGlobalState sym)
+modifyRefRoot bak gs iTypes (RefCell_RefRoot rc) modify = do
+    let sym = backendGetSym bak
+    let tpr = refType rc
+    let mux p a b = liftIO $ muxRegForType sym iTypes tpr p a b
+    let oldv = lookupRef rc gs
+    newv <- leafModifyPartExpr bak mux modify oldv
+    return $ updateRef rc newv gs
+modifyRefRoot bak gs iTypes (GlobalVar_RefRoot gv) modify = do
+    let sym = backendGetSym bak
+    let tpr = globalType gv
+    p <- leafPredicate
+    newv <- case lookupGlobal gv gs of
+        old | Just True <- asConstantPred p -> liftIO $ modify old
+        Just oldv -> liftIO $ do
+            newv <- modify (Just oldv)
+            muxRegForType sym iTypes tpr p newv oldv
+        -- GlobalVars can't be conditionally initialized.
+        Nothing -> leafAbort $ ReadBeforeWriteSimError $
+            "attempted conditional write to uninitialized global " ++
+                show gv ++ " of type " ++ show tpr
+    return $ insertGlobal gv newv gs
+modifyRefRoot _bak _gs _iTypes (Const_RefRoot tpr _) _ =
     leafAbort $ GenericSimError $
         "Cannot write to Const_RefRoot (of type " ++ show tpr ++ ")"
 
@@ -875,6 +914,7 @@ writeMirRefIO bak gs iTypes tpr (MirReferenceMux ref) writeSize x =
         ref
 
 writeMirRefLeaf ::
+    forall bak sym tp.
     (IsSymBackend sym bak) =>
     bak ->
     SymGlobalState sym ->
@@ -887,12 +927,37 @@ writeMirRefLeaf ::
 writeMirRefLeaf bak gs iTypes tpr ref writeSize val =
   typedLeafOp "write" bak tpr ref $ \root path ->
     case path of
-      Empty_RefPath -> writeRefRoot bak gs iTypes root val
+      Empty_RefPath ->
+        case tpr of
+            MirAggregateRepr ->
+                -- If an aggregate already inhabits the destination, we may not
+                -- want to unconditionally overwrite it, as `writeRefRoot` would
+                -- do - we may instead need to write elements from the source
+                -- aggregate to the destination, to accommodate
+                -- aggregate-flattening. `modifyRefRoot` lets us discriminate on
+                -- whether or not the destination aggregate exists, and `modify`
+                -- so discriminates.
+                --
+                -- See also Note [Aggregate zero-offsets] - this is a case of
+                -- that equivalence.
+                modifyRefRoot bak gs iTypes root (modify val)
+            _ ->
+                writeRefRoot bak gs iTypes root val
       _ -> do
         x <- readRefRoot bak gs root
         x' <- writeRefPath bak iTypes x path writeSize val
         writeRefRoot bak gs iTypes root x'
-
+  where
+    modify :: MirAggregate sym -> Maybe (MirAggregate sym) -> IO (MirAggregate sym)
+    modify newAg oldAgM = case oldAgM of
+        Nothing -> pure newAg
+        Just oldAg -> do
+            let newSz = mirAggregate_capacity newAg
+            let newVal = justPartExpr (backendGetSym bak) newAg
+            let entry = MirAggregateEntry newSz MirAggregateRepr newVal
+            case mirAggregate_insert 0 entry oldAg of
+                Left err -> fail err
+                Right new -> pure new
 
 dropMirRefLeaf ::
     (IsSymBackend sym bak) =>
