@@ -915,6 +915,14 @@ buildAggregateMaybeM agTy xs = do
         ag0 (zip offsetsAndTys xs)
     return $ MirExp MirAggregateRepr ag1
 
+-- | Construct an aggregate that contains the given value, of the given size, at
+-- offset 0.
+buildWrapperAggregate :: Word -> MirExp s -> MirGenerator h s ret (MirExp s)
+buildWrapperAggregate sz (MirExp tpr rv) = do
+    ag0 <- mirAggregate_uninit_constSize sz
+    ag1 <- mirAggregate_set 0 sz tpr rv ag0
+    return $ MirExp MirAggregateRepr ag1
+
 -- | Build a tuple of type @tupleTy@, using @xs@ to initialize the fields.
 --
 -- @tupleTy@ must be present in the `M.Collection`, as decribed in Note

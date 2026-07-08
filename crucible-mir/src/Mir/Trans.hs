@@ -2931,11 +2931,28 @@ dispatchFromDyn dynTraitName recvTy recvExp die = do
               -- one being coerced (if any field is being coerced).
               go ty' mirExp
             Nothing -> do
+              -- To implement `DispatchFromDyn<T>` for `U`, several conditions
+              -- must hold, including that `U` is a struct, and that its
+              -- definition must have exactly one non-ZST field, which is of the
+              -- type being coerced. For details, see
+              -- https://doc.rust-lang.org/std/ops/trait.DispatchFromDyn.html.
+              -- Accordingly, we ensure that we only operate on that field.
               let v = Maybe.fromJust $ adt ^? adtvariants . ix 0
-              fieldExps' <- forM (zip [0..] (v ^. vfields)) $ \(i, f) -> do
-                fieldExp <- lift $ getStructField ty i mirExp
-                go (f ^. fty) fieldExp
-              lift $ buildStruct adt fieldExps'
+              sizedFields <- forM (zip [0..] (v ^. vfields)) $ \(fldIdx, fld) -> do
+                sz <- lift $ tySizeM (fld ^. fty)
+                pure (sz, (fldIdx, fld))
+              case Maybe.mapMaybe (\(sz, f) -> if sz > 0 then Just f else Nothing) sizedFields of
+                [(fldIdx, fld)] -> do
+                  fieldExp <- lift $ getStructField ty fldIdx mirExp
+                  fieldExp' <- go (fld ^. fty) fieldExp
+                    -- This value presumes a 64-bit architecture. In the longer
+                    -- term, we'd prefer not to hardcode that presumption - see
+                    -- #1384.
+                  let ptrSize = 8
+                  lift $ buildWrapperAggregate ptrSize fieldExp'
+                fs ->
+                  lift $ die
+                    ["`DispatchFromDyn` invalid for DST with " <> show (length fs) <> " non-ZST fields"]
         _ -> return mirExp
     -- rustc only recurses into struct types to find the coerced field.  All
     -- other types are ignored.
