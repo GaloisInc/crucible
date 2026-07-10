@@ -90,8 +90,8 @@ module Mir.Intrinsics.Reference
     mirRef_peelIndexMA,
     mirRef_peelFieldLeaf,
     mirRef_peelFieldMA,
-    mirRef_peelAgElemLeaf,
-    mirRef_peelAgElemMA,
+    mirRef_peelAgOffsetLeaf,
+    mirRef_peelAgOffsetMA,
     mirRef_peelJustLeaf,
     mirRef_peelJustMA,
     mirRef_indexAndLenLeaf,
@@ -1748,49 +1748,56 @@ mirRef_peelFieldMA bak iTypes fieldReprs idx (MirReferenceMux ref) =
         (muxRegForType sym iTypes MirReferenceRepr) ref
 
 
--- | Peel off an outermost 'AgElem_RefPath'. Given a pointer to a field of an
+-- | Peel off an outermost 'AgOffset_RefPath'. Given a pointer to a field of an
 -- aggregate, this produces a pointer to the containing struct.
 --
 -- This function takes in the expected offset of the field within the aggregate.
--- If the 'AgElem_RefPath' is actually for a different offset, it will raise an
+-- If the 'AgOffset_RefPath' is actually for a different offset, it will raise an
 -- error.
 --
--- If the outermost path segment isn't 'AgElem_RefPath', this operation raises
+-- If the outermost path segment isn't 'AgOffset_RefPath', this operation raises
 -- an error.
-mirRef_peelAgElemLeaf ::
+mirRef_peelAgOffsetLeaf ::
     (IsSymBackend sym bak, MonadAssert sym bak m) =>
     bak ->
     Word {-^ The expected offset -} ->
     MirReference sym {-^ The field pointer -} ->
     MuxLeafT sym m (MirReferenceMux sym)
-mirRef_peelAgElemLeaf bak off (MirReference _tpr root path) = do
+mirRef_peelAgOffsetLeaf bak off (MirReference tpr root path) = do
     let sym = backendGetSym bak
     case path of
-      AgElem_RefPath off' _ path' -> do
+      AgOffset_RefPath off' path' -> do
           offEq <- liftIO $ bvEq sym off' =<< wordLit sym off
           leafAssert bak offEq $ Unsupported callStack $
-            "peelAgElem offset mismatch; expected " ++ show off
+            "peelAgOffset offset mismatch; expected " ++ show off
               ++ ", but got " ++ show (printSymExpr off')
           return $ MirReferenceMux $
             toFancyMuxTree sym $ MirReference MirAggregateRepr root path'
-
+      _ | MirAggregateRepr <- tpr -> do
+          -- See Note [Aggregate zero-offsets]
+          when (off /= 0) $ 
+            leafAbort $ Unsupported callStack $
+              "peelAgOffset offset mismatch; expected " ++ show off
+                ++ ", but got 0"
+          return $ MirReferenceMux $
+            toFancyMuxTree sym $ MirReference MirAggregateRepr root path
       _ ->
         leafAbort $ Unsupported callStack $
-          "peelAgElem not implemented for this RefPath kind"
-mirRef_peelAgElemLeaf _ _ _ =
+          "peelAgOffset not implemented for this RefPath kind"
+mirRef_peelAgOffsetLeaf _ _ _ =
     leafAbort $ Unsupported callStack $
-      "cannot perform peelAgElem on invalid pointer"
+      "cannot perform peelAgOffset on invalid pointer"
 
-mirRef_peelAgElemMA ::
+mirRef_peelAgOffsetMA ::
     MonadAssert sym bak m =>
     bak ->
     IntrinsicTypes sym ->
     Word {-^ The expected offset -} ->
     MirReferenceMux sym ->
     m (MirReferenceMux sym)
-mirRef_peelAgElemMA bak iTypes off (MirReferenceMux ref) =
+mirRef_peelAgOffsetMA bak iTypes off (MirReferenceMux ref) =
     let sym = backendGetSym bak in
-    readFancyMuxTree' bak (mirRef_peelAgElemLeaf bak off)
+    readFancyMuxTree' bak (mirRef_peelAgOffsetLeaf bak off)
         (muxRegForType sym iTypes MirReferenceRepr) ref
 
 
