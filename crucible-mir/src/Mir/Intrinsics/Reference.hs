@@ -1828,9 +1828,24 @@ mirRef_peelJustMA bak iTypes tpr (MirReferenceMux ref) =
         (muxRegForType sym iTypes MirReferenceRepr) ref
 
 
--- | Compute the index of `ref` within its containing allocation, along with
--- the length of that allocation.  This is useful for determining the amount of
--- memory accessible through all valid offsets of `ref`.
+-- | Compute the index of @ref@ within its containing allocation, along with the
+-- length of that allocation.  This is useful for determining the amount of
+-- memory accessible through all valid offsets of @ref@, but beware: when
+-- calculating the index and length, it assumes that the allocation is
+-- homogenous, containing only elements of the type at the end of the provided
+-- @RefPath@. This can lead to strange answers for @MirAggregate@-backed
+-- allocations in particular. Consider a struct like:
+--
+-- > #[repr(C)]
+-- > struct Foo {
+-- >   a: u16,
+-- >   b: [u8; 2],
+-- > }
+--
+-- If we have some @foo: Foo@ and apply this intrinsic to @&foo.a@, it will
+-- report that the allocation is of length two (@size_of_val(&foo.a) /
+-- size_of_val(&foo)@), while applying it to @&foo.b[0]@ will report that the
+-- allocation is of length four (@size_of_val(&foo.b[0]) / size_of_val(&foo)@).
 --
 -- Note that unlike `peelIndex`:
 --
@@ -1880,6 +1895,39 @@ mirRef_indexAndLenLeaf bak gs iTypes elemSize (MirReference _tpr root (AgElem_Re
 
     offDivSz <- liftIO $ bvUdiv sym elemOff elemSizeBV
     return (offDivSz, len)
+mirRef_indexAndLenLeaf bak gs iTypes elemSize (MirReference _tpr root (AgOffset_RefPath elemOff path)) = do
+    let sym = backendGetSym bak
+    let parentTpr = MirAggregateRepr
+    let parent = MirReference parentTpr root path
+    parentAg <- readMirRefLeaf bak gs iTypes parentTpr All parent
+    let MirAggregate totalSize _ = parentAg
+    when (totalSize `mod` elemSize /= 0) $
+       leafAbort $ Unsupported callStack $
+           "expected aggregate size (" ++ show totalSize ++ ") to be a multiple of "
+               ++ "element size (" ++ show elemSize ++ ")"
+    let lenWord = totalSize `div` elemSize
+    len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral lenWord
+
+    elemSizeBV <- liftIO $ wordLit sym elemSize
+    offModSz <- liftIO $ bvUrem sym elemOff elemSizeBV
+    offModSzIsZero <- liftIO $ bvEq sym offModSz =<< wordLit sym 0
+    leafAssert bak offModSzIsZero $ Unsupported callStack $
+        "expected element offset to be a multiple of element size (" ++ show elemSize ++ ")"
+
+    offDivSz <- liftIO $ bvUdiv sym elemOff elemSizeBV
+    return (offDivSz, len)
+mirRef_indexAndLenLeaf bak gs iTypes elemSize (MirReference MirAggregateRepr root path) = do
+    -- This case follows the `AgOffset_RefPath` case to accommodate aggregate
+    -- references with no/zero offsets. See Note [Aggregate zero-offsets].
+    let sym = backendGetSym bak
+    zero <- liftIO $ wordLit sym 0
+    let parentTpr = MirAggregateRepr
+    let parent = MirReference parentTpr root path
+    parentAg <- readMirRefLeaf bak gs iTypes parentTpr All parent
+    let MirAggregate totalSize _ = parentAg
+    let lenWord = totalSize `div` elemSize
+    len <- liftIO $ wordLit sym lenWord
+    return (zero, len)
 mirRef_indexAndLenLeaf bak _ _ _elemSize (MirReference _ _ _) = do
     let sym = backendGetSym bak
     idx <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat 0
