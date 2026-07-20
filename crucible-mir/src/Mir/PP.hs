@@ -86,6 +86,7 @@ instance Pretty Ty where
     pretty (TyFloat floatKind) = pretty floatKind
     pretty (TyDowncast adt i)    = parens (pretty adt <+> pretty "as" <+> pretty i)
     pretty TyNever = pretty "never"
+    pretty (TyPat ty) = pretty "pat" <+> pretty ty
     pretty TyLifetime = pretty "lifetime"
     pretty (TyConst c) = braces (pretty c)
       -- Using braces is redundant for constants like `2`, but it would be
@@ -105,10 +106,6 @@ instance Pretty Adt where
 instance Pretty AdtKind where
   pretty = viaShow
 
-instance Pretty VariantDiscr where
-  pretty (Explicit a) = pretty_fn1 "Explicit" a
-  pretty (Relative a) = pretty_fn1 "Relative" a
-
 instance Pretty CoroutineArgs where
   pretty (CoroutineArgs discrTy upvarTys savedTys fieldMap) =
     pretty discrTy
@@ -121,9 +118,9 @@ instance Pretty CtorKind where
   pretty = viaShow
 
 instance Pretty Variant where
-  pretty (Variant nm dscr flds knd mbVal inh) =
+  pretty (Variant nm flds knd discrVal inh) =
     pretty "Variant" <>
-      tupled [pretty nm, pretty dscr, pretty flds, pretty knd, pretty mbVal, pretty inh]
+      tupled [pretty nm, pretty flds, pretty knd, pretty discrVal, pretty inh]
 
 instance Pretty Field where
     pretty (Field nm ty) = pretty_fn2 "Field" nm ty
@@ -207,8 +204,6 @@ instance Pretty Lvalue where
       pretty lv <> brackets (pretty "-" <> pretty f <> dot <> dot <> pretty "-" <> pretty t)
     pretty (LProj lv (Downcast i)) =
       parens (pretty lv <+> pretty "as" <+> pretty i)
-    pretty (LProj lv (Subtype ty)) =
-      parens (pretty lv <+> pretty "as subtype" <+> pretty ty)
 
 instance Pretty Rvalue where
     pretty (Use a) = pretty a
@@ -221,7 +216,6 @@ instance Pretty Rvalue where
     pretty (Len a) = pretty_fn1 "len" a
     pretty (Cast a b c) = pretty_fn3 "Cast" a b c
     pretty (BinaryOp a b c) = pretty b <+> pretty a <+> pretty c
-    pretty (NullaryOp a _b) = pretty a
     pretty (UnaryOp a b) = pretty a <+> pretty b
     pretty (Discriminant a b) = pretty_fn2 "Discriminant" a b
     pretty (Aggregate a b) = pretty_fn2 "Aggregate" a b
@@ -263,6 +257,7 @@ instance Pretty Operand where
     pretty (OpConstant c) = pretty c
     pretty (Move c) = pretty_fn1 "move" c
     pretty (Copy c) = pretty_fn1 "copy" c
+    pretty (OpRuntimeChecks rc) = pretty_fn1 "runtime_checks" rc
     pretty (Temp c) = pretty_fn1 "temp" c
 
 instance Pretty Constant where
@@ -288,12 +283,10 @@ instance Pretty Constant where
         _ ->
           pretty_fn1 "const" b
 
-instance Pretty NullOp where
-    pretty SizeOf = pretty "sizeof"
-    pretty AlignOf = pretty "alignof"
-    pretty UbChecks = pretty "ub_checks"
-
 instance Pretty BorrowKind where
+    pretty = viaShow
+
+instance Pretty RuntimeChecks where
     pretty = viaShow
 
 
