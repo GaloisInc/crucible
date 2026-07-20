@@ -62,7 +62,7 @@ module Mir.Intrinsics.Reference
     subjustMirRefLeaf,
     subjustMirRefIO,
     mirRef_agOffsetLeaf,
-    mirRef_agOffsetIO,
+    mirRef_agOffsetMA,
     mirRef_arrayIndexLeaf,
     mirRef_arrayIndexIO,
     mirRef_vecIndexLeaf,
@@ -1104,11 +1104,11 @@ mirRef_vecIndexIO bak iTypes idx elemTpr ref =
 
 
 mirRef_agOffsetLeaf ::
-    (IsSymBackend sym bak) =>
+    (MonadAssert sym bak m) =>
     bak ->
     RegValue sym UsizeType ->
     MirReference sym ->
-    MuxLeafT sym IO (MirReference sym)
+    MuxLeafT sym m (MirReference sym)
 mirRef_agOffsetLeaf bak off ref =
   typedLeafOp "MirAggregate offset" bak MirAggregateRepr ref $ \root path ->
     case path of
@@ -1117,14 +1117,14 @@ mirRef_agOffsetLeaf bak off ref =
         return $ MirReference MirAggregateRepr root (AgOffset_RefPath newOff oldPath)
       _ -> return $ MirReference MirAggregateRepr root (AgOffset_RefPath off path)
 
-mirRef_agOffsetIO ::
-    IsSymBackend sym bak =>
+mirRef_agOffsetMA ::
+    (MonadAssert sym bak m) =>
     bak ->
     IntrinsicTypes sym ->
     RegValue sym UsizeType ->
     MirReferenceMux sym ->
-    IO (MirReferenceMux sym)
-mirRef_agOffsetIO bak iTypes off ref =
+    m (MirReferenceMux sym)
+mirRef_agOffsetMA bak iTypes off ref =
     modifyRefMuxMA bak iTypes (mirRef_agOffsetLeaf bak off) ref
 
 

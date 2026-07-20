@@ -117,7 +117,7 @@ import Mir.Intrinsics.Reference
     MirReferenceRoot (..),
     MirReferenceType,
     dropMirRefIO,
-    mirRef_agOffsetIO,
+    mirRef_agOffsetMA,
     mirRef_arrayIndexIO,
     mirRef_eqIO,
     mirRef_offsetMA,
@@ -500,7 +500,7 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
        MirRef_VecIndex (regValue -> idx) tpr (regValue -> ref) ->
          readOnly s $ mirRef_vecIndexIO bak iTypes idx tpr ref
        MirRef_AgOffset (regValue -> off) (regValue -> ref) ->
-         readOnly s $ mirRef_agOffsetIO bak iTypes off ref
+         readOnly s $ mirRef_agOffsetMA bak iTypes off ref
        MirRef_Eq (regValue -> r1) (regValue -> r2) ->
          readOnly s $ mirRef_eqIO bak r1 r2
        MirRef_Offset (regValue -> ref) (regValue -> off) elemSize ->
