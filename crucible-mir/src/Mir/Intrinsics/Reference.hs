@@ -1129,12 +1129,12 @@ mirRef_agOffsetMA bak iTypes off ref =
 
 
 refRootEq ::
-    IsSymInterface sym =>
-    sym ->
+    (IsSymBackend sym bak) =>
+    bak ->
     MirReferenceRoot sym tp1 ->
     MirReferenceRoot sym tp2 ->
     MuxLeafT sym IO (RegValue sym BoolType)
-refRootEq sym r1 r2 = case (r1, r2) of
+refRootEq bak r1 r2 = case (r1, r2) of
   (RefCell_RefRoot rc1, RefCell_RefRoot rc2)
     | Just Refl <- testEquality rc1 rc2 ->
       return $ truePred sym
@@ -1149,35 +1149,37 @@ refRootEq sym r1 r2 = case (r1, r2) of
     return $ falsePred sym
   (Const_RefRoot {}, _) ->
     return $ falsePred sym
+  where
+    sym = backendGetSym bak
 
 refPathEq ::
-    IsSymInterface sym =>
-    sym ->
+    (IsSymBackend sym bak) =>
+    bak ->
     MirReferencePath sym tp_base1 tp1 ->
     MirReferencePath sym tp_base2 tp2 ->
     MuxLeafT sym IO (RegValue sym BoolType)
-refPathEq sym path1 path2 = case (path1, path2) of
+refPathEq bak path1 path2 = case (path1, path2) of
   (Empty_RefPath, Empty_RefPath) ->
     return $ truePred sym
   (Field_RefPath ctx1 p1 idx1, Field_RefPath ctx2 p2 idx2)
     | Just Refl <- testEquality ctx1 ctx2
     , Just Refl <- testEquality idx1 idx2 ->
-      refPathEq sym p1 p2
+      refPathEq bak p1 p2
   (Variant_RefPath _ ctx1 p1 idx1, Variant_RefPath _ ctx2 p2 idx2)
     | Just Refl <- testEquality ctx1 ctx2
     , Just Refl <- testEquality idx1 idx2 ->
-      refPathEq sym p1 p2
+      refPathEq bak p1 p2
   (Just_RefPath tpr1 p1, Just_RefPath tpr2 p2)
     | Just Refl <- testEquality tpr1 tpr2 ->
-      refPathEq sym p1 p2
+      refPathEq bak p1 p2
   (VectorIndex_RefPath tpr1 p1 idx1, VectorIndex_RefPath tpr2 p2 idx2)
     | Just Refl <- testEquality tpr1 tpr2 -> do
-      pEq <- refPathEq sym p1 p2
+      pEq <- refPathEq bak p1 p2
       idxEq <- liftIO $ bvEq sym idx1 idx2
       liftIO $ andPred sym pEq idxEq
   (ArrayIndex_RefPath btpr1 p1 idx1, ArrayIndex_RefPath btpr2 p2 idx2)
     | Just Refl <- testEquality btpr1 btpr2 -> do
-      pEq <- refPathEq sym p1 p2
+      pEq <- refPathEq bak p1 p2
       idxEq <- liftIO $ bvEq sym idx1 idx2
       liftIO $ andPred sym pEq idxEq
   (AgElem_RefPath off1 _tpr1 p1, AgElem_RefPath off2 _tpr2 p2) -> do
@@ -1192,21 +1194,21 @@ refPathEq sym path1 path2 = case (path1, path2) of
     --
     -- * The sizes (_sz{1,2}), as pointers of different types may have
     --   different layout sizes.
-    pEq <- refPathEq sym p1 p2
+    pEq <- refPathEq bak p1 p2
     liftIO $ andPred sym offEq pEq
   (AgOffset_RefPath off1 p1, AgOffset_RefPath off2 p2) -> do
     offEq <- liftIO $ bvEq sym off1 off2
-    pEq <- refPathEq sym p1 p2
+    pEq <- refPathEq bak p1 p2
     liftIO $ andPred sym offEq pEq
   (AgOffset_RefPath off1 p1, p2) -> do
     -- See Note [Aggregate zero-offsets]
     offEq <- liftIO $ bvEq sym off1 =<< wordLit sym 0
-    pEq <- refPathEq sym p1 p2
+    pEq <- refPathEq bak p1 p2
     liftIO $ andPred sym offEq pEq
   (p1, AgOffset_RefPath off2 p2) -> do
     -- See Note [Aggregate zero-offsets]
     offEq <- liftIO $ bvEq sym off2 =<< wordLit sym 0
-    pEq <- refPathEq sym p1 p2
+    pEq <- refPathEq bak p1 p2
     liftIO $ andPred sym offEq pEq
   (Empty_RefPath, _) ->
     return $ falsePred sym
@@ -1222,23 +1224,27 @@ refPathEq sym path1 path2 = case (path1, path2) of
     return $ falsePred sym
   (AgElem_RefPath {}, _) ->
     return $ falsePred sym
+  where
+    sym = backendGetSym bak
 
 mirRef_eqLeaf ::
-    IsSymInterface sym =>
-    sym ->
+    (IsSymBackend sym bak) =>
+    bak ->
     MirReference sym ->
     MirReference sym ->
     MuxLeafT sym IO (RegValue sym BoolType)
-mirRef_eqLeaf sym ref1 ref2 = case (ref1, ref2) of
+mirRef_eqLeaf bak ref1 ref2 = case (ref1, ref2) of
   (MirReference _ root1 path1, MirReference _ root2 path2) -> do
-    rootEq <- refRootEq sym root1 root2
-    pathEq <- refPathEq sym path1 path2
+    rootEq <- refRootEq bak root1 root2
+    pathEq <- refPathEq bak path1 path2
     liftIO $ andPred sym rootEq pathEq
   (MirReference_Integer i1, MirReference_Integer i2) ->
     liftIO $ isEq sym i1 i2
   (_, _) ->
     -- All valid references are disjoint from all integer references.
     return $ falsePred sym
+  where
+    sym = backendGetSym bak
 
 mirRef_eqIO ::
     (IsSymBackend sym bak) =>
@@ -1248,7 +1254,7 @@ mirRef_eqIO ::
     IO (RegValue sym BoolType)
 mirRef_eqIO bak (MirReferenceMux r1) (MirReferenceMux r2) =
     let sym = backendGetSym bak in
-    zipFancyMuxTrees' bak (mirRef_eqLeaf sym) (itePred sym) r1 r2
+    zipFancyMuxTrees' bak (mirRef_eqLeaf bak) (itePred sym) r1 r2
 
 
 -- | An ordinary `MirReferencePath sym tp tp''` is represented "inside-out": to
@@ -1558,22 +1564,22 @@ mirRef_tryOffsetFromLeaf ::
     MuxLeafT sym IO (RegValue sym (MaybeType IsizeType))
 mirRef_tryOffsetFromLeaf bak elemSize r1@(MirReference tp1 root1 path1) r2@(MirReference tp2 root2 path2) = do
     let sym = backendGetSym bak
-    rootEq <- refRootEq sym root1 root2
+    rootEq <- refRootEq bak root1 root2
     case (path1, path2) of
         (VectorIndex_RefPath _ path1' idx1, VectorIndex_RefPath _ path2' idx2) -> do
-            pathEq <- refPathEq sym path1' path2'
+            pathEq <- refPathEq bak path1' path2'
             similar <- liftIO $ andPred sym rootEq pathEq
             -- TODO: implement overflow checks, similar to `offset`
             offset <- liftIO $ bvSub sym idx1 idx2
             return $ mkPE similar offset
         (ArrayIndex_RefPath _ path1' idx1, ArrayIndex_RefPath _ path2' idx2) -> do
-            pathEq <- refPathEq sym path1' path2'
+            pathEq <- refPathEq bak path1' path2'
             similar <- liftIO $ andPred sym rootEq pathEq
             -- TODO: implement overflow checks, similar to `offset`
             offset <- liftIO $ bvSub sym idx1 idx2
             return $ mkPE similar offset
         (AgElem_RefPath off1 _ path1', AgElem_RefPath off2 _ path2') -> do
-            pathEq <- refPathEq sym path1' path2'
+            pathEq <- refPathEq bak path1' path2'
             similar <- liftIO $ andPred sym rootEq pathEq
             byteOffset <- liftIO $ bvSub sym off1 off2
             elemSize' <- liftIO $ wordLit sym elemSize
@@ -1588,7 +1594,7 @@ mirRef_tryOffsetFromLeaf bak elemSize r1@(MirReference tp1 root1 path1) r2@(MirR
 
             return $ mkPE similar elemOffset
         (AgOffset_RefPath off1 path1', AgOffset_RefPath off2 path2') -> do
-            pathEq <- refPathEq sym path1' path2'
+            pathEq <- refPathEq bak path1' path2'
             similar <- liftIO $ andPred sym rootEq pathEq
             byteOffset <- liftIO $ bvSub sym off1 off2
             elemSize' <- liftIO $ wordLit sym elemSize
@@ -1615,7 +1621,7 @@ mirRef_tryOffsetFromLeaf bak elemSize r1@(MirReference tp1 root1 path1) r2@(MirR
             let r1' = MirReference tp1 root1 (AgOffset_RefPath zero path1)
             mirRef_tryOffsetFromLeaf bak elemSize r1' r2
         _ -> do
-            pathEq <- refPathEq sym path1 path2
+            pathEq <- refPathEq bak path1 path2
             similar <- liftIO $ andPred sym rootEq pathEq
             liftIO $ mkPE similar <$> bvZero sym knownNat
 mirRef_tryOffsetFromLeaf bak _elemSize (MirReference_Integer i1) (MirReference_Integer i2) = do
