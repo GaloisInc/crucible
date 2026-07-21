@@ -70,7 +70,7 @@ module Mir.Intrinsics.Reference
     refRootEq,
     refPathEq,
     mirRef_eqLeaf,
-    mirRef_eqIO,
+    mirRef_eqMA,
     ReversedRefPath (..),
     reverseRefPath,
     popIndex,
@@ -1129,11 +1129,11 @@ mirRef_agOffsetMA bak iTypes off ref =
 
 
 refRootEq ::
-    (IsSymBackend sym bak) =>
+    (MonadAssert sym bak m) =>
     bak ->
     MirReferenceRoot sym tp1 ->
     MirReferenceRoot sym tp2 ->
-    MuxLeafT sym IO (RegValue sym BoolType)
+    MuxLeafT sym m (RegValue sym BoolType)
 refRootEq bak r1 r2 = case (r1, r2) of
   (RefCell_RefRoot rc1, RefCell_RefRoot rc2)
     | Just Refl <- testEquality rc1 rc2 ->
@@ -1153,11 +1153,11 @@ refRootEq bak r1 r2 = case (r1, r2) of
     sym = backendGetSym bak
 
 refPathEq ::
-    (IsSymBackend sym bak) =>
+    (MonadAssert sym bak m) =>
     bak ->
     MirReferencePath sym tp_base1 tp1 ->
     MirReferencePath sym tp_base2 tp2 ->
-    MuxLeafT sym IO (RegValue sym BoolType)
+    MuxLeafT sym m (RegValue sym BoolType)
 refPathEq bak path1 path2 = case (path1, path2) of
   (Empty_RefPath, Empty_RefPath) ->
     return $ truePred sym
@@ -1228,11 +1228,11 @@ refPathEq bak path1 path2 = case (path1, path2) of
     sym = backendGetSym bak
 
 mirRef_eqLeaf ::
-    (IsSymBackend sym bak) =>
+    (MonadAssert sym bak m) =>
     bak ->
     MirReference sym ->
     MirReference sym ->
-    MuxLeafT sym IO (RegValue sym BoolType)
+    MuxLeafT sym m (RegValue sym BoolType)
 mirRef_eqLeaf bak ref1 ref2 = case (ref1, ref2) of
   (MirReference _ root1 path1, MirReference _ root2 path2) -> do
     rootEq <- refRootEq bak root1 root2
@@ -1246,15 +1246,15 @@ mirRef_eqLeaf bak ref1 ref2 = case (ref1, ref2) of
   where
     sym = backendGetSym bak
 
-mirRef_eqIO ::
-    (IsSymBackend sym bak) =>
+mirRef_eqMA ::
+    (MonadAssert sym bak m) =>
     bak ->
     MirReferenceMux sym ->
     MirReferenceMux sym ->
-    IO (RegValue sym BoolType)
-mirRef_eqIO bak (MirReferenceMux r1) (MirReferenceMux r2) =
+    m (RegValue sym BoolType)
+mirRef_eqMA bak (MirReferenceMux r1) (MirReferenceMux r2) =
     let sym = backendGetSym bak in
-    zipFancyMuxTrees' bak (mirRef_eqLeaf bak) (itePred sym) r1 r2
+    zipFancyMuxTrees' bak (mirRef_eqLeaf bak) (\c t e -> liftIO $ itePred sym c t e) r1 r2
 
 
 -- | An ordinary `MirReferencePath sym tp tp''` is represented "inside-out": to
