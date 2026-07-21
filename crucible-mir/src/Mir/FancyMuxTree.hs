@@ -403,7 +403,7 @@ zipFancyMuxTrees' :: MonadAssert sym bak m =>
     FancyMuxTree sym a -> FancyMuxTree sym b -> m c
 zipFancyMuxTrees' bak f mux tx ty = zipFancyMuxTrees bak f mux tx ty >>= \my -> case my of
     Just y -> return y
-    Nothing -> liftIO $ addFailedAssertion bak $ GenericSimError $
+    Nothing -> maFail bak $ GenericSimError $
         "attempted to read empty mux tree"
 
 mergeFancyMuxTree :: (IsExprBuilder sym, OrdSkel a, MonadIO m) =>
