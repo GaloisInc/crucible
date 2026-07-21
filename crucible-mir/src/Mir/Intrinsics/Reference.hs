@@ -1134,16 +1134,21 @@ refRootEq ::
     MirReferenceRoot sym tp1 ->
     MirReferenceRoot sym tp2 ->
     MuxLeafT sym IO (RegValue sym BoolType)
-refRootEq sym (RefCell_RefRoot rc1) (RefCell_RefRoot rc2)
-  | Just Refl <- testEquality rc1 rc2 = return $ truePred sym
-refRootEq sym (GlobalVar_RefRoot gv1) (GlobalVar_RefRoot gv2)
-  | Just Refl <- testEquality gv1 gv2 = return $ truePred sym
-refRootEq _sym (Const_RefRoot _ _) (Const_RefRoot _ _) =
+refRootEq sym r1 r2 = case (r1, r2) of
+  (RefCell_RefRoot rc1, RefCell_RefRoot rc2)
+    | Just Refl <- testEquality rc1 rc2 ->
+      return $ truePred sym
+  (GlobalVar_RefRoot gv1, GlobalVar_RefRoot gv2)
+    | Just Refl <- testEquality gv1 gv2 ->
+      return $ truePred sym
+  (Const_RefRoot _ _, Const_RefRoot _ _) ->
     leafAbort $ Unsupported callStack $ "Cannot compare Const_RefRoots"
-
-refRootEq sym (RefCell_RefRoot {}) _ = return $ falsePred sym
-refRootEq sym (GlobalVar_RefRoot {}) _ = return $ falsePred sym
-refRootEq sym (Const_RefRoot {}) _ = return $ falsePred sym
+  (RefCell_RefRoot {}, _) ->
+    return $ falsePred sym
+  (GlobalVar_RefRoot {}, _) ->
+    return $ falsePred sym
+  (Const_RefRoot {}, _) ->
+    return $ falsePred sym
 
 refPathEq ::
     IsSymInterface sym =>
@@ -1151,26 +1156,31 @@ refPathEq ::
     MirReferencePath sym tp_base1 tp1 ->
     MirReferencePath sym tp_base2 tp2 ->
     MuxLeafT sym IO (RegValue sym BoolType)
-refPathEq sym Empty_RefPath Empty_RefPath = return $ truePred sym
-refPathEq sym (Field_RefPath ctx1 p1 idx1) (Field_RefPath ctx2 p2 idx2)
-  | Just Refl <- testEquality ctx1 ctx2
-  , Just Refl <- testEquality idx1 idx2 = refPathEq sym p1 p2
-refPathEq sym (Variant_RefPath _ ctx1 p1 idx1) (Variant_RefPath _ ctx2 p2 idx2)
-  | Just Refl <- testEquality ctx1 ctx2
-  , Just Refl <- testEquality idx1 idx2 = refPathEq sym p1 p2
-refPathEq sym (Just_RefPath tpr1 p1) (Just_RefPath tpr2 p2)
-  | Just Refl <- testEquality tpr1 tpr2 = refPathEq sym p1 p2
-refPathEq sym (VectorIndex_RefPath tpr1 p1 idx1) (VectorIndex_RefPath tpr2 p2 idx2)
-  | Just Refl <- testEquality tpr1 tpr2 = do
-    pEq <- refPathEq sym p1 p2
-    idxEq <- liftIO $ bvEq sym idx1 idx2
-    liftIO $ andPred sym pEq idxEq
-refPathEq sym (ArrayIndex_RefPath btpr1 p1 idx1) (ArrayIndex_RefPath btpr2 p2 idx2)
-  | Just Refl <- testEquality btpr1 btpr2 = do
-    pEq <- refPathEq sym p1 p2
-    idxEq <- liftIO $ bvEq sym idx1 idx2
-    liftIO $ andPred sym pEq idxEq
-refPathEq sym (AgElem_RefPath off1 _tpr1 p1) (AgElem_RefPath off2 _tpr2 p2) = do
+refPathEq sym path1 path2 = case (path1, path2) of
+  (Empty_RefPath, Empty_RefPath) ->
+    return $ truePred sym
+  (Field_RefPath ctx1 p1 idx1, Field_RefPath ctx2 p2 idx2)
+    | Just Refl <- testEquality ctx1 ctx2
+    , Just Refl <- testEquality idx1 idx2 ->
+      refPathEq sym p1 p2
+  (Variant_RefPath _ ctx1 p1 idx1, Variant_RefPath _ ctx2 p2 idx2)
+    | Just Refl <- testEquality ctx1 ctx2
+    , Just Refl <- testEquality idx1 idx2 ->
+      refPathEq sym p1 p2
+  (Just_RefPath tpr1 p1, Just_RefPath tpr2 p2)
+    | Just Refl <- testEquality tpr1 tpr2 ->
+      refPathEq sym p1 p2
+  (VectorIndex_RefPath tpr1 p1 idx1, VectorIndex_RefPath tpr2 p2 idx2)
+    | Just Refl <- testEquality tpr1 tpr2 -> do
+      pEq <- refPathEq sym p1 p2
+      idxEq <- liftIO $ bvEq sym idx1 idx2
+      liftIO $ andPred sym pEq idxEq
+  (ArrayIndex_RefPath btpr1 p1 idx1, ArrayIndex_RefPath btpr2 p2 idx2)
+    | Just Refl <- testEquality btpr1 btpr2 -> do
+      pEq <- refPathEq sym p1 p2
+      idxEq <- liftIO $ bvEq sym idx1 idx2
+      liftIO $ andPred sym pEq idxEq
+  (AgElem_RefPath off1 _tpr1 p1, AgElem_RefPath off2 _tpr2 p2) -> do
     offEq <- liftIO $ bvEq sym off1 off2
     -- NB: Don't check the following for equality:
     --
@@ -1184,28 +1194,34 @@ refPathEq sym (AgElem_RefPath off1 _tpr1 p1) (AgElem_RefPath off2 _tpr2 p2) = do
     --   different layout sizes.
     pEq <- refPathEq sym p1 p2
     liftIO $ andPred sym offEq pEq
-refPathEq sym (AgOffset_RefPath off1 p1) (AgOffset_RefPath off2 p2) = do
+  (AgOffset_RefPath off1 p1, AgOffset_RefPath off2 p2) -> do
     offEq <- liftIO $ bvEq sym off1 off2
     pEq <- refPathEq sym p1 p2
     liftIO $ andPred sym offEq pEq
-refPathEq sym (AgOffset_RefPath off1 p1) p2 = do
+  (AgOffset_RefPath off1 p1, p2) -> do
     -- See Note [Aggregate zero-offsets]
     offEq <- liftIO $ bvEq sym off1 =<< wordLit sym 0
     pEq <- refPathEq sym p1 p2
     liftIO $ andPred sym offEq pEq
-refPathEq sym p1 (AgOffset_RefPath off2 p2) = do
+  (p1, AgOffset_RefPath off2 p2) -> do
     -- See Note [Aggregate zero-offsets]
     offEq <- liftIO $ bvEq sym off2 =<< wordLit sym 0
     pEq <- refPathEq sym p1 p2
     liftIO $ andPred sym offEq pEq
-
-refPathEq sym Empty_RefPath _ = return $ falsePred sym
-refPathEq sym (Field_RefPath {}) _ = return $ falsePred sym
-refPathEq sym (Variant_RefPath {}) _ = return $ falsePred sym
-refPathEq sym (Just_RefPath {}) _ = return $ falsePred sym
-refPathEq sym (VectorIndex_RefPath {}) _ = return $ falsePred sym
-refPathEq sym (ArrayIndex_RefPath {}) _ = return $ falsePred sym
-refPathEq sym (AgElem_RefPath {}) _ = return $ falsePred sym
+  (Empty_RefPath, _) ->
+    return $ falsePred sym
+  (Field_RefPath {}, _) ->
+    return $ falsePred sym
+  (Variant_RefPath {}, _) ->
+    return $ falsePred sym
+  (Just_RefPath {}, _) ->
+    return $ falsePred sym
+  (VectorIndex_RefPath {}, _) ->
+    return $ falsePred sym
+  (ArrayIndex_RefPath {}, _) ->
+    return $ falsePred sym
+  (AgElem_RefPath {}, _) ->
+    return $ falsePred sym
 
 mirRef_eqLeaf ::
     IsSymInterface sym =>
@@ -1213,13 +1229,14 @@ mirRef_eqLeaf ::
     MirReference sym ->
     MirReference sym ->
     MuxLeafT sym IO (RegValue sym BoolType)
-mirRef_eqLeaf sym (MirReference _ root1 path1) (MirReference _ root2 path2) = do
+mirRef_eqLeaf sym ref1 ref2 = case (ref1, ref2) of
+  (MirReference _ root1 path1, MirReference _ root2 path2) -> do
     rootEq <- refRootEq sym root1 root2
     pathEq <- refPathEq sym path1 path2
     liftIO $ andPred sym rootEq pathEq
-mirRef_eqLeaf sym (MirReference_Integer i1) (MirReference_Integer i2) =
+  (MirReference_Integer i1, MirReference_Integer i2) ->
     liftIO $ isEq sym i1 i2
-mirRef_eqLeaf sym _ _ =
+  (_, _) ->
     -- All valid references are disjoint from all integer references.
     return $ falsePred sym
 
