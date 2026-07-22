@@ -1,5 +1,3 @@
-// FAIL: attempt to mux differently-initialized unions
-
 extern crate crucible;
 use crucible::{crucible_assert, dump_rv, Symbolic as _};
 
