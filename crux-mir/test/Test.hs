@@ -211,6 +211,8 @@ sanitizeGoldenTestOutput = go
       | Just (before, _matched :: BS.ByteString, after, [preDisamb])
           <- matchM disambRE out
       = before <> preDisamb <> "<DISAMB>::" <> go after
+      -- TODO: this nonce sanitization ought to be able to be removed once
+      -- https://github.com/GaloisInc/crucible/issues/1843 is resolved.
       | Just (before, _matched :: BS.ByteString, after, [] :: [BS.ByteString])
           <- matchM nonceRE out
       = before <> "<NONCE>" <> go after

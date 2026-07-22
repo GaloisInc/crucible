@@ -1586,14 +1586,7 @@ union's fields. When interpreting this initialization:
   model.
 
 When reading from the union, we rely on this initialization behavior, by reading
-the offset-0, size-1 subrange of the `MirAggregate` - that is, the entire
-aggregate - regardless of the type/field being read.
-
-The choice to represent unions and their constituent fields as having size 1 is
-temporary, intended to match similar temporary behavior elsewhere, e.g. in tuple
-construction (see `buildTupleMaybeM`). In the medium term, we'll want to update
-this to incorporate size and layout information to compute and use the proper
-sizes and offsets for each field.
+the value from offset 0, regardless of the type/field being read.
 
 The type representation associated with a (subrange of a) `MirAggregate` is
 unspecified until the aggregate is written to, and fixed thereafter. This allows

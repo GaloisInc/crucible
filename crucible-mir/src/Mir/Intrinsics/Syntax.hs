@@ -164,8 +164,7 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      MirStmt f MirReferenceType
   MirReadRef ::
      !(TypeRepr tp) ->
-     -- | The size of the value to read, in bytes. This must be known concretely
-     -- at symbolic execution time.
+     -- | The size of the value to read.
      !OpSize ->
      !(f MirReferenceType) ->
      MirStmt f tp

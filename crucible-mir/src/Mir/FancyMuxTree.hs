@@ -262,11 +262,16 @@ leafUpdatePartExpr bak mux x (PE q y) = do
             return $ mkPE pq xy
 
 -- | Like `leafUpdatePartExpr`, but instead of unconditionally writing a new
--- value, modify an already-existing value if one exists.
+-- value, modify an already-existing value, conditional on the current leaf
+-- being active.
 leafModifyPartExpr ::
     (IsSymBackend sym bak, MonadIO m) =>
     bak ->
     (Pred sym -> a -> a -> m a) ->
+    -- | If some value @v@ inhabits the leaf and its leaf predicate is true,
+    -- this will receive @Just v@. If no value inhabits the leaf, this will
+    -- receive @Nothing@. If the leaf predicate is known to be false, this will
+    -- not be called.
     (Maybe a -> m a) ->
     PartExpr (Pred sym) a ->
     MuxLeafT sym m (PartExpr (Pred sym) a)
