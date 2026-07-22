@@ -773,7 +773,7 @@ data OpSize
 instance Pretty OpSize where
   pretty s = case s of
     Width w -> pretty w
-    All -> "<alloc>"
+    All -> "<all>"
 
 
 --------------------------------------------------------------------------------------
