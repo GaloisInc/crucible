@@ -671,7 +671,11 @@ showRegEntry sym col mty entry@(C.RegEntry tp rv) =
       TyFloat _ -> True
       TyAdt name _ _
         | Just adt <- findAdt' col name,
-          Enum _ <- adt ^. adtkind -> True
+          Just ty' <- reprTransparentFieldTy col adt ->
+            aggregateLeafType ty'
+        | Just adt <- findAdt' col name,
+          Enum _ <- adt ^. adtkind ->
+            True
       _ -> False
 
     readFields :: FieldCtxRepr ctx -> Ctx.Assignment (C.RegValue' sym) ctx ->
