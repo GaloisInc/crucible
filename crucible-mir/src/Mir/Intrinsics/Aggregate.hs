@@ -72,6 +72,7 @@ import Control.Monad.IO.Class (MonadIO, liftIO)
 import Control.Monad.Trans (lift)
 
 import Data.BitVector.Sized qualified as BV
+import Data.Foldable.WithIndex (ifoldlM)
 import Data.IntMap (IntMap)
 import Data.IntMap qualified as IntMap
 import Data.Kind (Type)
@@ -710,13 +711,6 @@ mirAggregate_entries :: sym -> MirAggregate sym -> [(Word, MirAggregateEntry sym
 mirAggregate_entries _sym (MirAggregate _totalSize m) =
   [(fromIntegral off, entry) | (off, entry) <- IntMap.toList m]
 
-foldMWithKey :: Monad m => (b -> Int -> a -> m b) -> b -> IntMap a -> m b
-foldMWithKey f z m = IntMap.foldlWithKey' f' (pure z) m
-  where
-    f' accM key val = do
-      acc <- accM
-      f acc key val
-
 mirAggregate_insert ::
   (IsSymInterface sym) =>
   Word ->
@@ -736,9 +730,9 @@ mirAggregate_insert outerAgOff (MirAggregateEntry entrySz MirAggregateRepr entry
       outerAg' <- case mirAggregate_clear (Just outerAgOff) (Just $ outerAgOff + innerAgSz) outerAg of
         Left err -> Left $ "mirAggregate_insert: error when clearing existing entries: " <> err
         Right a -> pure a
-      let addEntry ag (fromIntegral -> entryOff) entry =
+      let addEntry (fromIntegral -> entryOff) ag entry =
             mirAggregate_insert (outerAgOff + entryOff) entry ag
-      foldMWithKey addEntry outerAg' innerAgEntries
+      ifoldlM addEntry outerAg' innerAgEntries
     -- Note: this case doesn't seem to show up in practice, but if it does,
     -- consider lifting this function to a monadic context in which it can
     -- manipulate predicates, so that it can add entries the conjunction of
