@@ -1545,11 +1545,12 @@ evalPlaceProj ty (MirPlace tpr ref NoMeta) M.Deref = do
         CTyBox t -> doRef t
         _ -> mirFail $ "deref not supported on " ++ show ty
   where
-    -- These values presume 64-bit architectures. In the longer term, we'd
-    -- prefer not to hardcode that presumption - see #1384.
+    ptrBytes :: Word
+    ptrBytes = fromIntegral (C.intValue (C.knownNat @SizeBits)) `div` 8
+
     ptrOpSize, fatPtrOpSize :: OpSize
-    ptrOpSize = Width 8
-    fatPtrOpSize = Width 16
+    ptrOpSize    = Width      ptrBytes
+    fatPtrOpSize = Width (2 * ptrBytes)
 
     doRef :: M.Ty -> MirGenerator h s ret (MirPlace s)
     doRef (M.TySlice ty') | MirSliceRepr <- tpr = doSlice ty' ref
@@ -2945,10 +2946,7 @@ dispatchFromDyn dynTraitName recvTy recvExp die = do
                 [(fldIdx, fld)] -> do
                   fieldExp <- lift $ getStructField ty fldIdx mirExp
                   fieldExp' <- go (fld ^. fty) fieldExp
-                    -- This value presumes a 64-bit architecture. In the longer
-                    -- term, we'd prefer not to hardcode that presumption - see
-                    -- #1384.
-                  let ptrSize = 8
+                  let ptrSize = fromIntegral (C.intValue (C.knownNat @SizeBits)) `div` 8
                   lift $ buildWrapperAggregate ptrSize fieldExp'
                 fs ->
                   lift $ die

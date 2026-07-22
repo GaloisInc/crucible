@@ -91,6 +91,8 @@ import What4.Interface (bvLit)
 
 -- Rust usize/isize representation
 
+-- This choice of bit width presumes 64-bit architectures. In the longer term,
+-- we'd prefer not to hardcode that presumption - see #1384.
 type SizeBits = 64
 
 type UsizeType = BVType SizeBits
