@@ -34,6 +34,16 @@ This release supports [version
   `Mir.Intrinsics.Reference.subindexMirRef{IO,Leaf,Sim}`), and migrate existing
   uses to allocation-specific intrinsics for aggregates, sybmolic arrays, and
   vectors (`Mir.Generator.{mirRef_agElem,mirRef_arrayIndex,mirRef_vecIndex}`).
+* Introduce an invariant that `MirAggregate`s are "flattened" - that is, that no
+  `MirAggregate` will contain an _immediate_ entry that is itself a
+  `MirAggregate`. See `Mir.Intrinsics.Aggregate.MirAggregate`'s documentation
+  for details.
+* Replace the `mirRef_agElem*` family of intrinsics with `mirRef_agOffset*`. The
+  latter represent generic, untyped byte offset operations into an aggregate.
+* Add type size parameters to several intrinsics, including those for reading
+  from/writing to references.
+* Remove the `mirRef_aggregateAsChunks*` family of intrinsics. The flattened
+  aggregate representation is rich enough that these became no-ops.
 
 # 0.6 -- 2026-01-29
 
