@@ -386,14 +386,18 @@ readSubaggregateWithSymOffset bak iteFn readSize off ag@(MirAggregate agSize _)
       -- We've used `Unassigned` as the base case for the above mux so we'll be
       -- left with `Unassigned` in failure cases, and can propagate that error
       -- via `leafReadPartExpr`.
-      let sizeMsg = case readSize of All -> ""; Width w -> " of size " <> show w
+      let sizeMsg = case readSize of
+                      All -> ""
+                      Width w -> " of size " <> show w
       leafReadPartExpr bak agPMux $
         GenericSimError $
           "readSubaggregateWithSymOffset: in aggregate of size " <> show agSize <>
           ", no subaggregate value" <> sizeMsg <> " at symbolic offset"
   where
     readConcrete off' = do
-      let sz = case readSize of All -> agSize - off'; Width w -> w
+      let sz = case readSize of
+                All -> agSize - off'
+                Width w -> w
       case mirAggregate_chunk off' sz ag of
         Right a -> pure a
         Left err -> die err
@@ -508,7 +512,9 @@ adjustSubaggregateWithSymOffset bak iteFn off f adjSize ag@(MirAggregate agSize 
         nonSplittingAgOffsets
   where
     adjustConcrete off' = do
-      let sz = case adjSize of All -> agSize - off'; Width w -> w
+      let sz = case adjSize of
+                All -> agSize - off'
+                Width w -> w
 
       adjAg@(MirAggregate adjAgSz _) <- case mirAggregate_chunk off' sz ag of
         Right a -> pure a
