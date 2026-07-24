@@ -210,6 +210,7 @@ import Mir.Intrinsics.Aggregate
     MirAggregateType,
     adjustMirAggregateWithSymOffset,
     readMirAggregateWithSymOffset,
+    readSubaggregateWithConcreteOffset,
     writeMirAggregateWithSymOffset,
     mirAggregate_capacity,
     mirAggregate_insert,
@@ -510,34 +511,37 @@ readRefPath ::
   IntrinsicTypes sym ->
   RegValue sym tp ->
   OpSize ->
+  TypeRepr tp ->
   MirReferencePath sym tp tp' ->
   MuxLeafT sym m (RegValue sym tp')
-readRefPath bak iTypes v readSize = \case
-  Empty_RefPath -> return v
+readRefPath bak iTypes v readSize rootTpr = \case
+  Empty_RefPath
+    | MirAggregateRepr <- rootTpr -> readSubaggregateWithConcreteOffset bak readSize 0 v
+    | otherwise -> return v
   Field_RefPath _ctx path fld ->
-    do flds <- readRefPath bak iTypes v All path
+    do flds <- readRefPath bak iTypes v All rootTpr path
        return $ unRV $ flds ! fld
   Variant_RefPath _ ctx path fld ->
-    do (Empty :> _discr :> RV variant) <- readRefPath bak iTypes v All path
+    do (Empty :> _discr :> RV variant) <- readRefPath bak iTypes v All rootTpr path
        let msg = GenericSimError $
                "attempted to read from wrong variant (" ++ show fld ++ " of " ++ show ctx ++ ")"
        leafReadPartExpr bak (unVB $ variant ! fld) msg
   Just_RefPath tp path ->
-    do v' <- readRefPath bak iTypes v All path
+    do v' <- readRefPath bak iTypes v All rootTpr path
        let msg = ReadBeforeWriteSimError $
                "attempted to read from uninitialized Maybe of type " ++ show tp
        leafReadPartExpr bak v' msg
   VectorIndex_RefPath tp path idx ->
-    do v' <- readRefPath bak iTypes v All path
+    do v' <- readRefPath bak iTypes v All rootTpr path
        leafIndexVectorWithSymIndex bak (muxRegForType (backendGetSym bak) iTypes tp) v' idx
   ArrayIndex_RefPath _btp path idx ->
-    do arr <- readRefPath bak iTypes v All path
+    do arr <- readRefPath bak iTypes v All rootTpr path
        liftIO $ arrayLookup (backendGetSym bak) arr (Empty :> idx)
   AgElem_RefPath off tpr path -> do
-    ag <- readRefPath bak iTypes v All path
+    ag <- readRefPath bak iTypes v All rootTpr path
     readMirAggregateWithSymOffset bak (muxRegForType (backendGetSym bak) iTypes tpr) off readSize tpr ag
   AgOffset_RefPath off path -> do
-    ag <- readRefPath bak iTypes v All path
+    ag <- readRefPath bak iTypes v All rootTpr path
     let mux = muxRegForType (backendGetSym bak) iTypes MirAggregateRepr
     readMirAggregateWithSymOffset bak mux off readSize MirAggregateRepr ag
 
@@ -877,7 +881,7 @@ readMirRefLeaf ::
 readMirRefLeaf bak gs iTypes tpr readSize ref =
   typedLeafOp "read" bak tpr ref $ \root path -> do
     v <- readRefRoot bak gs root
-    v' <- readRefPath bak iTypes v readSize path
+    v' <- readRefPath bak iTypes v readSize (refRootType root) path
     return v'
 
 

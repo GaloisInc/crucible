@@ -34,6 +34,7 @@ module Mir.Intrinsics.Aggregate
     agNoValueAtOffsetSimError,
     agNoValueAtSymbolicOffsetSimError,
     readMirAggregateWithSymOffset,
+    readSubaggregateWithConcreteOffset,
     adjustMirAggregateWithSymOffset,
     offsetInSpans,
     foldRuns,
@@ -395,19 +396,30 @@ readSubaggregateWithSymOffset bak iteFn readSize off ag@(MirAggregate agSize _)
           "readSubaggregateWithSymOffset: in aggregate of size " <> show agSize <>
           ", no subaggregate value" <> sizeMsg <> " at symbolic offset"
   where
-    readConcrete off' = do
-      let sz = case readSize of
-                All -> agSize - off'
-                Width w -> w
-      case mirAggregate_chunk off' sz ag of
-        Right a -> pure a
-        Left err -> die err
-
+    readConcrete off' = readSubaggregateWithConcreteOffset bak readSize off' ag
     iteFn' = liftIteFnMaybe sym MirAggregateRepr iteFn
     sym = backendGetSym bak
     offsetLit = wordLit sym
+
+readSubaggregateWithConcreteOffset ::
+  forall sym bak m.
+  MonadAssert sym bak m =>
+  bak ->
+  OpSize ->
+  Word ->
+  MirAggregate sym ->
+  MuxLeafT sym m (MirAggregate sym)
+readSubaggregateWithConcreteOffset _bak readSize off ag@(MirAggregate agSize _) = do
+  let sz = case readSize of
+            All -> agSize - off
+            Width w -> w
+  case mirAggregate_chunk off sz ag of
+    Right a -> pure a
+    Left err -> die err
+  where
     die err =
-      leafAbort $ GenericSimError $ "readSubaggregateWithSymOffset: " <> err
+      leafAbort $ GenericSimError $ "readSubaggregateWithConcreteOffset: " <> err
+
 
 
 adjustMirAggregateWithSymOffset ::
