@@ -1,0 +1,23 @@
+test dump_nested/<DISAMB>::test[0]: nested_tuple = {0..8 -> 0x4:[64]
+, 8..9 -> 0x1:[8]
+, 10..12 -> 0x2:[16]
+, 12..16 -> 0x3:[32]
+, 16..17 -> 0x5:[8]
+, 24..26 -> 0x6:[16]
+, 32..36 -> 0x7:[32]
+, 40..48 -> 0x8:[64]
+, size 48}
+nested_array = {0..2 -> 0x1:[16], 2..4 -> 0x2:[16], 4..6 -> 0x3:[16], 6..8 -> 0x4:[16], size 8}
+slice = {[((MirReference IntrinsicRepr MirAggregate [] IntrinsicRepr MirAggregate [] (RefCell_RefRoot <NONCE>) (AgOffset_RefPath 0x6:[64] Empty_RefPath)),true)]
+, 0x1:[64]}
+slice head = [((MirReference IntrinsicRepr MirAggregate [] IntrinsicRepr MirAggregate [] (RefCell_RefRoot <NONCE>) (AgOffset_RefPath 0x6:[64] Empty_RefPath)),true)]
+nested_struct = {0..1 -> 0x17:[8]
+, 2..4 -> 0x18:[16]
+, 4..8 -> 0x19:[32]
+, 8..12 -> 0x1a:[32]
+, size 12}
+ok
+
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] All goals discharged through internal simplification.
+[Crux] Overall status: Valid.

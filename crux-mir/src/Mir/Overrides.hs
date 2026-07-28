@@ -92,7 +92,7 @@ getString (Empty :> RV mirPtr :> RV lenExpr) = runMaybeT $ do
         iExpr <- liftIO $ bvLit sym knownNat (BV.mkBV knownNat i)
         let elemSize = 1 -- `&str`s are comprised of `u8`s
         elemPtr <- lift $ mirRef_offsetWrapSim mirPtr iExpr elemSize
-        bExpr <- lift $ readMirRefSim (BVRepr w) elemPtr
+        bExpr <- lift $ readMirRefSim (BVRepr w) (M.Width elemSize) elemPtr
         b <- readBV bExpr
         return $ fromIntegral b
     return $ Text.decodeUtf8 $ BS.pack bytes
@@ -373,10 +373,10 @@ regEval bak baseEval = go
         VectorIndex_RefPath tpr <$> goMirReferencePath p <*> go UsizeRepr idx
     goMirReferencePath (ArrayIndex_RefPath btpr p idx) =
         ArrayIndex_RefPath btpr <$> goMirReferencePath p <*> go UsizeRepr idx
-    goMirReferencePath (AgElem_RefPath off sz tpr p) =
-        AgElem_RefPath <$> go UsizeRepr off <*> pure sz <*> pure tpr <*> goMirReferencePath p
-    goMirReferencePath (AggregateAsChunks_RefPath off chunkSize numChunks p) =
-        AggregateAsChunks_RefPath off chunkSize numChunks <$> goMirReferencePath p
+    goMirReferencePath (AgElem_RefPath off tpr p) =
+        AgElem_RefPath <$> go UsizeRepr off <*> pure tpr <*> goMirReferencePath p
+    goMirReferencePath (AgOffset_RefPath off p) =
+        AgOffset_RefPath <$> go UsizeRepr off <*> goMirReferencePath p
 
     goMirAggregateEntry ::
         MirAggregateEntry sym ->

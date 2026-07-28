@@ -261,6 +261,35 @@ leafUpdatePartExpr bak mux x (PE q y) = do
             xy <- lift $ mux p x y
             return $ mkPE pq xy
 
+-- | Like `leafUpdatePartExpr`, but instead of unconditionally writing a new
+-- value, modify an already-existing value, conditional on the current leaf
+-- being active.
+leafModifyPartExpr ::
+    (IsSymBackend sym bak, MonadIO m) =>
+    bak ->
+    (Pred sym -> a -> a -> m a) ->
+    -- | If some value @v@ inhabits the leaf and its leaf predicate is true,
+    -- this will receive @Just v@. If no value inhabits the leaf, this will
+    -- receive @Nothing@. If the leaf predicate is known to be false, this will
+    -- not be called.
+    (Maybe a -> m a) ->
+    PartExpr (Pred sym) a ->
+    MuxLeafT sym m (PartExpr (Pred sym) a)
+leafModifyPartExpr _bak _mux modify Unassigned =
+    mkPE <$> leafPredicate <*> lift (modify Nothing)
+leafModifyPartExpr bak mux modify (PE oldPred oldVal) = do
+    let sym = backendGetSym bak
+    currPred <- leafPredicate
+    case asConstantPred currPred of
+        Just True -> mkPE (truePred sym) <$> lift (modify (Just oldVal))
+        Just False -> return $ PE oldPred oldVal
+        Nothing -> do
+            newPred <- liftIO $ orPred sym currPred oldPred
+            muxed <- lift $ do
+                newVal <- modify (Just oldVal)
+                mux currPred newVal oldVal
+            return $ mkPE newPred muxed
+
 -- | Set a PartExpr to Unassigned, conditional on the current leaf being
 -- active.
 leafClearPartExpr :: (IsSymBackend sym bak, MonadIO m) =>
@@ -379,7 +408,7 @@ zipFancyMuxTrees' :: MonadAssert sym bak m =>
     FancyMuxTree sym a -> FancyMuxTree sym b -> m c
 zipFancyMuxTrees' bak f mux tx ty = zipFancyMuxTrees bak f mux tx ty >>= \my -> case my of
     Just y -> return y
-    Nothing -> liftIO $ addFailedAssertion bak $ GenericSimError $
+    Nothing -> maFail bak $ GenericSimError $
         "attempted to read empty mux tree"
 
 mergeFancyMuxTree :: (IsExprBuilder sym, OrdSkel a, MonadIO m) =>

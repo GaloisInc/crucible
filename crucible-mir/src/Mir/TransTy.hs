@@ -64,7 +64,7 @@ import qualified Mir.Mir as M
 import           Mir.Generator
     ( MirExp(..), MirPlace(..), PtrMetadata(..), MirGenerator, mirFail
     , subfieldRef, subvariantRef, subjustRef
-    , mirRef_agElem_constOffset, mirRef_agElem_unsized
+    , mirRef_agOffset, mirRef_agOffset_const
     , mirAggregate_uninit_constSize
     , mirAggregate_zst, mirAggregate_get, mirAggregate_set
     , cs, collection, discrMap, findAdt, arrayZeroed )
@@ -915,6 +915,14 @@ buildAggregateMaybeM agTy xs = do
         ag0 (zip offsetsAndTys xs)
     return $ MirExp MirAggregateRepr ag1
 
+-- | Construct an aggregate that contains the given value, of the given size, at
+-- offset 0.
+buildWrapperAggregate :: Word -> MirExp s -> MirGenerator h s ret (MirExp s)
+buildWrapperAggregate sz (MirExp tpr rv) = do
+    ag0 <- mirAggregate_uninit_constSize sz
+    ag1 <- mirAggregate_set 0 sz tpr rv ag0
+    return $ MirExp MirAggregateRepr ag1
+
 -- | Build a tuple of type @tupleTy@, using @xs@ to initialize the fields.
 --
 -- @tupleTy@ must be present in the `M.Collection`, as decribed in Note
@@ -1366,13 +1374,13 @@ unionInfo unionAdt fieldIdx = do
     Nothing -> die $ "field index " <> show fieldIdx <> " out of range"
 
   Some fieldTpr <- tyToReprM (unionField ^. M.fty)
+  fieldSize <- tySizeM $ unionField ^. M.fty
 
   pure $ UnionInfo unionSize fieldOffset fieldSize fieldTpr
   where
     -- See Note [union representation]
-    unionSize = 1
+    unionSize = unionAdt ^. M.adtSize
     fieldOffset = 0
-    fieldSize = unionSize
 
     die :: String -> MirGenerator h s ret a
     die s =
@@ -1567,26 +1575,18 @@ Note [union representation]
 
 Crucible represents Rust unions as `MirAggregate` values.
 
-A union's `MirAggregate` representation has size 1, regardless of the size (e.g.
-according to the `_adtSize` field) of the `Mir.Mir.Adt` that describes it.
+A union's `MirAggregate` representation has the same size as its `Mir.Mir.Adt`'s
+`_adtSize` field, which is also the same size as it has in the Rust memory
+model.
 
 A union is always initialized with a single expression representing one of the
 union's fields. When interpreting this initialization:
 - We declare that the given field appears at offset 0 in the `MirAggregate`,
   even if the field would appear at a nonzero offset according to Rust's memory
   model.
-- We declare that the given field has size 1, even if the field type's size on
-  its own would be smaller or larger.
 
 When reading from the union, we rely on this initialization behavior, by reading
-the offset-0, size-1 subrange of the `MirAggregate` - that is, the entire
-aggregate - regardless of the type/field being read.
-
-The choice to represent unions and their constituent fields as having size 1 is
-temporary, intended to match similar temporary behavior elsewhere, e.g. in tuple
-construction (see `buildTupleMaybeM`). In the medium term, we'll want to update
-this to incorporate size and layout information to compute and use the proper
-sizes and offsets for each field.
+the value from offset 0, regardless of the type/field being read.
 
 The type representation associated with a (subrange of a) `MirAggregate` is
 unspecified until the aggregate is written to, and fixed thereafter. This allows
@@ -1641,7 +1641,7 @@ structFieldRef structTy i ref meta = do
       alignExp <- getVtableSlot dynTraitName vtableAlignSlotIdx UsizeRepr vtable
       let offExp = R.App $ usizeLit $ fromIntegral off
       let offExp' = padToAlign offExp alignExp
-      ref' <- mirRef_agElem_unsized offExp' ref
+      ref' <- mirRef_agOffset offExp' ref
       return $ MirPlace C.AnyRepr ref' meta
 
     SliceMeta _len | isLast -> do
@@ -1655,32 +1655,25 @@ structFieldRef structTy i ref meta = do
         Just f | M.TyStr <- f ^. M.fty -> return $ Just $ M.TyUint M.B8
         _ -> return Nothing
 
-      let offExp = R.App $ usizeLit $ fromIntegral off
       -- No need for `padToAlign` here.  The correct alignment for the slice is
       -- statically known based on its element type, and the layout emitted by
       -- mir-json already includes the necessary padding for that alignment.
-      --
-      -- Can't use typed/sized `mirRef_agElem` here because it requires the
-      -- size to be a translation-time constant.
-      ref' <- mirRef_agElem_unsized offExp ref
+      ref' <- mirRef_agOffset_const off ref
 
       case optElemTy of
         Just elemTy -> do
-          -- Output is a slice reference.  Project into the first element of
-          -- the array.
+          -- Output is a reference to a slice, meaning a `MirPlace` with type
+          -- @elemTpr@ and the length metadata from the input reference.
           Some elemTpr <- tyToReprM elemTy
-          elemSz <- tySizeM elemTy
-          ref'' <- mirRef_agElem_constOffset 0 elemSz elemTpr ref'
-          return $ MirPlace elemTpr ref'' meta
+          return $ MirPlace elemTpr ref' meta
         Nothing -> do
-          -- Output is a reference to a nested custom DST.  No additional
-          -- projection is needed.
+          -- Output is a reference to a nested custom DST, so the `MirPlace`
+          -- type is `MirAggregateRepr` like in the input reference.
           return $ MirPlace MirAggregateRepr ref' meta
 
     _ -> do
       Some valTpr <- tyToReprM ty
-      sz <- tySizeM ty
-      ref' <- mirRef_agElem_constOffset off sz valTpr ref
+      ref' <- mirRef_agOffset_const off ref
       return $ MirPlace valTpr ref' NoMeta
 
 
@@ -1718,8 +1711,7 @@ tupleFieldRef tupleTy i tpr ref = do
         Nothing -> mirFail $ "tupleFieldRef: field index " ++ show i ++
             " is out of range for tuple " ++ show tupleTy
     Some valTpr <- tyToReprM ty
-    sz <- tySizeM ty
-    ref' <- mirRef_agElem_constOffset off sz valTpr ref
+    ref' <- mirRef_agOffset_const off ref
     return $ MirPlace valTpr ref' NoMeta
 
 -- | Provided a reference to a union, acquire a reference to the union field
@@ -1731,8 +1723,8 @@ unionFieldRef ::
   R.Expr MIR s MirReferenceType ->
   MirGenerator h s ret (MirPlace s)
 unionFieldRef unionAdt fieldIdx unionRef = do
-  UnionInfo _unionSize fieldOffset fieldSize fieldTpr <- unionInfo unionAdt fieldIdx
-  fieldRef <- mirRef_agElem_constOffset fieldOffset fieldSize fieldTpr unionRef
+  UnionInfo _unionSize fieldOffset _fieldSize fieldTpr <- unionInfo unionAdt fieldIdx
+  fieldRef <- mirRef_agOffset_const fieldOffset unionRef
   pure $ MirPlace fieldTpr fieldRef NoMeta
 
 testEqualityOrFail :: TestEquality f => f a -> f b -> String -> MirGenerator h s ret (a :~: b)
@@ -2008,8 +2000,8 @@ initialValue (M.TyAdt nm _ _) = do
         M.Union ->
             -- Unions are default-initialized to an untyped `MirAggregate` of an
             -- appropriate size, like tuples. See Note [union representation]
-            -- for details, including some regarding this choice of size.
-            let unionSize = 1
+            -- for details.
+            let unionSize = adt ^. M.adtSize
             in Just . MirExp MirAggregateRepr <$> mirAggregate_uninit_constSize unionSize
 initialValue (M.TyFnDef _) = Just . MirExp MirAggregateRepr <$> mirAggregate_zst
 initialValue M.TyNever     = Just . MirExp MirAggregateRepr <$> mirAggregate_zst
