@@ -1663,13 +1663,13 @@ structFieldRef structTy i ref meta = do
 
       case optElemTy of
         Just elemTy -> do
-          -- Output is a slice reference, which has the same representation as
-          -- its element type.
+          -- Output is a reference to a slice, meaning a `MirPlace` with type
+          -- @elemTpr@ and the length metadata from the input reference.
           Some elemTpr <- tyToReprM elemTy
           return $ MirPlace elemTpr ref' meta
         Nothing -> do
-          -- Output is a reference to a nested custom DST.  No additional
-          -- projection is needed.
+          -- Output is a reference to a nested custom DST, so the `MirPlace`
+          -- type is `MirAggregateRepr` like in the input reference.
           return $ MirPlace MirAggregateRepr ref' meta
 
     _ -> do

@@ -1193,16 +1193,10 @@ refPathEq bak path1 path2 = case (path1, path2) of
       liftIO $ andPred sym pEq idxEq
   (AgElem_RefPath off1 _tpr1 p1, AgElem_RefPath off2 _tpr2 p2) -> do
     offEq <- liftIO $ bvEq sym off1 off2
-    -- NB: Don't check the following for equality:
-    --
-   --
-    -- * The TypeReprs (_tpr{1,2}), as pointers with the same memory addresses
-    --   can have different types if pointer casting is involved (see the
-    --   crux-mir/test/conc_eval/tuple/ref_path_equality.rs test case for an
-    --   example).
-    --
-    -- * The sizes (_sz{1,2}), as pointers of different types may have
-    --   different layout sizes.
+    -- NB: Don't check the TypeReprs (_tpr{1,2}) for equality, as pointers with
+    -- the same memory addresses can have different types if pointer casting is
+    -- involved (see the crux-mir/test/conc_eval/tuple/ref_path_equality.rs
+    -- test case for an example).
     pEq <- refPathEq bak p1 p2
     liftIO $ andPred sym offEq pEq
   (AgOffset_RefPath off1 p1, AgOffset_RefPath off2 p2) -> do
@@ -1414,8 +1408,9 @@ refPathOverlaps sym path1 path2 = do
     go (AgElem_RefPath {} `RrpCons` _) _ = return $ falsePred sym
     go (AgOffset_RefPath {} `RrpCons` _) _ = return $ falsePred sym
 
--- | Check whether the memory accessible through `ref1` overlaps the memory
--- accessible through `ref2`.
+-- | Check whether the memory accessible through `ref1` migt overlap the memory
+-- accessible through `ref2`.  This is a conservative check, and may report
+-- overlap in some non-overlapping cases.
 mirRef_overlapsLeaf ::
     IsSymInterface sym =>
     sym ->

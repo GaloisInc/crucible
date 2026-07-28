@@ -60,10 +60,10 @@ fn crux_test() {
     assert_eq!(arr8[3], s.cd.d);
     assert_eq!(arr8[4], s.e.e);
 
-    let r#str0 = unsafe { str::from_utf8_unchecked(&arr8) };
-    let r#str1 = unsafe { str::from_utf8_unchecked(&arr8[1..]) };
-    assert_eq!(r#str0, "abcde");
-    assert_eq!(r#str1, "bcde");
+    let str0 = unsafe { str::from_utf8_unchecked(&arr8) };
+    let str1 = unsafe { str::from_utf8_unchecked(&arr8[1..]) };
+    assert_eq!(str0, "abcde");
+    assert_eq!(str1, "bcde");
 }
 
 fn main() {
