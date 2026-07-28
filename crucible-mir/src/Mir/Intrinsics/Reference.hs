@@ -809,6 +809,12 @@ newConstMirRef sym tpr v = MirReferenceMux $ toFancyMuxTree sym $
 -- projecting into the aggregate. Otherwise, this fails. `desc` is a
 -- human-readable description of the operation, which is used in the `leafAbort`
 -- error message.
+--
+-- When the reference points to a `MirAggregate` but some other @expectTpr@ is
+-- requested, this will add an `AgElem_RefPath` with the requested type.  This
+-- allows a reference to a `MirAggregate` offset containing type @T@ to be used
+-- as if it's a reference directly to @T@.  For example, this means @&x@,
+-- @&xs[3]@, and @xs.as_ptr().add(3)@ are all handled similarly.
 typedLeafOp ::
     (MonadAssert sym bak m, IsSymBackend sym bak) =>
     String ->
@@ -820,14 +826,13 @@ typedLeafOp ::
 typedLeafOp desc bak expectTpr (MirReference tpr root path) k
   | Just Refl <- testEquality tpr expectTpr =
       k root path
-  | AgOffset_RefPath off origPath <- path = do
-      let elemPath = AgElem_RefPath off expectTpr origPath
-      k root elemPath
   | MirAggregateRepr <- tpr = do
-      -- See Note [Aggregate zero-offsets]
-      zero <- liftIO $ wordLit (backendGetSym bak) 0
-      let offPath = AgOffset_RefPath zero path
-      typedLeafOp desc bak expectTpr (MirReference tpr root offPath) k
+      elemPath <- case path of
+        AgOffset_RefPath off agPath -> return $ AgElem_RefPath off expectTpr agPath
+        _ -> do
+          zero <- liftIO $ wordLit (backendGetSym bak) 0
+          return $ AgElem_RefPath zero expectTpr path
+      k root elemPath
   | otherwise = leafAbort $ GenericSimError $
       desc ++ " requires a reference to " ++ show expectTpr
         ++ ", but got a reference to " ++ show tpr
