@@ -981,23 +981,30 @@ mirAggregate_clear fromM toM (MirAggregate sz entries) = do
   pure (MirAggregate sz entries')
   where
     failOnOverlap boundaryKind boundaryOff entries' =
-      case IntMap.lookupLT (fromIntegral boundaryOff) entries' of
-        Just (fromIntegral -> eOff, MirAggregateEntry eSz _ _)
-          | eOff + eSz > boundaryOff ->
-            Left $
-              "mirAggregate_clear: " <>
-              boundaryKind <> " boundary " <> show boundaryOff <>
-              " splits entry at " <> show eOff <> ".." <> show (eOff + eSz)
-        _ -> pure ()
+      case offsetSplitsEntry' entries' boundaryOff of
+        Left (lo, hi) ->
+          Left $
+            "mirAggregate_clear: " <>
+            boundaryKind <> " boundary " <> show boundaryOff <>
+            " splits entry at " <> show lo <> ".." <> show hi
+        Right () -> return ()
 
 -- | Does this offset occur in the middle of an entry in this aggregate?
 offsetSplitsEntry :: MirAggregate sym -> Word -> Bool
 offsetSplitsEntry (MirAggregate _ entries) off =
+  case offsetSplitsEntry' entries off of
+    Left _ -> True
+    Right () -> False
+
+offsetSplitsEntry' :: IntMap (MirAggregateEntry sym) -> Word -> Either (Word, Word) ()
+offsetSplitsEntry' entries off =
   case IntMap.lookupLT (fromIntegral off) entries of
     Just (fromIntegral -> eOff, MirAggregateEntry eSz _ _) ->
-      eOff + eSz > off
+      if eOff + eSz > off
+        then Left (eOff, eOff + eSz)
+        else Right ()
     _ ->
-      False
+      Right ()
 
 -- | Concatenate two `MirAggregate`s, producing a new aggregate with all the
 -- entries of the first followed by all the entries of the second.  The entries
