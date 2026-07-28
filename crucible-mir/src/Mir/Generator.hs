@@ -645,6 +645,12 @@ mirRef_agOffset ::
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
 mirRef_agOffset off ref = G.extensionStmt $ MirRef_AgOffset off ref
 
+mirRef_agOffset_const ::
+  Word ->
+  R.Expr MIR s MirReferenceType ->
+  MirGenerator h s ret (R.Expr MIR s MirReferenceType)
+mirRef_agOffset_const off ref = mirRef_agOffset (R.App $ usizeLit $ fromIntegral off) ref
+
 -- | Index into a symbolic @crucible::array::Array<T>@ (_not_ a @[T; N]@)
 mirRef_arrayIndex ::
   R.Expr MIR s UsizeType ->
