@@ -366,7 +366,7 @@ readSubaggregateWithSymOffset bak iteFn readSize off ag@(MirAggregate agSize _)
       -- - Extracting a sub-aggregate starting at that offset would split an
       --   aggregate entry
       let sizedAgOffsets = case readSize of
-            All -> init [0 .. agSize] -- not sure this `init` is necessary...
+            All -> [0 .. agSize]
             Width w -> [0 .. agSize - w]
       let nonSplittingAgOffsets = filter (not . offsetSplitsEntry ag) sizedAgOffsets
 
@@ -510,7 +510,7 @@ adjustSubaggregateWithSymOffset bak iteFn off f adjSize ag@(MirAggregate agSize 
       -- - Extracting a sub-aggregate starting at that offset would split an
       --   aggregate entry
       let sizedAgOffsets = case adjSize of
-            All -> init [0 .. agSize] -- not sure this `init` is necessary...
+            All -> [0 .. agSize]
             Width w -> [0 .. agSize - w]
       let nonSplittingAgOffsets = filter (not . offsetSplitsEntry ag) sizedAgOffsets
 
