@@ -67,8 +67,6 @@ module Mir.Intrinsics.Reference
     mirRef_arrayIndexIO,
     mirRef_vecIndexLeaf,
     mirRef_vecIndexIO,
-    refRootEq,
-    refPathEq,
     mirRef_eqLeaf,
     mirRef_eqMA,
     ReversedRefPath (..),
@@ -77,7 +75,7 @@ module Mir.Intrinsics.Reference
     refRootOverlaps,
     refPathOverlaps,
     mirRef_overlapsLeaf,
-    mirRef_overlapsIO,
+    mirRef_overlapsMA,
     mirRef_offsetSim,
     mirRef_offsetMA,
     mirRef_offsetLeaf,
@@ -1312,28 +1310,37 @@ popIndex (AgElem_RefPath _ _ p) = Some p
 popIndex (AgOffset_RefPath _ p) = Some p
 popIndex p = Some p
 
-refRootOverlaps :: IsSymInterface sym => sym ->
-    MirReferenceRoot sym tp1 -> MirReferenceRoot sym tp2 ->
-    MuxLeafT sym IO (RegValue sym BoolType)
-refRootOverlaps sym (RefCell_RefRoot rc1) (RefCell_RefRoot rc2)
-  | Just Refl <- testEquality rc1 rc2 = return $ truePred sym
-refRootOverlaps sym (GlobalVar_RefRoot gv1) (GlobalVar_RefRoot gv2)
-  | Just Refl <- testEquality gv1 gv2 = return $ truePred sym
-refRootOverlaps _sym (Const_RefRoot _ _) (Const_RefRoot _ _) =
+refRootOverlaps ::
+  MonadAssert sym bak m =>
+  bak ->
+  MirReferenceRoot sym tp1 ->
+  MirReferenceRoot sym tp2 ->
+  MuxLeafT sym m (RegValue sym BoolType)
+refRootOverlaps bak root1 root2 = case (root1, root2) of
+  (RefCell_RefRoot rc1, RefCell_RefRoot rc2)
+    | Just Refl <- testEquality rc1 rc2 ->
+      return $ truePred sym
+  (GlobalVar_RefRoot gv1, GlobalVar_RefRoot gv2)
+    | Just Refl <- testEquality gv1 gv2 ->
+      return $ truePred sym
+  (Const_RefRoot _ _, Const_RefRoot _ _) ->
     leafAbort $ Unsupported callStack $ "Cannot compare Const_RefRoots"
 
-refRootOverlaps sym (RefCell_RefRoot {}) _ = return $ falsePred sym
-refRootOverlaps sym (GlobalVar_RefRoot {}) _ = return $ falsePred sym
-refRootOverlaps sym (Const_RefRoot {}) _ = return $ falsePred sym
+  (RefCell_RefRoot {}, _) -> return $ falsePred sym
+  (GlobalVar_RefRoot {}, _) -> return $ falsePred sym
+  (Const_RefRoot {}, _) -> return $ falsePred sym
+  where
+    sym = backendGetSym bak
 
 -- | Check whether two `MirReferencePath`s might reference overlapping memory
 -- regions, when starting from the same `MirReferenceRoot`.
-refPathOverlaps :: forall sym tp_base1 tp1 tp_base2 tp2. IsSymInterface sym =>
-    sym ->
+refPathOverlaps :: forall sym bak m tp_base1 tp1 tp_base2 tp2.
+    MonadAssert sym bak m =>
+    bak ->
     MirReferencePath sym tp_base1 tp1 ->
     MirReferencePath sym tp_base2 tp2 ->
-    MuxLeafT sym IO (RegValue sym BoolType)
-refPathOverlaps sym path1 path2 = do
+    MuxLeafT sym m (RegValue sym BoolType)
+refPathOverlaps bak path1 path2 = do
     -- We remove the outermost `Index` before comparing, since `offset` allows
     -- modifying the index value arbitrarily, giving access to all elements of
     -- the containing vector.
@@ -1343,10 +1350,12 @@ refPathOverlaps sym path1 path2 = do
     -- versa.
     go (reverseRefPath path1') (reverseRefPath path2')
   where
+    sym = backendGetSym bak
+
     go :: forall tp1_ tp1_' tp2_ tp2_'.
         ReversedRefPath sym tp1_ tp1_' ->
         ReversedRefPath sym tp2_ tp2_' ->
-        MuxLeafT sym IO (RegValue sym BoolType)
+        MuxLeafT sym m (RegValue sym BoolType)
     -- An empty RefPath (`RrpNil`) covers the whole object, so it overlaps with
     -- all other paths into the same object.
     go RrpNil _ = return $ truePred sym
@@ -1412,32 +1421,35 @@ refPathOverlaps sym path1 path2 = do
 -- accessible through `ref2`.  This is a conservative check, and may report
 -- overlap in some non-overlapping cases.
 mirRef_overlapsLeaf ::
-    IsSymInterface sym =>
-    sym ->
+    MonadAssert sym bak m =>
+    bak ->
     MirReference sym ->
     MirReference sym ->
-    MuxLeafT sym IO (RegValue sym BoolType)
-mirRef_overlapsLeaf sym (MirReference _ root1 path1) (MirReference _ root2 path2) = do
-    rootOverlaps <- refRootOverlaps sym root1 root2
+    MuxLeafT sym m (RegValue sym BoolType)
+mirRef_overlapsLeaf bak ref1 ref2 = case (ref1, ref2) of
+  (MirReference _ root1 path1, MirReference _ root2 path2) -> do
+    rootOverlaps <- refRootOverlaps bak root1 root2
     case asConstantPred rootOverlaps of
-        Just False -> return $ falsePred sym
-        _ -> do
-            pathOverlaps <- refPathOverlaps sym path1 path2
-            liftIO $ andPred sym rootOverlaps pathOverlaps
--- No memory is accessible through an integer reference, so they can't overlap
--- with anything.
-mirRef_overlapsLeaf sym (MirReference_Integer _) _ = return $ falsePred sym
-mirRef_overlapsLeaf sym _ (MirReference_Integer _) = return $ falsePred sym
+      Just False -> return $ falsePred sym
+      _ -> do
+        pathOverlaps <- refPathOverlaps bak path1 path2
+        liftIO $ andPred sym rootOverlaps pathOverlaps
+  -- No memory is accessible through an integer reference, so they can't overlap
+  -- with anything.
+  (MirReference_Integer _, _) -> return $ falsePred sym
+  (_, MirReference_Integer _) -> return $ falsePred sym
+  where
+    sym = backendGetSym bak
 
-mirRef_overlapsIO ::
-    (IsSymBackend sym bak) =>
+mirRef_overlapsMA ::
+    MonadAssert sym bak m =>
     bak ->
     MirReferenceMux sym ->
     MirReferenceMux sym ->
-    IO (RegValue sym BoolType)
-mirRef_overlapsIO bak (MirReferenceMux r1) (MirReferenceMux r2) =
+    m (RegValue sym BoolType)
+mirRef_overlapsMA bak (MirReferenceMux r1) (MirReferenceMux r2) =
     let sym = backendGetSym bak in
-    zipFancyMuxTrees' bak (mirRef_overlapsLeaf sym) (itePred sym) r1 r2
+    zipFancyMuxTrees' bak (mirRef_overlapsLeaf bak) (\c t e -> liftIO $ itePred sym c t e) r1 r2
 
 
 mirRef_offsetSim ::
