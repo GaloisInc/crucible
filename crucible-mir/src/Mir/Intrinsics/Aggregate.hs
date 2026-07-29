@@ -38,6 +38,7 @@ module Mir.Intrinsics.Aggregate
     adjustMirAggregateWithSymOffset,
     mirAggregate_capacity,
     mirAggregate_entries,
+    mirAggregate_keysSet,
     mirAggregate_insert,
     writeMirAggregateWithSymOffset,
     mirAggregate_lookup,
@@ -71,6 +72,7 @@ import Data.BitVector.Sized qualified as BV
 import Data.Foldable.WithIndex (ifoldlM)
 import Data.IntMap (IntMap)
 import Data.IntMap qualified as IntMap
+import Data.IntSet (IntSet)
 import Data.Kind (Type)
 import Data.Maybe qualified as Maybe
 import Data.Parameterized (knownRepr)
@@ -717,6 +719,9 @@ data Run = Run
 mirAggregate_entries :: sym -> MirAggregate sym -> [(Word, MirAggregateEntry sym)]
 mirAggregate_entries _sym (MirAggregate _totalSize m) =
   [(fromIntegral off, entry) | (off, entry) <- IntMap.toList m]
+
+mirAggregate_keysSet :: MirAggregate sym -> IntSet
+mirAggregate_keysSet (MirAggregate _ m) = IntMap.keysSet m
 
 mirAggregate_insert ::
   (IsSymInterface sym) =>
