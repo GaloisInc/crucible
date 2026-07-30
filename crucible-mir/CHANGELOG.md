@@ -44,6 +44,9 @@ This release supports [version
   from/writing to references.
 * Remove the `mirRef_aggregateAsChunks*` family of intrinsics. The flattened
   aggregate representation is rich enough that these became no-ops.
+* Change the Crucible representation of floating-point types (e.g., `f32` and
+  `f64`) from `RealValType` to `FloatType`, the latter of which is more suited
+  to IEEE 754 floats.
 
 # 0.6 -- 2026-01-29
 

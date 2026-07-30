@@ -25,6 +25,9 @@ import qualified Data.Text as T
 import qualified Data.Text.Read  as T
 import Data.Word (Word64)
 import Lens.Micro ((^.))
+import LibBF (BigFloat)
+import qualified LibBF as BF
+import qualified What4.Utils.FloatHelpers as W4
 
 #if MIN_VERSION_aeson(2,0,0)
 import qualified Data.Aeson.Key as K (Key)
@@ -562,14 +565,14 @@ instance FromJSON ConstVal where
 
         Just (String "float") -> do
             size :: Int <- v .: "size"
-            val <- v .: "val"
             fk <- case size of
                 2 -> pure F16
                 4 -> pure F32
                 8 -> pure F64
                 16 -> pure F128
                 _ -> fail $ "bad size " ++ show size ++ " for float literal"
-            pure $ ConstFloat $ FloatLit fk (T.unpack val)
+            val <- convertFloatText fk =<< v .: "val"
+            pure $ ConstFloat $ FloatLit fk val
 
         Just (String "slice") -> do
             def_id <- v .: "def_id"
@@ -633,6 +636,31 @@ convertIntegerText t = do
   case (T.signed T.decimal) t of
     Right ((i :: Integer), _) -> return i
     Left _       -> fail $ "Cannot parse Integer value: " ++ T.unpack t
+
+-- mir-json floats are expressed as strings. The exact schema that is used for
+-- string formatting is hard to describe succintly, but if you want to learn
+-- the details, refer to the Display instance for the IeeeFloat type in rustc
+-- (https://docs.rs/rustc_apfloat/0.2.3+llvm-462a31f5a5ab/rustc_apfloat/ieee/struct.IeeeFloat.html).
+-- Some highlights are:
+--
+-- - NaN values are represented as "NaN"
+-- - Infinite values are represented as "+Inf" and "-Inf"
+-- - Other values are represented in decimal notation (e.g., "1.23")
+--
+-- As it turns out, LibBF's 'bfFromString' function is capable of parsing this
+-- format, so we use it below.
+--
+-- One downside to using 'bfFromString' is that it doesn't give an error if it
+-- finds a string that doesn't clearly correspond to a float value. Instead, it
+-- will just return NaN as a default value. This is arguably more permissive
+-- than we would like, so we may want to consider writing our own parser that
+-- is stricter if the current one proves insufficient.
+convertFloatText :: FloatKind -> Text -> Aeson.Parser BigFloat
+convertFloatText fk t =
+    pure $
+    W4.bfStatus $
+    BF.bfFromString 10 (floatKindBFOpts fk BF.NearEven) $
+    T.unpack t
 
 
 instance FromJSON AggregateKind where

@@ -220,7 +220,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
             Nothing -> C.ECCLimited 10
             Just (Left err) -> error err
             Just (Right config) -> config
-            
+
     let (filename, nameFilter) = case cargoTestFile mirOpts of
             -- This case is terrible a hack.  The goal is to mimic the behavior
             -- of the test binaries produced by `cargo test`, which take a test
@@ -299,15 +299,16 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
     -- for tests that failed.
 
     let ?bound = 0
-    let simTestBody :: forall sym bak p t fs.
+    let simTestBody :: forall sym bak p t fm.
             ( C.IsSymBackend sym bak
-            , sym ~ W4.ExprBuilder t st fs
+            , sym ~ W4.ExprBuilder t st (W4.Flags fm)
             ) =>
             bak ->
+            W4.FloatModeRepr fm ->
             Maybe (Crux.SomeOnlineSolver sym bak) ->
             DefId ->
             Fun p sym MIR Ctx.EmptyCtx C.UnitType
-        simTestBody bak symOnline fnName =
+        simTestBody bak fm symOnline fnName =
           do linkOverrides symOnline
              _ <- C.callCFG staticInitCfg C.emptyRegMap
 
@@ -332,11 +333,11 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
              -- TODO: think about if/how to present this information when concurrency
              -- is enabled.
              when (not (concurrency mirOpts) && printResultOnly mirOpts) $ do
-                 str <- showRegEntry (C.backendGetSym bak) col resTy res
+                 str <- showRegEntry (C.backendGetSym bak) fm col resTy res
                  liftIO $ outputLn str
 
              when (not (concurrency mirOpts) && not (printResultOnly mirOpts) && resTy /= TyTuple []) $ do
-                 str <- showRegEntry (C.backendGetSym bak) col resTy res
+                 str <- showRegEntry (C.backendGetSym bak) fm col resTy res
                  liftIO $ output $ "returned " ++ str ++ ", "
 
     let printTest :: DefId -> Fun p sym ext args C.UnitType
@@ -344,36 +345,37 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
           when (not $ printResultOnly mirOpts) $
             liftIO $ output $ "test " ++ show fnName ++ ": "
 
-    let simTest :: forall sym bak t fs.
+    let simTest :: forall sym bak t fm.
             ( C.IsSymBackend sym bak
-            , sym ~ W4.ExprBuilder t st fs
+            , sym ~ W4.ExprBuilder t st (W4.Flags fm)
             , Logs msgs
             , Log.SupportsCruxLogMessage msgs
             , Log.SupportsMirLogMessage msgs
             ) =>
             bak ->
+            W4.FloatModeRepr fm ->
             Maybe (Crux.SomeOnlineSolver sym bak) ->
             DefId ->
             SomeTestOvr DPOR sym Ctx.EmptyCtx C.UnitType
-        simTest bak symOnline fnName
+        simTest bak fm symOnline fnName
           | concurrency mirOpts = SomeTestOvr
             { testOvr = do printTest fnName
-                           exploreOvr bak symOnline cruxOpts $ simTestBody bak symOnline fnName
+                           exploreOvr bak symOnline cruxOpts $ simTestBody bak fm symOnline fnName
             , testFeatures = [scheduleFeature @_ @DPOR mirExplorePrimitives []]
             }
           | otherwise = SomeTestOvr
             { testOvr = do printTest fnName
-                           simTestBody bak symOnline fnName
+                           simTestBody bak fm symOnline fnName
             , testFeatures = []
             }
 
     let simCallbacks fnName =
-          Crux.SimulatorCallbacks $ \_fm ->
+          Crux.SimulatorCallbacks $ \fm ->
             return $
               Crux.SimulatorHooks
                 { Crux.setupHook =
                     \bak symOnline ->
-                      case simTest bak symOnline fnName of
+                      case simTest bak fm symOnline fnName of
                         SomeTestOvr testFn features -> do
                           personality <- mkCruxPersonality @DPOR
                           let outH = view outputHandle ?outputConfig
@@ -516,14 +518,17 @@ setSimulatorVerbosity verbosity sym = do
   return ()
 
 -------------------------------------------------------
-showRegEntry :: forall sym arg p rtp args ret
-   . C.IsSymInterface sym
+showRegEntry :: forall sym arg p rtp args ret t st fm.
+   ( C.IsSymInterface sym
+   , sym ~ W4.ExprBuilder t st (W4.Flags fm)
+   )
   => sym
+  -> W4.FloatModeRepr fm
   -> Collection
   -> Ty
   -> C.RegEntry sym arg
   -> C.OverrideSim p sym MIR rtp args ret String
-showRegEntry sym col mty entry@(C.RegEntry tp rv) =
+showRegEntry sym fm col mty entry@(C.RegEntry tp rv) =
   case (mty,tp) of
     {-
     Note [Printing flattened aggregates]
@@ -569,9 +574,19 @@ showRegEntry sym col mty entry@(C.RegEntry tp rv) =
     (TyUint _sz, C.BVRepr _w) -> return $ case W4.asBV rv of
                      Just i  -> show (BV.asUnsigned i)
                      Nothing -> "Symbolic BV"
-    (TyFloat _,  C.RealValRepr) -> return $ case W4.asRational rv of
-                     Just f -> show f
-                     Nothing -> "Symbolic real"
+    (TyFloat _,  C.FloatRepr _fi) -> return $ case fm of
+      W4.FloatIEEERepr ->
+        case W4.asFloat rv of
+          Just f -> show f
+          Nothing -> "Symbolic float"
+      W4.FloatUninterpretedRepr ->
+        case W4.asBV rv of
+          Just bv -> show (BV.asUnsigned bv)
+          Nothing -> "Symbolic float"
+      W4.FloatRealRepr ->
+        case W4.asRational rv of
+          Just r -> show r
+          Nothing -> "Symbolic float"
 
     (TyTuple _, MirAggregateRepr) -> do
       fields <- showAgFields mty ("tuple type " <> show (pretty mty)) rv
@@ -597,7 +612,7 @@ showRegEntry sym col mty entry@(C.RegEntry tp rv) =
         let showField fIdx fTy
               | Just transFieldIdx <- transFieldIdxM
               , fIdx == transFieldIdx =
-                showRegEntry sym col fTy entry
+                showRegEntry sym fm col fTy entry
               | otherwise =
                 showZSTValue fTy
         fieldStrs <- zipWithM showField [0..] fieldTys
@@ -643,7 +658,7 @@ showRegEntry sym col mty entry@(C.RegEntry tp rv) =
             Left err -> return err
             Right (variant, fieldStrs) -> showVariant variant fieldStrs
 
-    (TyRef ty Immut, _) -> showRegEntry sym col ty (C.RegEntry tp rv)
+    (TyRef ty Immut, _) -> showRegEntry sym fm col ty (C.RegEntry tp rv)
 
     (TyArray ty len, MirAggregateRepr) -> do
       tySize <- case tySizedness col ty of
@@ -653,7 +668,7 @@ showRegEntry sym col mty entry@(C.RegEntry tp rv) =
         -- See Note [Printing flattened aggregates]
         case mirAggregate_chunk (fromIntegral i * tySize) tySize rv of
           Left e -> return $ "error accessing " ++ show (pretty mty) ++ " aggregate: " ++ e
-          Right subAg -> showRegEntry sym col ty (C.RegEntry MirAggregateRepr subAg)
+          Right subAg -> showRegEntry sym fm col ty (C.RegEntry MirAggregateRepr subAg)
       return $ "[" ++ List.intercalate ", " values ++ "]"
 
     _ -> return $ "I don't know how to print result of type " ++ show (pretty mty, tp)
@@ -697,7 +712,7 @@ showRegEntry sym col mty entry@(C.RegEntry tp rv) =
       let fields = readFields fctx vs
       fieldStrs <-
         zipWithM
-          (\fieldTy (C.Some fieldEntry) -> showRegEntry sym col fieldTy fieldEntry)
+          (\fieldTy (C.Some fieldEntry) -> showRegEntry sym fm col fieldTy fieldEntry)
           (variant ^.. vfields . each . fty)
           fields
       return fieldStrs
@@ -715,7 +730,7 @@ showRegEntry sym col mty entry@(C.RegEntry tp rv) =
             -- See Note [Printing flattened aggregates]
             case mirAggregate_chunk off (fromIntegral sz) ag of
               Left err -> fail $ "showAgFields: error accessing aggregate: " <> show err
-              Right subAg -> showRegEntry sym col ty (C.RegEntry MirAggregateRepr subAg)
+              Right subAg -> showRegEntry sym fm col ty (C.RegEntry MirAggregateRepr subAg)
           Nothing -> fail $ "impossible: got field offsets for " ++ tyDesc
             ++ ", but no layout for element " ++ show ty ++ "?"
       return strs
@@ -729,7 +744,7 @@ showRegEntry sym col mty entry@(C.RegEntry tp rv) =
       case rvPart of
         W4.Unassigned -> return "<uninitialized>"
         W4.PE p rv'
-          | Just True <- W4.asConstantPred p -> showRegEntry sym col ty $ C.RegEntry tpr rv'
+          | Just True <- W4.asConstantPred p -> showRegEntry sym fm col ty $ C.RegEntry tpr rv'
           | otherwise ->return "<possibly uninitialized>"
 
     showVariant ::

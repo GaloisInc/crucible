@@ -105,7 +105,20 @@ makeSymbolicVar ::
     BaseTypeRepr btp ->
     TypedOverride (p sym) sym MIR (EmptyCtx ::> MirSlice) (BaseToType btp)
 makeSymbolicVar btpr =
-  Crux.baseFreshOverride btpr strrepr $ \(RV strSlice) -> do
+  Crux.baseFreshOverride btpr MirSliceRepr getSymbolicVarName
+
+makeSymbolicFloatVar ::
+    IsSymInterface sym =>
+    FloatInfoRepr fi ->
+    TypedOverride (p sym) sym MIR (EmptyCtx ::> MirSlice) (FloatType fi)
+makeSymbolicFloatVar btpr =
+  Crux.baseFreshFloatOverride btpr MirSliceRepr getSymbolicVarName
+
+getSymbolicVarName ::
+    IsSymInterface sym =>
+    RegValue' sym MirSlice ->
+    OverrideSim p sym MIR rtp args ret SolverSymbol
+getSymbolicVarName (RV strSlice) = do
     mstr <- getString strSlice
     case mstr of
       Nothing -> fail "symbolic variable name must be a concrete string"
@@ -113,9 +126,6 @@ makeSymbolicVar btpr =
         case userSymbol (Text.unpack name) of
           Left err -> fail $ "invalid symbolic variable name " ++ show name ++ ": " ++ show err
           Right x -> return x
-  where
-    strrepr :: TypeRepr MirSlice
-    strrepr = knownRepr
 
 array_symbolic ::
   forall sym btp p .
@@ -554,9 +564,9 @@ bindFn _symOnline _cs fn cfg =
             -> (ExplodedDefId, SomeTypedOverride (p sym) sym MIR)
     symb_bv edid n = (edid, SomeTypedOverride $ makeSymbolicVar (BaseBVRepr n))
 
-    symb_float :: ExplodedDefId
+    symb_float :: ExplodedDefId -> FloatInfoRepr fi
                -> (ExplodedDefId, SomeTypedOverride (p sym) sym MIR)
-    symb_float edid = (edid, SomeTypedOverride $ makeSymbolicVar BaseRealRepr)
+    symb_float edid fi = (edid, SomeTypedOverride $ makeSymbolicFloatVar fi)
 
     overrides :: IsSymBackend sym bak'
               => bak'
@@ -578,10 +588,10 @@ bindFn _symOnline _cs fn cfg =
                , symb_bv ["crucible", "bitvector", "make_symbolic_128"] (knownNat @128)
                , symb_bv ["crucible", "bitvector", "make_symbolic_256"] (knownNat @256)
                , symb_bv ["crucible", "bitvector", "make_symbolic_512"] (knownNat @512)
-               , symb_float ["crucible", "symbolic", "symbolic_f16"]
-               , symb_float ["crucible", "symbolic", "symbolic_f32"]
-               , symb_float ["crucible", "symbolic", "symbolic_f64"]
-               , symb_float ["crucible", "symbolic", "symbolic_f128"]
+               , symb_float ["crucible", "symbolic", "symbolic_f16"] HalfFloatRepr
+               , symb_float ["crucible", "symbolic", "symbolic_f32"] SingleFloatRepr
+               , symb_float ["crucible", "symbolic", "symbolic_f64"] DoubleFloatRepr
+               , symb_float ["crucible", "symbolic", "symbolic_f128"] QuadFloatRepr
 
                , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
                  in override ["crucible", "crucible_assert_impl"] argTys MirAggregateRepr $

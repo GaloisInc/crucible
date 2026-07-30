@@ -124,6 +124,7 @@ library
                  parameterized-utils >= 2.3,
                  containers,
                  indexed-traversable,
+                 libBF,
                  microlens,
                  microlens-ghc,
                  microlens-mtl,
