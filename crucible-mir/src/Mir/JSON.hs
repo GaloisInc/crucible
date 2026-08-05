@@ -203,9 +203,7 @@ instance FromJSON Field where
 
 instance FromJSON Mutability where
     parseJSON = withObject "Mutability" $ \v -> case lookupKM "kind" v of
-                                                Just (String "MutMutable") -> pure Mut
                                                 Just (String "Mut") -> pure Mut
-                                                Just (String "MutImmutable") -> pure Immut
                                                 Just (String "Not") -> pure Immut
                                                 x -> fail $ "bad mutability: " ++ show x
 
