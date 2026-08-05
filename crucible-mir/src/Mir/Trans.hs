@@ -1524,7 +1524,8 @@ evalPlaceProj ::
   MirPlace s ->
   M.PlaceElem ->
   MirGenerator h s ret (MirPlace s)
-evalPlaceProj ty (MirPlace tpr ref NoMeta) M.Deref = do
+evalPlaceProj ty (MirPlace tpr ref meta) M.Deref
+  | NoMeta <- meta =
     -- In the general case (when T is a sized type), we have a MirPlace input of
     -- the form:
     --
@@ -1544,6 +1545,7 @@ evalPlaceProj ty (MirPlace tpr ref NoMeta) M.Deref = do
         M.TyRawPtr t _ -> doRef t
         CTyBox t -> doRef t
         _ -> mirFail $ "deref not supported on " ++ show ty
+  | otherwise = mirFail $ "deref not supported on " ++ show meta
   where
     ptrBytes :: Word
     ptrBytes = fromIntegral (C.intValue (C.knownNat @SizeBits)) `div` 8
@@ -1789,8 +1791,6 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Subslice fromIndex toIndex fromEnd) 
     mkLastIndex len
       | fromEnd = R.App (len `usizeSub` usize toIndex)
       | otherwise = usize toIndex
-evalPlaceProj ty (MirPlace _ _ meta) proj =
-    mirFail $ "projection " ++ show proj ++ " not yet implemented for " ++ show (ty, meta)
 
 --------------------------------------------------------------------------------------
 -- ** Statements
