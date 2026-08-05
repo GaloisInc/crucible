@@ -260,6 +260,10 @@ instance Pretty TerminatorKind where
       pretty "assert" <+> pretty op <+> pretty "==" <+> pretty expect
                     <+> arrow <+> pretty target1
     pretty InlineAsm = pretty "inlineasm;"
+    pretty Yield = pretty "yield;"
+    pretty FalseEdge = pretty "falseEdge;"
+    pretty FalseUnwind = pretty "falseUnwind;"
+    pretty CoroutineDrop = pretty "coroutine_drop;"
 
 
 

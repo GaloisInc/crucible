@@ -2247,6 +2247,14 @@ transTerminatorKind M.Unreachable _tpos _tr = do
     G.reportError (S.litExpr "Unreachable!!!!!")
 transTerminatorKind M.InlineAsm _tpos _tr =
     mirFail "Inline assembly not supported"
+transTerminatorKind M.Yield _tpos _tr =
+    mirFail "Yield not supported"
+transTerminatorKind M.FalseEdge _tpos _tr =
+    mirFail "FalseEdge not supported"
+transTerminatorKind M.FalseUnwind _tpos _tr =
+    mirFail "FalseUnwind not supported"
+transTerminatorKind M.CoroutineDrop _tpos _tr =
+    mirFail "CoroutineDrop not supported"
 
 
 --- translation of toplevel glue ---
