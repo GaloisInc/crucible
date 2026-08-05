@@ -1,7 +1,7 @@
 # next
 
 This release supports [version
-10](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#10) of
+12](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#12) of
 `mir-json`'s schema.
 
 * **BREAKING:** Remove prisms for `AdtKind` and the `Wrapped` instance for
