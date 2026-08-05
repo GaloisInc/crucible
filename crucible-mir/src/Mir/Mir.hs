@@ -395,7 +395,6 @@ data StatementKind =
       | StorageLive { _slv :: Var }
       | StorageDead { _sdv :: Var }
       | Nop
-      | Deinit
       | StmtIntrinsic NonDivergingIntrinsic
       | ConstEvalCounter
     deriving (Show,Eq, Ord, Generic)

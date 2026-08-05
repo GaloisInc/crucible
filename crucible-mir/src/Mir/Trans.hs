@@ -1864,7 +1864,6 @@ transStatementKind (M.SetDiscriminant lv i) = do
     -- simultaneously), then we could remove AllocateEnum.
     ty -> mirFail $ "don't know how to set discriminant of " ++ show ty
 transStatementKind M.Nop = return ()
-transStatementKind M.Deinit = return ()
 transStatementKind (M.StmtIntrinsic ndi) =
     case ndi of
         -- rustc uses assumptions from `assume` to optimize code. If we
@@ -3073,7 +3072,7 @@ transVirtCall :: forall h.
 transVirtCall colState intrName' methName dynTraitName methIndex
   | Just methMH <- Map.lookup intrName' (colState ^. handleMap)
   , MirHandle _hname _hsig (methFH :: FH.FnHandle args ret) <- methMH = do
-      AssignUncons recvTpr argTprs <- case assignUncons (FH.handleArgTypes methFH) of 
+      AssignUncons recvTpr argTprs <- case assignUncons (FH.handleArgTypes methFH) of
         Right x -> return x
         Left _ -> die ["method handle has no arguments"]
       let retTpr = FH.handleReturnType methFH

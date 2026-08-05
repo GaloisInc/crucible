@@ -302,7 +302,6 @@ instance FromJSON StatementKind where
         Just (String "StorageLive") -> StorageLive <$> v .: "slvar"
         Just (String "StorageDead") -> StorageDead <$> v .: "sdvar"
         Just (String "Nop") -> pure Nop
-        Just (String "Deinit") -> pure Deinit
         Just (String "Intrinsic") -> do
            kind <- v .: "intrinsic_kind"
            ndi <- case kind of

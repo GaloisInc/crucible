@@ -184,7 +184,6 @@ instance Pretty StatementKind where
     pretty (StorageLive l) = pretty_fn1 "StorageLive" l <> semi
     pretty (StorageDead l) = pretty_fn1 "StorageDead" l <> semi
     pretty Nop = pretty "nop" <> semi
-    pretty Deinit = pretty "DeInit"
     pretty (StmtIntrinsic (NDIAssume op)) =
       pretty "Intrinsic" <> brackets (pretty "Assume") <> parens (pretty op) <> semi
     pretty (StmtIntrinsic (NDICopyNonOverlapping o1 o2 o3)) =
