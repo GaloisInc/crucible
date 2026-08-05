@@ -1354,18 +1354,6 @@ evalRval (M.Use op) = evalOperand op
 evalRval (M.Repeat op size) = buildRepeat op size
 evalRval (M.Ref _bk lv _) = evalPlace lv >>= addrOfPlace
 evalRval (M.AddressOf _mutbl lv) = evalPlace lv >>= addrOfPlace
-evalRval (M.Len lv) =
-    case M.typeOf lv of
-        M.TyArray _ len ->
-            return $ MirExp UsizeRepr $ R.App $ usizeLit $ fromIntegral len
-        ty@(M.TySlice _) -> do
-            place <- evalPlace lv
-            meta <- case place of
-                MirPlace _tpr _ref meta -> pure meta
-            case meta of
-                SliceMeta len -> return $ MirExp UsizeRepr len
-                _ -> mirFail $ "bad metadata " ++ show meta ++ " for reference to " ++ show ty
-        ty -> mirFail $ "don't know how to take Len of " ++ show ty
 evalRval (M.Cast ck op ty) = evalCast ck op ty
 evalRval (M.BinaryOp binop op1 op2) = transBinOp binop op1 op2
 evalRval (M.UnaryOp uop op) = transUnaryOp  uop op
@@ -1498,9 +1486,6 @@ evalRval (M.ThreadLocalRef did _) = staticPlace did >>= addrOfPlace
 
 -- We treat CopyForDeref(lv) the same as Rvalue::Use(Operand::Copy(lv)).
 evalRval (M.CopyForDeref lv) = evalLvalue lv
-
-evalRval (M.ShallowInitBox {}) = mirFail
-    "evalRval: ShallowInitBox not supported"
 
 evalTupleRval :: HasCallStack => Ty -> [Operand] -> MirGenerator h s ret (MirExp s)
 evalTupleRval tupleTy ops = do
