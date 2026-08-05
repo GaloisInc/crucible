@@ -314,6 +314,12 @@ instance FromJSON StatementKind where
 
            return $ StmtIntrinsic ndi
         Just (String "ConstEvalCounter") -> pure ConstEvalCounter
+        Just (String "FakeRead") -> pure FakeRead
+        Just (String "Retag") -> pure Retag
+        Just (String "PlaceMention") -> pure PlaceMention
+        Just (String "AscribeUserType") -> pure AscribeUserType
+        Just (String "Coverage") -> pure Coverage
+        Just (String "BackwardIncompatibleDropHint") -> pure BackwardIncompatibleDropHint
 
         k -> fail $ "kind not found for statement: " ++ show k
 

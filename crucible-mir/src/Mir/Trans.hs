@@ -1895,6 +1895,18 @@ transStatementKind (M.StmtIntrinsic ndi) =
 -- Per the docs, this statement kind is only useful in the const eval
 -- interpreter, so it is a no-op for crucible-mir's purposes.
 transStatementKind M.ConstEvalCounter = return ()
+transStatementKind M.FakeRead =
+    mirFail "FakeRead not supported"
+transStatementKind M.Retag =
+    mirFail "Retag not supported"
+transStatementKind M.PlaceMention =
+    mirFail "PlaceMention not supported"
+transStatementKind M.AscribeUserType =
+    mirFail "AscribeUserType not supported"
+transStatementKind M.Coverage =
+    mirFail "Coverage not supported"
+transStatementKind M.BackwardIncompatibleDropHint =
+    mirFail "BackwardIncompatibleDropHint not supported"
 
 -- | Add a new `BranchTransInfo` entry for the current function.  Returns the
 -- index of the new entry.

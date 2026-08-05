@@ -397,6 +397,14 @@ data StatementKind =
       | Nop
       | StmtIntrinsic NonDivergingIntrinsic
       | ConstEvalCounter
+
+        -- The following are not yet supported in crucible-mir translation
+      | FakeRead
+      | Retag
+      | PlaceMention
+      | AscribeUserType
+      | Coverage
+      | BackwardIncompatibleDropHint
     deriving (Show,Eq, Ord, Generic)
 
 data NonDivergingIntrinsic =

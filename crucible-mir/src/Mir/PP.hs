@@ -191,6 +191,12 @@ instance Pretty StatementKind where
                          <> tupled (pretty <$> [o1, o2, o3])
                          <> semi
     pretty ConstEvalCounter = pretty "ConstEvalCounter"
+    pretty FakeRead = pretty "FakeRead"
+    pretty Retag = pretty "Retag"
+    pretty PlaceMention = pretty "PlaceMention"
+    pretty AscribeUserType = pretty "AscribeUserType"
+    pretty Coverage = pretty "Coverage"
+    pretty BackwardIncompatibleDropHint = pretty "BackwardIncompatibleDropHint"
 
 instance Pretty Lvalue where
     pretty (LBase base) = pretty base
