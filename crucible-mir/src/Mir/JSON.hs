@@ -353,16 +353,15 @@ instance FromJSON Rvalue where
                                               Just (String "Repeat") -> Repeat <$> v .: "op" <*> v .: "len"
                                               Just (String "Ref") ->  Ref <$> v .: "borrowkind" <*> v .: "refvar" <*> v .: "region"
                                               Just (String "AddressOf") ->  AddressOf <$> v .: "mutbl" <*> v .: "place"
-                                              Just (String "Len") -> Len <$> v .: "lv"
                                               Just (String "Cast") -> Cast <$> v .: "type" <*> v .: "op" <*> v .: "ty"
                                               Just (String "BinaryOp") -> BinaryOp <$> v .: "op" <*> v .: "L" <*> v .: "R"
                                               Just (String "UnaryOp") -> UnaryOp <$> v .: "uop" <*> v .: "op"
                                               Just (String "Discriminant") -> Discriminant <$> v .: "val" <*> v .: "ty"
                                               Just (String "Aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
                                               Just (String "AdtAg") -> RAdtAg <$> v .: "ag"
-                                              Just (String "ShallowInitBox") -> ShallowInitBox <$> v .: "ptr" <*> v .: "ty"
                                               Just (String "CopyForDeref") -> CopyForDeref <$> v .: "place"
                                               Just (String "ThreadLocalRef") -> ThreadLocalRef <$> v .: "def_id" <*> v .: "ty"
+                                              Just (String "WrapUnsafeBinder") -> WrapUnsafeBinder <$> v .: "op" <*> v .: "ty"
                                               k -> fail $ "unsupported RValue " ++ show k
 
 instance FromJSON AdtAg where

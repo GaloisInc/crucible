@@ -448,8 +448,6 @@ data Rvalue =
       | Repeat { _rop :: Operand, _rlen :: ConstUsize }
       | Ref { _rbk :: BorrowKind, _rvar :: Lvalue, _rregion :: Text }
       | AddressOf { _aomutbl :: Mutability, _aoplace :: Lvalue }
-      | Len { _lenvar :: Lvalue }
-        -- ^ load length from a slice
       | Cast { _cck :: CastKind, _cop :: Operand, _cty :: Ty }
       | BinaryOp { _bop :: BinOp, _bop1 :: Operand, _bop2 :: Operand }
       | UnaryOp { _unop :: UnOp, _unoperand :: Operand}
@@ -465,9 +463,11 @@ data Rvalue =
                        _dty :: Ty }
       | Aggregate { _ak :: AggregateKind, _ops :: [Operand] }
       | RAdtAg AdtAg
-      | ShallowInitBox { _sibptr :: Operand, _sibty :: Ty }
       | CopyForDeref Lvalue
       | ThreadLocalRef DefId Ty
+
+        -- The following are not yet supported in crucible-mir translation
+      | WrapUnsafeBinder Operand Ty
     deriving (Show,Eq, Ord, Generic)
 
 -- | An aggregate ADT expression.
@@ -860,7 +860,6 @@ instance TypeOf Rvalue where
   typeOf (Ref Mutable lv _) = TyRef (typeOf lv) Mut
   typeOf (Ref Unique lv _)  = TyRef (typeOf lv) Mut
   typeOf (AddressOf mutbl lv) = TyRawPtr (typeOf lv) mutbl
-  typeOf (Len _) = TyUint USize
   typeOf (Cast _ _ ty) = ty
   typeOf (BinaryOp op x _y) =
     let ty = typeOf x
@@ -905,9 +904,9 @@ instance TypeOf Rvalue where
   typeOf (Aggregate (AKCoroutine ca) _ops) = TyCoroutine ca
   typeOf (Aggregate AKCoroutineClosure ops) = TyCoroutineClosure $ map typeOf ops
   typeOf (RAdtAg (AdtAg _ _ _ ty _)) = ty
-  typeOf (ShallowInitBox _ ty) = ty
   typeOf (CopyForDeref lv) = typeOf lv
   typeOf (ThreadLocalRef _ ty) = ty
+  typeOf (WrapUnsafeBinder _ ty) = ty
 
 instance TypeOf Operand where
     typeOf (Move lv) = typeOf lv

@@ -1487,6 +1487,9 @@ evalRval (M.ThreadLocalRef did _) = staticPlace did >>= addrOfPlace
 -- We treat CopyForDeref(lv) the same as Rvalue::Use(Operand::Copy(lv)).
 evalRval (M.CopyForDeref lv) = evalLvalue lv
 
+evalRval (M.WrapUnsafeBinder {}) =
+    mirFail "evalRval: WrapUnsafeBinder not supported"
+
 evalTupleRval :: HasCallStack => Ty -> [Operand] -> MirGenerator h s ret (MirExp s)
 evalTupleRval tupleTy ops = do
   exps <- mapM evalOperand ops

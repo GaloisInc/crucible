@@ -224,16 +224,15 @@ instance Pretty Rvalue where
     pretty (Ref Mutable b _c) = pretty "&mut" <+> pretty b
     pretty (AddressOf Immut b) = pretty "&raw" <+> pretty b
     pretty (AddressOf Mut b) = pretty "&raw mut" <+> pretty b
-    pretty (Len a) = pretty_fn1 "len" a
     pretty (Cast a b c) = pretty_fn3 "Cast" a b c
     pretty (BinaryOp a b c) = pretty b <+> pretty a <+> pretty c
     pretty (UnaryOp a b) = pretty a <+> pretty b
     pretty (Discriminant a b) = pretty_fn2 "Discriminant" a b
     pretty (Aggregate a b) = pretty_fn2 "Aggregate" a b
     pretty (RAdtAg a) = pretty a
-    pretty (ShallowInitBox ptr ty) = pretty_fn2 "ShallowInitBox" ptr ty
     pretty (CopyForDeref lv) = pretty_fn1 "CopyForDeref" lv
     pretty (ThreadLocalRef a b) = pretty_fn2 "ThreadLocalRef" a b
+    pretty (WrapUnsafeBinder a b) = pretty_fn2 "WrapUnsafeBinder" a b
 
 instance Pretty AdtAg where
   pretty (AdtAg (Adt nm _kind _vs _ _ _ _) i ops _ optField) = case optField of
