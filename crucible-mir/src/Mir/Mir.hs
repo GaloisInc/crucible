@@ -553,7 +553,6 @@ data RuntimeChecks =
 
 data BorrowKind =
         Shared
-      | Unique
       | Mutable
       deriving (Show,Eq, Ord, Generic)
 
@@ -864,7 +863,6 @@ instance TypeOf Rvalue where
   typeOf (Repeat a sz) = TyArray (typeOf a) (fromIntegral sz)
   typeOf (Ref Shared lv _)  = TyRef (typeOf lv) Immut
   typeOf (Ref Mutable lv _) = TyRef (typeOf lv) Mut
-  typeOf (Ref Unique lv _)  = TyRef (typeOf lv) Mut
   typeOf (AddressOf mutbl lv) = TyRawPtr (typeOf lv) mutbl
   typeOf (Cast _ _ ty) = ty
   typeOf (BinaryOp op x _y) =

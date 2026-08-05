@@ -410,7 +410,6 @@ instance FromJSON Operand where
 instance FromJSON BorrowKind where
     parseJSON = withText "BorrowKind" $ \t ->
            if t == "Shared" then pure Shared
-      else if t == "Unique" then pure Unique
       else if t == "Mut"    then pure Mutable
       -- s can be followed by "{ allow_two_phase_borrow: true }"
       else if T.isPrefixOf "Mut" t then pure Mutable

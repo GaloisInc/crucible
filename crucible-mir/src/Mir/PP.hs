@@ -220,7 +220,6 @@ instance Pretty Rvalue where
     pretty (Use a) = pretty a
     pretty (Repeat a b) = brackets (pretty a <> semi <> pretty b)
     pretty (Ref Shared b _c) = pretty "&" <> pretty b
-    pretty (Ref Unique b _c) = pretty "&unique" <+> pretty b
     pretty (Ref Mutable b _c) = pretty "&mut" <+> pretty b
     pretty (AddressOf Immut b) = pretty "&raw" <+> pretty b
     pretty (AddressOf Mut b) = pretty "&raw mut" <+> pretty b
