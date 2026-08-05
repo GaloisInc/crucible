@@ -426,6 +426,10 @@ data PlaceElem =
         -- beginning - so if @s@ has length @len@, elements are instead selected
         -- from the (still half-open) range @[from, len - to)@.
       | Downcast Integer
+
+        -- The following are not yet supported in crucible-mir translation
+      | OpaqueCast Ty
+      | UnwrapUnsafeBinder Ty
       deriving (Show, Eq, Ord, Generic)
 
 -- Called "Place" in rustc itself, hence the names of PlaceBase and PlaceElem
@@ -828,12 +832,14 @@ instance TypeOf Lvalue where
 
 typeOfProj :: PlaceElem -> Ty -> Ty
 typeOfProj elm baseTy = case elm of
-    PField _ t      -> t
-    Deref           -> peelRef baseTy
-    Index{}         -> peelIdx baseTy
-    ConstantIndex{} -> peelIdx baseTy
-    Downcast i      -> TyDowncast baseTy i   --- TODO: check this
-    Subslice{}      -> TySlice (peelIdx baseTy)
+    PField _ t           -> t
+    Deref                -> peelRef baseTy
+    Index{}              -> peelIdx baseTy
+    ConstantIndex{}      -> peelIdx baseTy
+    Downcast i           -> TyDowncast baseTy i   --- TODO: check this
+    Subslice{}           -> TySlice (peelIdx baseTy)
+    OpaqueCast t         -> t
+    UnwrapUnsafeBinder t -> t
   where
     peelRef :: Ty -> Ty
     peelRef (TyRef t _) = t

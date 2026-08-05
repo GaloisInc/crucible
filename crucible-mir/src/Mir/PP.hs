@@ -211,6 +211,10 @@ instance Pretty Lvalue where
       pretty lv <> brackets (pretty "-" <> pretty f <> dot <> dot <> pretty "-" <> pretty t)
     pretty (LProj lv (Downcast i)) =
       parens (pretty lv <+> pretty "as" <+> pretty i)
+    pretty (LProj lv (OpaqueCast ty)) =
+      parens (pretty lv <+> pretty "as" <+> pretty ty)
+    pretty (LProj lv (UnwrapUnsafeBinder _ty)) =
+      pretty "unwrap_binder!" <> parens (pretty lv)
 
 instance Pretty Rvalue where
     pretty (Use a) = pretty a

@@ -338,6 +338,8 @@ instance FromJSON PlaceElem where
         Just (String "ConstantIndex") -> ConstantIndex <$> v .: "offset" <*> v .: "min_length" <*> v .: "from_end"
         Just (String "Subslice") -> Subslice <$> v .: "from" <*> v .: "to" <*> v .: "from_end"
         Just (String "Downcast") -> Downcast <$> v .: "variant"
+        Just (String "OpaqueCast") -> OpaqueCast <$> v .: "variant"
+        Just (String "UnwrapUnsafeBinder") -> UnwrapUnsafeBinder <$> v .: "ty"
         x -> fail ("bad PlaceElem: " ++ show x)
 
 instance FromJSON Lvalue where

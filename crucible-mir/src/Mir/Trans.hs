@@ -1791,6 +1791,10 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Subslice fromIndex toIndex fromEnd) 
     mkLastIndex len
       | fromEnd = R.App (len `usizeSub` usize toIndex)
       | otherwise = usize toIndex
+evalPlaceProj _ _ (M.OpaqueCast {}) =
+    mirFail $ "evalPlaceProj: OpaqueCast not yet supported"
+evalPlaceProj _ _ (M.UnwrapUnsafeBinder {}) =
+    mirFail $ "evalPlaceProj: UnwrapUnsafeBinder not yet supported"
 
 --------------------------------------------------------------------------------------
 -- ** Statements
