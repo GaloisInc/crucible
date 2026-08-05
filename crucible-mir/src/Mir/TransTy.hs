@@ -185,7 +185,10 @@ data BVSize where
 tyToRepr :: TransTyConstraint => M.Collection -> M.Ty -> Either String (Some C.TypeRepr)
 tyToRepr col t0 = case t0 of
   CTyInt512 -> Right (Some (C.BVRepr (knownNat :: NatRepr 512)))
-  CTyBv (tyBvSize -> Just (BVSize w)) -> Right (Some (C.BVRepr w))
+  CTyBv sz ->
+    case tyBvSize sz of
+      Just (BVSize w) -> Right (Some (C.BVRepr w))
+      Nothing -> Left $ "unsupported: Unsupported Bv size: " ++ show (pretty sz)
   CTyVector t -> do
     Some repr <- tyToRepr col t
     return (Some (C.VectorRepr repr))
@@ -280,7 +283,17 @@ tyToRepr col t0 = case t0 of
   M.TyLifetime -> Right (Some C.AnyRepr)
   M.TyForeign -> Right (Some C.AnyRepr)
   M.TyErased -> Right (Some C.AnyRepr)
-  _ -> Left (unwords ["unknown type?", show t0])
+
+  -- TyConst only occurs in generic argument lists, so it is never the type of
+  -- a value at runtime. As such, it has no TypeRepr.
+  M.TyConst c -> Left $ unwords [ "standalone use of const generic type"
+                                , show (pretty c)
+                                ]
+
+  -- TyInterned should not occur after parsing.
+  M.TyInterned t -> Left $ unwords [ "Unexpected use of TyInterned"
+                                   , show (pretty t)
+                                   ]
 
 -- | If the provided type is unsized/dynamically-sized, return the
 -- representation of a _reference to_ that type; else, 'Nothing'.
