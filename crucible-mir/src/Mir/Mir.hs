@@ -66,8 +66,10 @@ data BaseSize =
       deriving (Eq, Ord, Show, Generic)
 
 data FloatKind
-  = F32
+  = F16
+  | F32
   | F64
+  | F128
   deriving (Eq, Ord, Show, Generic)
 
 -- | Type parameters

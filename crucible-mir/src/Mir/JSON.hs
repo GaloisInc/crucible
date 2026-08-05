@@ -61,8 +61,10 @@ instance FromJSON BaseSize where
 
 instance FromJSON FloatKind where
     parseJSON = withObject "FloatKind" $ \t -> case lookupKM "kind" t of
+                                                 Just (String "F16") -> pure F16
                                                  Just (String "F32") -> pure F32
                                                  Just (String "F64") -> pure F64
+                                                 Just (String "F128") -> pure F128
                                                  sz -> fail $ "unknown float type: " ++ show sz
 
 instance FromJSON Substs where
@@ -564,8 +566,10 @@ instance FromJSON ConstVal where
             size :: Int <- v .: "size"
             val <- v .: "val"
             fk <- case size of
+                2 -> pure F16
                 4 -> pure F32
                 8 -> pure F64
+                16 -> pure F128
                 _ -> fail $ "bad size " ++ show size ++ " for float literal"
             pure $ ConstFloat $ FloatLit fk (T.unpack val)
 

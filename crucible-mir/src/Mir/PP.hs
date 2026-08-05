@@ -61,8 +61,10 @@ instance Pretty BaseSize where
     pretty = pretty . size_str
 
 instance Pretty FloatKind where
+    pretty F16 = pretty "f16"
     pretty F32 = pretty "f32"
     pretty F64 = pretty "f64"
+    pretty F128 = pretty "f128"
 
 instance Pretty Ty where
     pretty TyBool         = pretty "bool"
