@@ -143,7 +143,7 @@ instance FromJSON Instance where
             <$> v .: "def_id" <*> v .: "args"
         Just (String "Intrinsic") -> Instance IkIntrinsic
             <$> v .: "def_id" <*> v .: "args"
-        Just (String "VtableShim") -> Instance IkVtableShim
+        Just (String "VTableShim") -> Instance IkVtableShim
             <$> v .: "def_id" <*> v .: "args"
         Just (String "ReifyShim") -> Instance IkReifyShim
             <$> v .: "def_id" <*> v .: "args"
