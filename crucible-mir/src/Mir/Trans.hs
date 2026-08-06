@@ -1510,29 +1510,34 @@ evalPlaceProj ::
   MirPlace s ->
   M.PlaceElem ->
   MirGenerator h s ret (MirPlace s)
-evalPlaceProj ty (MirPlace tpr ref meta) M.Deref
-  | NoMeta <- meta =
-    -- In the general case (when T is a sized type), we have a MirPlace input of
-    -- the form:
-    --
-    --   MirPlace (*T) <expr: **T> NoMeta
-    --
-    -- And we want to produce output of the form:
-    --
-    --   MirPlace T <expr': *T> NoMeta
-    --
-    -- Where *T is hand-wavy syntax for reference types (e.g., &T and *const T).
-    -- Note the double indirection in <expr: **T>.
-    --
-    -- Things get a little bit trickier when dealing with unsized types,
-    -- however. See the comments below.
-    case ty of
-        M.TyRef t _ -> doRef t
-        M.TyRawPtr t _ -> doRef t
-        CTyBox t -> doRef t
-        _ -> mirFail $ "deref not supported on " ++ show ty
-  | otherwise = mirFail $ "deref not supported on " ++ show meta
+evalPlaceProj ty (MirPlace tpr ref meta) M.Deref =
+  case meta of
+    NoMeta ->
+      -- In the general case (when T is a sized type), we have a MirPlace input
+      -- of the form:
+      --
+      --   MirPlace (*T) <expr: **T> NoMeta
+      --
+      -- And we want to produce output of the form:
+      --
+      --   MirPlace T <expr': *T> NoMeta
+      --
+      -- Where *T is hand-wavy syntax for reference types (e.g., &T and
+      -- *const T). Note the double indirection in <expr: **T>.
+      --
+      -- Things get a little bit trickier when dealing with unsized types,
+      -- however. See the comments below.
+      case ty of
+          M.TyRef t _ -> doRef t
+          M.TyRawPtr t _ -> doRef t
+          CTyBox t -> doRef t
+          _ -> mirFail $ "deref not supported on " ++ show ty
+    SliceMeta {} -> unsupportedMeta
+    DynMeta {} -> unsupportedMeta
   where
+    unsupportedMeta :: MirGenerator h s ret a
+    unsupportedMeta = mirFail $ "deref not supported on " ++ show meta
+
     ptrBytes :: Word
     ptrBytes = fromIntegral (C.intValue (C.knownNat @SizeBits)) `div` 8
 
