@@ -124,6 +124,14 @@ data Ty =
       -- types.  These are all replaced with other variants in `uninternTys`,
       -- which runs just after JSON decoding is done.
       | TyInterned TyName
+
+        -- The following are not yet supported in crucible-mir translation
+      | TyError
+      | TyInfer
+      | TyBound
+      | TyPlaceholder
+      | TyCoroutineWitness
+      | TyAlias
       deriving (Eq, Ord, Show, Generic)
 
 -- | Details about a coroutine type.  See Note [coroutine representation] in

@@ -98,6 +98,12 @@ instance Pretty Ty where
     pretty TyForeign = pretty "foreign"
     pretty TyErased = pretty "erased"
     pretty (TyInterned s) = pretty s
+    pretty TyError = pretty "error"
+    pretty TyInfer = pretty "infer"
+    pretty TyBound = pretty "bound"
+    pretty TyPlaceholder = pretty "placeholder"
+    pretty TyCoroutineWitness = pretty "coroutine_witness"
+    pretty TyAlias = pretty "alias"
 
 instance Pretty Adt where
    pretty (Adt nm kind vs _size reprTransparent origName origSubsts) =

@@ -295,6 +295,14 @@ tyToRepr col t0 = case t0 of
                                    , show (pretty t)
                                    ]
 
+  -- Not currently supported
+  M.TyError -> Left "TyError not supported"
+  M.TyInfer -> Left "TyInfer not supported"
+  M.TyBound -> Left "TyBound not supported"
+  M.TyPlaceholder -> Left "TyPlaceholder not supported"
+  M.TyCoroutineWitness -> Left "TyCoroutineWitness not supported"
+  M.TyAlias -> Left "TyAlias not supported"
+
 -- | If the provided type is unsized/dynamically-sized, return the
 -- representation of a _reference to_ that type; else, 'Nothing'.
 tyToUnsizedRefRepr :: TransTyConstraint => M.Collection -> M.Ty -> Maybe (Some C.TypeRepr)
@@ -583,6 +591,12 @@ canInitialize col ty = case ty of
     M.TyCoroutine {} -> False
     M.TyErased {} -> False
     M.TyInterned {} -> False
+    M.TyError {} -> False
+    M.TyInfer {} -> False
+    M.TyBound {} -> False
+    M.TyPlaceholder {} -> False
+    M.TyCoroutineWitness {} -> False
+    M.TyAlias {} -> False
 
 isUnsized :: M.Ty -> Bool
 isUnsized ty = case ty of
@@ -625,6 +639,12 @@ isZeroSized col = go
       M.TyCoroutine {} -> False
       M.TyErased {} -> False
       M.TyInterned {} -> False
+      M.TyError {} -> False
+      M.TyInfer {} -> False
+      M.TyBound {} -> False
+      M.TyPlaceholder {} -> False
+      M.TyCoroutineWitness {} -> False
+      M.TyAlias {} -> False
 
 
 -- | Get the "ABI-level" function arguments for @sig@, which determines the
@@ -2035,6 +2055,12 @@ initialValue (M.TyLifetime {}) = return Nothing
 initialValue (M.TyCoroutine {}) = return Nothing
 initialValue (M.TyErased {}) = return Nothing
 initialValue (M.TyInterned {}) = return Nothing
+initialValue (M.TyError {}) = return Nothing
+initialValue (M.TyInfer {}) = return Nothing
+initialValue (M.TyBound {}) = return Nothing
+initialValue (M.TyPlaceholder {}) = return Nothing
+initialValue (M.TyCoroutineWitness {}) = return Nothing
+initialValue (M.TyAlias {}) = return Nothing
 
 initialTupleValue ::
   HasCallStack => M.Ty -> MirGenerator h s ret (Maybe (MirExp s))

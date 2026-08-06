@@ -109,6 +109,12 @@ instance FromJSON InlineTy where
       Just (String "Foreign") -> pure TyForeign
       Just (String "Pat") -> TyPat <$> v .: "ty"
       Just (String "Const") -> TyConst <$> v .: "constant"
+      Just (String "Error") -> pure TyError
+      Just (String "Infer") -> pure TyInfer
+      Just (String "Bound") -> pure TyBound
+      Just (String "Placeholder") -> pure TyPlaceholder
+      Just (String "CoroutineWitness") -> pure TyCoroutineWitness
+      Just (String "Alias") -> pure TyAlias
       r -> fail $ "unsupported ty: " ++ show r
 
 instance FromJSON NamedTy where
