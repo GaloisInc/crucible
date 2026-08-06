@@ -660,7 +660,6 @@ data ConstVal =
   | ConstCoroutineClosure [ConstVal]
   | ConstArray [ConstVal]
   | ConstRepeat ConstVal Int
-  | ConstInitializer DefId
   -- | A reference to a static, of type `&T`.
   | ConstStaticRef DefId
   | ConstZST

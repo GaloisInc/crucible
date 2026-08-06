@@ -206,8 +206,6 @@ transConstVal _ty (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
                    return (MirExp C.RealValRepr (S.app $ E.RationalLit rat))
       []        -> mirFail $ "cannot parse float constant: " ++ show str
 
-transConstVal _ty _ (ConstInitializer funid) =
-    callExp funid []
 transConstVal _ty _ (ConstStaticRef did) =
     staticPlace did >>= addrOfPlace
 transConstVal ty _ ConstZST = initialValue ty >>= \case

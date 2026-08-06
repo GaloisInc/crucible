@@ -391,7 +391,6 @@ instance Pretty ConstVal where
     pretty (ConstArray cs)     = list (map pretty cs)
     pretty (ConstRepeat cv i)  = brackets (pretty cv <> semi <+> pretty i)
     pretty (ConstFunction a)   = pr_id a
-    pretty (ConstInitializer a) = pr_id a
     pretty (ConstStaticRef a) = pretty "&" <> pr_id a
     pretty ConstZST =
       -- A ConstZST value represents a value with a zero-sized type, but we

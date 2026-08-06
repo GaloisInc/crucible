@@ -33,7 +33,6 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.HashMap.Lazy as HML
 #endif
 
-import Mir.DefId
 import Mir.Mir
 
 --------------------------------------------------------------------------------------
@@ -507,23 +506,9 @@ instance FromJSON CastKind where
 
 instance FromJSON Constant where
     parseJSON = withObject "Literal" $ \v -> do
-      ty <- v .: "ty"
-      mbRend <- v .:? "rendered"
-      mbInit <- v .:? "initializer"
-      case (mbRend, mbInit) of
-        (Just rend, _) ->
-            pure $ Constant ty rend
-        (Nothing, Just (RustcConstInitializer defid)) ->
-            pure $ Constant ty $ ConstInitializer defid
-        (Nothing, Nothing) ->
-            fail $ "need either rendered value or initializer in constant literal"
+      Constant <$> v .: "ty"
+               <*> v .: "rendered"
 
-
-data RustcConstInitializer = RustcConstInitializer DefId
-
-instance FromJSON RustcConstInitializer where
-    parseJSON = withObject "Initializer" $ \v ->
-        RustcConstInitializer <$> v .: "def_id"
 
 instance FromJSON ConstVal where
     parseJSON = withObject "ConstVal" $ \v ->
