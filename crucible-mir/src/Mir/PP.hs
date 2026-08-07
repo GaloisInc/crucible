@@ -61,8 +61,10 @@ instance Pretty BaseSize where
     pretty = pretty . size_str
 
 instance Pretty FloatKind where
+    pretty F16 = pretty "f16"
     pretty F32 = pretty "f32"
     pretty F64 = pretty "f64"
+    pretty F128 = pretty "f128"
 
 instance Pretty Ty where
     pretty TyBool         = pretty "bool"
@@ -96,6 +98,12 @@ instance Pretty Ty where
     pretty TyForeign = pretty "foreign"
     pretty TyErased = pretty "erased"
     pretty (TyInterned s) = pretty s
+    pretty TyError = pretty "error"
+    pretty TyInfer = pretty "infer"
+    pretty TyBound = pretty "bound"
+    pretty TyPlaceholder = pretty "placeholder"
+    pretty TyCoroutineWitness = pretty "coroutine_witness"
+    pretty TyAlias = pretty "alias"
 
 instance Pretty Adt where
    pretty (Adt nm kind vs _size reprTransparent origName origSubsts) =
@@ -182,7 +190,6 @@ instance Pretty StatementKind where
     pretty (StorageLive l) = pretty_fn1 "StorageLive" l <> semi
     pretty (StorageDead l) = pretty_fn1 "StorageDead" l <> semi
     pretty Nop = pretty "nop" <> semi
-    pretty Deinit = pretty "DeInit"
     pretty (StmtIntrinsic (NDIAssume op)) =
       pretty "Intrinsic" <> brackets (pretty "Assume") <> parens (pretty op) <> semi
     pretty (StmtIntrinsic (NDICopyNonOverlapping o1 o2 o3)) =
@@ -190,6 +197,12 @@ instance Pretty StatementKind where
                          <> tupled (pretty <$> [o1, o2, o3])
                          <> semi
     pretty ConstEvalCounter = pretty "ConstEvalCounter"
+    pretty FakeRead = pretty "FakeRead"
+    pretty Retag = pretty "Retag"
+    pretty PlaceMention = pretty "PlaceMention"
+    pretty AscribeUserType = pretty "AscribeUserType"
+    pretty Coverage = pretty "Coverage"
+    pretty BackwardIncompatibleDropHint = pretty "BackwardIncompatibleDropHint"
 
 instance Pretty Lvalue where
     pretty (LBase base) = pretty base
@@ -204,25 +217,27 @@ instance Pretty Lvalue where
       pretty lv <> brackets (pretty "-" <> pretty f <> dot <> dot <> pretty "-" <> pretty t)
     pretty (LProj lv (Downcast i)) =
       parens (pretty lv <+> pretty "as" <+> pretty i)
+    pretty (LProj lv (OpaqueCast ty)) =
+      parens (pretty lv <+> pretty "as" <+> pretty ty)
+    pretty (LProj lv (UnwrapUnsafeBinder _ty)) =
+      pretty "unwrap_binder!" <> parens (pretty lv)
 
 instance Pretty Rvalue where
     pretty (Use a) = pretty a
     pretty (Repeat a b) = brackets (pretty a <> semi <> pretty b)
     pretty (Ref Shared b _c) = pretty "&" <> pretty b
-    pretty (Ref Unique b _c) = pretty "&unique" <+> pretty b
     pretty (Ref Mutable b _c) = pretty "&mut" <+> pretty b
     pretty (AddressOf Immut b) = pretty "&raw" <+> pretty b
     pretty (AddressOf Mut b) = pretty "&raw mut" <+> pretty b
-    pretty (Len a) = pretty_fn1 "len" a
     pretty (Cast a b c) = pretty_fn3 "Cast" a b c
     pretty (BinaryOp a b c) = pretty b <+> pretty a <+> pretty c
     pretty (UnaryOp a b) = pretty a <+> pretty b
     pretty (Discriminant a b) = pretty_fn2 "Discriminant" a b
     pretty (Aggregate a b) = pretty_fn2 "Aggregate" a b
     pretty (RAdtAg a) = pretty a
-    pretty (ShallowInitBox ptr ty) = pretty_fn2 "ShallowInitBox" ptr ty
     pretty (CopyForDeref lv) = pretty_fn1 "CopyForDeref" lv
     pretty (ThreadLocalRef a b) = pretty_fn2 "ThreadLocalRef" a b
+    pretty (WrapUnsafeBinder a b) = pretty_fn2 "WrapUnsafeBinder" a b
 
 instance Pretty AdtAg where
   pretty (AdtAg (Adt nm _kind _vs _ _ _ _) i ops _ optField) = case optField of
@@ -250,6 +265,10 @@ instance Pretty TerminatorKind where
       pretty "assert" <+> pretty op <+> pretty "==" <+> pretty expect
                     <+> arrow <+> pretty target1
     pretty InlineAsm = pretty "inlineasm;"
+    pretty Yield = pretty "yield;"
+    pretty FalseEdge = pretty "falseEdge;"
+    pretty FalseUnwind = pretty "falseUnwind;"
+    pretty CoroutineDrop = pretty "coroutine_drop;"
 
 
 
@@ -378,7 +397,6 @@ instance Pretty ConstVal where
     pretty (ConstArray cs)     = list (map pretty cs)
     pretty (ConstRepeat cv i)  = brackets (pretty cv <> semi <+> pretty i)
     pretty (ConstFunction a)   = pr_id a
-    pretty (ConstInitializer a) = pr_id a
     pretty (ConstStaticRef a) = pretty "&" <> pr_id a
     pretty ConstZST =
       -- A ConstZST value represents a value with a zero-sized type, but we

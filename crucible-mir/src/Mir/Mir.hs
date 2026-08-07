@@ -66,8 +66,10 @@ data BaseSize =
       deriving (Eq, Ord, Show, Generic)
 
 data FloatKind
-  = F32
+  = F16
+  | F32
   | F64
+  | F128
   deriving (Eq, Ord, Show, Generic)
 
 -- | Type parameters
@@ -122,6 +124,14 @@ data Ty =
       -- types.  These are all replaced with other variants in `uninternTys`,
       -- which runs just after JSON decoding is done.
       | TyInterned TyName
+
+        -- The following are not yet supported in crucible-mir translation
+      | TyError
+      | TyInfer
+      | TyBound
+      | TyPlaceholder
+      | TyCoroutineWitness
+      | TyAlias
       deriving (Eq, Ord, Show, Generic)
 
 -- | Details about a coroutine type.  See Note [coroutine representation] in
@@ -393,9 +403,16 @@ data StatementKind =
       | StorageLive { _slv :: Var }
       | StorageDead { _sdv :: Var }
       | Nop
-      | Deinit
       | StmtIntrinsic NonDivergingIntrinsic
       | ConstEvalCounter
+
+        -- The following are not yet supported in crucible-mir translation
+      | FakeRead
+      | Retag
+      | PlaceMention
+      | AscribeUserType
+      | Coverage
+      | BackwardIncompatibleDropHint
     deriving (Show,Eq, Ord, Generic)
 
 data NonDivergingIntrinsic =
@@ -417,6 +434,10 @@ data PlaceElem =
         -- beginning - so if @s@ has length @len@, elements are instead selected
         -- from the (still half-open) range @[from, len - to)@.
       | Downcast Integer
+
+        -- The following are not yet supported in crucible-mir translation
+      | OpaqueCast Ty
+      | UnwrapUnsafeBinder Ty
       deriving (Show, Eq, Ord, Generic)
 
 -- Called "Place" in rustc itself, hence the names of PlaceBase and PlaceElem
@@ -435,8 +456,6 @@ data Rvalue =
       | Repeat { _rop :: Operand, _rlen :: ConstUsize }
       | Ref { _rbk :: BorrowKind, _rvar :: Lvalue, _rregion :: Text }
       | AddressOf { _aomutbl :: Mutability, _aoplace :: Lvalue }
-      | Len { _lenvar :: Lvalue }
-        -- ^ load length from a slice
       | Cast { _cck :: CastKind, _cop :: Operand, _cty :: Ty }
       | BinaryOp { _bop :: BinOp, _bop1 :: Operand, _bop2 :: Operand }
       | UnaryOp { _unop :: UnOp, _unoperand :: Operand}
@@ -452,9 +471,11 @@ data Rvalue =
                        _dty :: Ty }
       | Aggregate { _ak :: AggregateKind, _ops :: [Operand] }
       | RAdtAg AdtAg
-      | ShallowInitBox { _sibptr :: Operand, _sibty :: Ty }
       | CopyForDeref Lvalue
       | ThreadLocalRef DefId Ty
+
+        -- The following are not yet supported in crucible-mir translation
+      | WrapUnsafeBinder Operand Ty
     deriving (Show,Eq, Ord, Generic)
 
 -- | An aggregate ADT expression.
@@ -507,11 +528,17 @@ data TerminatorKind =
                  _aexpected :: Bool,
                  _amsg      :: AssertMessage,
                  _atarget   :: BasicBlockInfo }
+
+        -- The following are not yet supported in crucible-mir translation
       | InlineAsm
         -- ^ @crucible-mir@ does not support simulating inline assembly, but we
         -- nevertheless include this as a 'TerminatorKind' so that we can
         -- successfully translate code that mentions it. Provided that that
         -- code is never simulated, this should work out.
+      | Yield
+      | FalseEdge
+      | FalseUnwind
+      | CoroutineDrop
       deriving (Show,Eq, Ord, Generic)
 
 data Operand =
@@ -534,7 +561,6 @@ data RuntimeChecks =
 
 data BorrowKind =
         Shared
-      | Unique
       | Mutable
       deriving (Show,Eq, Ord, Generic)
 
@@ -642,7 +668,6 @@ data ConstVal =
   | ConstCoroutineClosure [ConstVal]
   | ConstArray [ConstVal]
   | ConstRepeat ConstVal Int
-  | ConstInitializer DefId
   -- | A reference to a static, of type `&T`.
   | ConstStaticRef DefId
   | ConstZST
@@ -819,12 +844,14 @@ instance TypeOf Lvalue where
 
 typeOfProj :: PlaceElem -> Ty -> Ty
 typeOfProj elm baseTy = case elm of
-    PField _ t      -> t
-    Deref           -> peelRef baseTy
-    Index{}         -> peelIdx baseTy
-    ConstantIndex{} -> peelIdx baseTy
-    Downcast i      -> TyDowncast baseTy i   --- TODO: check this
-    Subslice{}      -> TySlice (peelIdx baseTy)
+    PField _ t           -> t
+    Deref                -> peelRef baseTy
+    Index{}              -> peelIdx baseTy
+    ConstantIndex{}      -> peelIdx baseTy
+    Downcast i           -> TyDowncast baseTy i   --- TODO: check this
+    Subslice{}           -> TySlice (peelIdx baseTy)
+    OpaqueCast t         -> t
+    UnwrapUnsafeBinder t -> t
   where
     peelRef :: Ty -> Ty
     peelRef (TyRef t _) = t
@@ -843,9 +870,7 @@ instance TypeOf Rvalue where
   typeOf (Repeat a sz) = TyArray (typeOf a) (fromIntegral sz)
   typeOf (Ref Shared lv _)  = TyRef (typeOf lv) Immut
   typeOf (Ref Mutable lv _) = TyRef (typeOf lv) Mut
-  typeOf (Ref Unique lv _)  = TyRef (typeOf lv) Mut
   typeOf (AddressOf mutbl lv) = TyRawPtr (typeOf lv) mutbl
-  typeOf (Len _) = TyUint USize
   typeOf (Cast _ _ ty) = ty
   typeOf (BinaryOp op x _y) =
     let ty = typeOf x
@@ -890,9 +915,9 @@ instance TypeOf Rvalue where
   typeOf (Aggregate (AKCoroutine ca) _ops) = TyCoroutine ca
   typeOf (Aggregate AKCoroutineClosure ops) = TyCoroutineClosure $ map typeOf ops
   typeOf (RAdtAg (AdtAg _ _ _ ty _)) = ty
-  typeOf (ShallowInitBox _ ty) = ty
   typeOf (CopyForDeref lv) = typeOf lv
   typeOf (ThreadLocalRef _ ty) = ty
+  typeOf (WrapUnsafeBinder _ ty) = ty
 
 instance TypeOf Operand where
     typeOf (Move lv) = typeOf lv

@@ -206,8 +206,6 @@ transConstVal _ty (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
                    return (MirExp C.RealValRepr (S.app $ E.RationalLit rat))
       []        -> mirFail $ "cannot parse float constant: " ++ show str
 
-transConstVal _ty _ (ConstInitializer funid) =
-    callExp funid []
 transConstVal _ty _ (ConstStaticRef did) =
     staticPlace did >>= addrOfPlace
 transConstVal ty _ ConstZST = initialValue ty >>= \case
@@ -1354,18 +1352,6 @@ evalRval (M.Use op) = evalOperand op
 evalRval (M.Repeat op size) = buildRepeat op size
 evalRval (M.Ref _bk lv _) = evalPlace lv >>= addrOfPlace
 evalRval (M.AddressOf _mutbl lv) = evalPlace lv >>= addrOfPlace
-evalRval (M.Len lv) =
-    case M.typeOf lv of
-        M.TyArray _ len ->
-            return $ MirExp UsizeRepr $ R.App $ usizeLit $ fromIntegral len
-        ty@(M.TySlice _) -> do
-            place <- evalPlace lv
-            meta <- case place of
-                MirPlace _tpr _ref meta -> pure meta
-            case meta of
-                SliceMeta len -> return $ MirExp UsizeRepr len
-                _ -> mirFail $ "bad metadata " ++ show meta ++ " for reference to " ++ show ty
-        ty -> mirFail $ "don't know how to take Len of " ++ show ty
 evalRval (M.Cast ck op ty) = evalCast ck op ty
 evalRval (M.BinaryOp binop op1 op2) = transBinOp binop op1 op2
 evalRval (M.UnaryOp uop op) = transUnaryOp  uop op
@@ -1499,8 +1485,8 @@ evalRval (M.ThreadLocalRef did _) = staticPlace did >>= addrOfPlace
 -- We treat CopyForDeref(lv) the same as Rvalue::Use(Operand::Copy(lv)).
 evalRval (M.CopyForDeref lv) = evalLvalue lv
 
-evalRval (M.ShallowInitBox {}) = mirFail
-    "evalRval: ShallowInitBox not supported"
+evalRval (M.WrapUnsafeBinder {}) =
+    mirFail "evalRval: WrapUnsafeBinder not supported"
 
 evalTupleRval :: HasCallStack => Ty -> [Operand] -> MirGenerator h s ret (MirExp s)
 evalTupleRval tupleTy ops = do
@@ -1524,27 +1510,34 @@ evalPlaceProj ::
   MirPlace s ->
   M.PlaceElem ->
   MirGenerator h s ret (MirPlace s)
-evalPlaceProj ty (MirPlace tpr ref NoMeta) M.Deref = do
-    -- In the general case (when T is a sized type), we have a MirPlace input of
-    -- the form:
-    --
-    --   MirPlace (*T) <expr: **T> NoMeta
-    --
-    -- And we want to produce output of the form:
-    --
-    --   MirPlace T <expr': *T> NoMeta
-    --
-    -- Where *T is hand-wavy syntax for reference types (e.g., &T and *const T).
-    -- Note the double indirection in <expr: **T>.
-    --
-    -- Things get a little bit trickier when dealing with unsized types,
-    -- however. See the comments below.
-    case ty of
-        M.TyRef t _ -> doRef t
-        M.TyRawPtr t _ -> doRef t
-        CTyBox t -> doRef t
-        _ -> mirFail $ "deref not supported on " ++ show ty
+evalPlaceProj ty (MirPlace tpr ref meta) M.Deref =
+  case meta of
+    NoMeta ->
+      -- In the general case (when T is a sized type), we have a MirPlace input
+      -- of the form:
+      --
+      --   MirPlace (*T) <expr: **T> NoMeta
+      --
+      -- And we want to produce output of the form:
+      --
+      --   MirPlace T <expr': *T> NoMeta
+      --
+      -- Where *T is hand-wavy syntax for reference types (e.g., &T and
+      -- *const T). Note the double indirection in <expr: **T>.
+      --
+      -- Things get a little bit trickier when dealing with unsized types,
+      -- however. See the comments below.
+      case ty of
+          M.TyRef t _ -> doRef t
+          M.TyRawPtr t _ -> doRef t
+          CTyBox t -> doRef t
+          _ -> mirFail $ "deref not supported on " ++ show ty
+    SliceMeta {} -> unsupportedMeta
+    DynMeta {} -> unsupportedMeta
   where
+    unsupportedMeta :: MirGenerator h s ret a
+    unsupportedMeta = mirFail $ "deref not supported on " ++ show meta
+
     ptrBytes :: Word
     ptrBytes = fromIntegral (C.intValue (C.knownNat @SizeBits)) `div` 8
 
@@ -1789,8 +1782,10 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Subslice fromIndex toIndex fromEnd) 
     mkLastIndex len
       | fromEnd = R.App (len `usizeSub` usize toIndex)
       | otherwise = usize toIndex
-evalPlaceProj ty (MirPlace _ _ meta) proj =
-    mirFail $ "projection " ++ show proj ++ " not yet implemented for " ++ show (ty, meta)
+evalPlaceProj _ _ (M.OpaqueCast {}) =
+    mirFail $ "evalPlaceProj: OpaqueCast not yet supported"
+evalPlaceProj _ _ (M.UnwrapUnsafeBinder {}) =
+    mirFail $ "evalPlaceProj: UnwrapUnsafeBinder not yet supported"
 
 --------------------------------------------------------------------------------------
 -- ** Statements
@@ -1864,7 +1859,6 @@ transStatementKind (M.SetDiscriminant lv i) = do
     -- simultaneously), then we could remove AllocateEnum.
     ty -> mirFail $ "don't know how to set discriminant of " ++ show ty
 transStatementKind M.Nop = return ()
-transStatementKind M.Deinit = return ()
 transStatementKind (M.StmtIntrinsic ndi) =
     case ndi of
         -- rustc uses assumptions from `assume` to optimize code. If we
@@ -1896,6 +1890,18 @@ transStatementKind (M.StmtIntrinsic ndi) =
 -- Per the docs, this statement kind is only useful in the const eval
 -- interpreter, so it is a no-op for crucible-mir's purposes.
 transStatementKind M.ConstEvalCounter = return ()
+transStatementKind M.FakeRead =
+    mirFail "FakeRead not supported"
+transStatementKind M.Retag =
+    mirFail "Retag not supported"
+transStatementKind M.PlaceMention =
+    mirFail "PlaceMention not supported"
+transStatementKind M.AscribeUserType =
+    mirFail "AscribeUserType not supported"
+transStatementKind M.Coverage =
+    mirFail "Coverage not supported"
+transStatementKind M.BackwardIncompatibleDropHint =
+    mirFail "BackwardIncompatibleDropHint not supported"
 
 -- | Add a new `BranchTransInfo` entry for the current function.  Returns the
 -- index of the new entry.
@@ -2244,6 +2250,14 @@ transTerminatorKind M.Unreachable _tpos _tr = do
     G.reportError (S.litExpr "Unreachable!!!!!")
 transTerminatorKind M.InlineAsm _tpos _tr =
     mirFail "Inline assembly not supported"
+transTerminatorKind M.Yield _tpos _tr =
+    mirFail "Yield not supported"
+transTerminatorKind M.FalseEdge _tpos _tr =
+    mirFail "FalseEdge not supported"
+transTerminatorKind M.FalseUnwind _tpos _tr =
+    mirFail "FalseUnwind not supported"
+transTerminatorKind M.CoroutineDrop _tpos _tr =
+    mirFail "CoroutineDrop not supported"
 
 
 --- translation of toplevel glue ---
@@ -3073,7 +3087,7 @@ transVirtCall :: forall h.
 transVirtCall colState intrName' methName dynTraitName methIndex
   | Just methMH <- Map.lookup intrName' (colState ^. handleMap)
   , MirHandle _hname _hsig (methFH :: FH.FnHandle args ret) <- methMH = do
-      AssignUncons recvTpr argTprs <- case assignUncons (FH.handleArgTypes methFH) of 
+      AssignUncons recvTpr argTprs <- case assignUncons (FH.handleArgTypes methFH) of
         Right x -> return x
         Left _ -> die ["method handle has no arguments"]
       let retTpr = FH.handleReturnType methFH

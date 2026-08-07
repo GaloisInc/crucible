@@ -185,7 +185,10 @@ data BVSize where
 tyToRepr :: TransTyConstraint => M.Collection -> M.Ty -> Either String (Some C.TypeRepr)
 tyToRepr col t0 = case t0 of
   CTyInt512 -> Right (Some (C.BVRepr (knownNat :: NatRepr 512)))
-  CTyBv (tyBvSize -> Just (BVSize w)) -> Right (Some (C.BVRepr w))
+  CTyBv sz ->
+    case tyBvSize sz of
+      Just (BVSize w) -> Right (Some (C.BVRepr w))
+      Nothing -> Left $ "unsupported: Unsupported Bv size: " ++ show (pretty sz)
   CTyVector t -> do
     Some repr <- tyToRepr col t
     return (Some (C.VectorRepr repr))
@@ -280,7 +283,25 @@ tyToRepr col t0 = case t0 of
   M.TyLifetime -> Right (Some C.AnyRepr)
   M.TyForeign -> Right (Some C.AnyRepr)
   M.TyErased -> Right (Some C.AnyRepr)
-  _ -> Left (unwords ["unknown type?", show t0])
+
+  -- TyConst only occurs in generic argument lists, so it is never the type of
+  -- a value at runtime. As such, it has no TypeRepr.
+  M.TyConst c -> Left $ unwords [ "standalone use of const generic type"
+                                , show (pretty c)
+                                ]
+
+  -- TyInterned should not occur after parsing.
+  M.TyInterned t -> Left $ unwords [ "Unexpected use of TyInterned"
+                                   , show (pretty t)
+                                   ]
+
+  -- Not currently supported
+  M.TyError -> Left "TyError not supported"
+  M.TyInfer -> Left "TyInfer not supported"
+  M.TyBound -> Left "TyBound not supported"
+  M.TyPlaceholder -> Left "TyPlaceholder not supported"
+  M.TyCoroutineWitness -> Left "TyCoroutineWitness not supported"
+  M.TyAlias -> Left "TyAlias not supported"
 
 -- | If the provided type is unsized/dynamically-sized, return the
 -- representation of a _reference to_ that type; else, 'Nothing'.
@@ -570,6 +591,12 @@ canInitialize col ty = case ty of
     M.TyCoroutine {} -> False
     M.TyErased {} -> False
     M.TyInterned {} -> False
+    M.TyError {} -> False
+    M.TyInfer {} -> False
+    M.TyBound {} -> False
+    M.TyPlaceholder {} -> False
+    M.TyCoroutineWitness {} -> False
+    M.TyAlias {} -> False
 
 isUnsized :: M.Ty -> Bool
 isUnsized ty = case ty of
@@ -612,6 +639,12 @@ isZeroSized col = go
       M.TyCoroutine {} -> False
       M.TyErased {} -> False
       M.TyInterned {} -> False
+      M.TyError {} -> False
+      M.TyInfer {} -> False
+      M.TyBound {} -> False
+      M.TyPlaceholder {} -> False
+      M.TyCoroutineWitness {} -> False
+      M.TyAlias {} -> False
 
 
 -- | Get the "ABI-level" function arguments for @sig@, which determines the
@@ -2022,6 +2055,12 @@ initialValue (M.TyLifetime {}) = return Nothing
 initialValue (M.TyCoroutine {}) = return Nothing
 initialValue (M.TyErased {}) = return Nothing
 initialValue (M.TyInterned {}) = return Nothing
+initialValue (M.TyError {}) = return Nothing
+initialValue (M.TyInfer {}) = return Nothing
+initialValue (M.TyBound {}) = return Nothing
+initialValue (M.TyPlaceholder {}) = return Nothing
+initialValue (M.TyCoroutineWitness {}) = return Nothing
+initialValue (M.TyAlias {}) = return Nothing
 
 initialTupleValue ::
   HasCallStack => M.Ty -> MirGenerator h s ret (Maybe (MirExp s))

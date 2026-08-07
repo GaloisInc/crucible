@@ -33,7 +33,6 @@ import qualified Data.Aeson.KeyMap as KM
 import qualified Data.HashMap.Lazy as HML
 #endif
 
-import Mir.DefId
 import Mir.Mir
 
 --------------------------------------------------------------------------------------
@@ -61,8 +60,10 @@ instance FromJSON BaseSize where
 
 instance FromJSON FloatKind where
     parseJSON = withObject "FloatKind" $ \t -> case lookupKM "kind" t of
+                                                 Just (String "F16") -> pure F16
                                                  Just (String "F32") -> pure F32
                                                  Just (String "F64") -> pure F64
+                                                 Just (String "F128") -> pure F128
                                                  sz -> fail $ "unknown float type: " ++ show sz
 
 instance FromJSON Substs where
@@ -108,6 +109,12 @@ instance FromJSON InlineTy where
       Just (String "Foreign") -> pure TyForeign
       Just (String "Pat") -> TyPat <$> v .: "ty"
       Just (String "Const") -> TyConst <$> v .: "constant"
+      Just (String "Error") -> pure TyError
+      Just (String "Infer") -> pure TyInfer
+      Just (String "Bound") -> pure TyBound
+      Just (String "Placeholder") -> pure TyPlaceholder
+      Just (String "CoroutineWitness") -> pure TyCoroutineWitness
+      Just (String "Alias") -> pure TyAlias
       r -> fail $ "unsupported ty: " ++ show r
 
 instance FromJSON NamedTy where
@@ -141,7 +148,7 @@ instance FromJSON Instance where
             <$> v .: "def_id" <*> v .: "args"
         Just (String "Intrinsic") -> Instance IkIntrinsic
             <$> v .: "def_id" <*> v .: "args"
-        Just (String "VtableShim") -> Instance IkVtableShim
+        Just (String "VTableShim") -> Instance IkVtableShim
             <$> v .: "def_id" <*> v .: "args"
         Just (String "ReifyShim") -> Instance IkReifyShim
             <$> v .: "def_id" <*> v .: "args"
@@ -201,9 +208,7 @@ instance FromJSON Field where
 
 instance FromJSON Mutability where
     parseJSON = withObject "Mutability" $ \v -> case lookupKM "kind" v of
-                                                Just (String "MutMutable") -> pure Mut
                                                 Just (String "Mut") -> pure Mut
-                                                Just (String "MutImmutable") -> pure Immut
                                                 Just (String "Not") -> pure Immut
                                                 x -> fail $ "bad mutability: " ++ show x
 
@@ -302,7 +307,6 @@ instance FromJSON StatementKind where
         Just (String "StorageLive") -> StorageLive <$> v .: "slvar"
         Just (String "StorageDead") -> StorageDead <$> v .: "sdvar"
         Just (String "Nop") -> pure Nop
-        Just (String "Deinit") -> pure Deinit
         Just (String "Intrinsic") -> do
            kind <- v .: "intrinsic_kind"
            ndi <- case kind of
@@ -315,6 +319,12 @@ instance FromJSON StatementKind where
 
            return $ StmtIntrinsic ndi
         Just (String "ConstEvalCounter") -> pure ConstEvalCounter
+        Just (String "FakeRead") -> pure FakeRead
+        Just (String "Retag") -> pure Retag
+        Just (String "PlaceMention") -> pure PlaceMention
+        Just (String "AscribeUserType") -> pure AscribeUserType
+        Just (String "Coverage") -> pure Coverage
+        Just (String "BackwardIncompatibleDropHint") -> pure BackwardIncompatibleDropHint
 
         k -> fail $ "kind not found for statement: " ++ show k
 
@@ -333,6 +343,8 @@ instance FromJSON PlaceElem where
         Just (String "ConstantIndex") -> ConstantIndex <$> v .: "offset" <*> v .: "min_length" <*> v .: "from_end"
         Just (String "Subslice") -> Subslice <$> v .: "from" <*> v .: "to" <*> v .: "from_end"
         Just (String "Downcast") -> Downcast <$> v .: "variant"
+        Just (String "OpaqueCast") -> OpaqueCast <$> v .: "variant"
+        Just (String "UnwrapUnsafeBinder") -> UnwrapUnsafeBinder <$> v .: "ty"
         x -> fail ("bad PlaceElem: " ++ show x)
 
 instance FromJSON Lvalue where
@@ -346,16 +358,15 @@ instance FromJSON Rvalue where
                                               Just (String "Repeat") -> Repeat <$> v .: "op" <*> v .: "len"
                                               Just (String "Ref") ->  Ref <$> v .: "borrowkind" <*> v .: "refvar" <*> v .: "region"
                                               Just (String "AddressOf") ->  AddressOf <$> v .: "mutbl" <*> v .: "place"
-                                              Just (String "Len") -> Len <$> v .: "lv"
                                               Just (String "Cast") -> Cast <$> v .: "type" <*> v .: "op" <*> v .: "ty"
                                               Just (String "BinaryOp") -> BinaryOp <$> v .: "op" <*> v .: "L" <*> v .: "R"
                                               Just (String "UnaryOp") -> UnaryOp <$> v .: "uop" <*> v .: "op"
                                               Just (String "Discriminant") -> Discriminant <$> v .: "val" <*> v .: "ty"
                                               Just (String "Aggregate") -> Aggregate <$> v .: "akind" <*> v .: "ops"
                                               Just (String "AdtAg") -> RAdtAg <$> v .: "ag"
-                                              Just (String "ShallowInitBox") -> ShallowInitBox <$> v .: "ptr" <*> v .: "ty"
                                               Just (String "CopyForDeref") -> CopyForDeref <$> v .: "place"
                                               Just (String "ThreadLocalRef") -> ThreadLocalRef <$> v .: "def_id" <*> v .: "ty"
+                                              Just (String "WrapUnsafeBinder") -> WrapUnsafeBinder <$> v .: "op" <*> v .: "ty"
                                               k -> fail $ "unsupported RValue " ++ show k
 
 instance FromJSON AdtAg where
@@ -387,6 +398,10 @@ instance FromJSON TerminatorKind where
         Just (String "Call") ->  Call <$> v .: "func" <*> v .: "args" <*> v .: "destination"
         Just (String "Assert") -> Assert <$> v .: "cond" <*> v .: "expected" <*> v .: "msg" <*> v .: "target"
         Just (String "InlineAsm") -> pure InlineAsm
+        Just (String "Yield") -> pure Yield
+        Just (String "FalseEdge") -> pure FalseEdge
+        Just (String "FalseUnwind") -> pure FalseUnwind
+        Just (String "CoroutineDrop") -> pure CoroutineDrop
         k -> fail $ "unsupported terminator kind" ++ show k
 
 instance FromJSON Operand where
@@ -400,7 +415,6 @@ instance FromJSON Operand where
 instance FromJSON BorrowKind where
     parseJSON = withText "BorrowKind" $ \t ->
            if t == "Shared" then pure Shared
-      else if t == "Unique" then pure Unique
       else if t == "Mut"    then pure Mutable
       -- s can be followed by "{ allow_two_phase_borrow: true }"
       else if T.isPrefixOf "Mut" t then pure Mutable
@@ -498,23 +512,9 @@ instance FromJSON CastKind where
 
 instance FromJSON Constant where
     parseJSON = withObject "Literal" $ \v -> do
-      ty <- v .: "ty"
-      mbRend <- v .:? "rendered"
-      mbInit <- v .:? "initializer"
-      case (mbRend, mbInit) of
-        (Just rend, _) ->
-            pure $ Constant ty rend
-        (Nothing, Just (RustcConstInitializer defid)) ->
-            pure $ Constant ty $ ConstInitializer defid
-        (Nothing, Nothing) ->
-            fail $ "need either rendered value or initializer in constant literal"
+      Constant <$> v .: "ty"
+               <*> v .: "rendered"
 
-
-data RustcConstInitializer = RustcConstInitializer DefId
-
-instance FromJSON RustcConstInitializer where
-    parseJSON = withObject "Initializer" $ \v ->
-        RustcConstInitializer <$> v .: "def_id"
 
 instance FromJSON ConstVal where
     parseJSON = withObject "ConstVal" $ \v ->
@@ -564,8 +564,10 @@ instance FromJSON ConstVal where
             size :: Int <- v .: "size"
             val <- v .: "val"
             fk <- case size of
+                2 -> pure F16
                 4 -> pure F32
                 8 -> pure F64
+                16 -> pure F128
                 _ -> fail $ "bad size " ++ show size ++ " for float literal"
             pure $ ConstFloat $ FloatLit fk (T.unpack val)
 
