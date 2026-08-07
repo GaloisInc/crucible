@@ -89,7 +89,7 @@ simulateWasm ::
   WasmOptions ->
   Crux.SimulatorCallbacks msgs st Crux.Types.CruxSimulationResult
 simulateWasm cruxOpts _wasmOpts =
-  Crux.SimulatorCallbacks $
+  Crux.SimulatorCallbacks $ \_fm ->
     return $
       Crux.SimulatorHooks
         { Crux.setupHook =

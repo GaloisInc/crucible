@@ -195,7 +195,7 @@ simulateLLVMFile ::
   LLVMOptions ->
   Crux.SimulatorCallbacks msgs st Crux.Types.CruxSimulationResult
 simulateLLVMFile llvm_file llvmOpts =
-  Crux.SimulatorCallbacks $
+  Crux.SimulatorCallbacks $ \_fm ->
     do bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
        let ?recordLLVMAnnotation =
              \callStack an bb ->

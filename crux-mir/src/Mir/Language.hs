@@ -368,7 +368,7 @@ runTestsWithExtraOverrides initS bindExtra (cruxOpts, mirOpts) = do
             }
 
     let simCallbacks fnName =
-          Crux.SimulatorCallbacks $
+          Crux.SimulatorCallbacks $ \_fm ->
             return $
               Crux.SimulatorHooks
                 { Crux.setupHook =

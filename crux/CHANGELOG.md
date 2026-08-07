@@ -6,6 +6,7 @@
   `colorOptionsL`, `simVerboseL`, `printFailuresL`, `quietModeL` (from
   `Crux.Config.Common`), and `colorOptionsL`, `noColorsErrL`, `noColorsOutL`
   (from `Crux.Config.Load`).
+- Add a `FloatModeRepr` argument to `SimulatorCallbacks`.
 
 # 0.9 -- 2026-01-29
 

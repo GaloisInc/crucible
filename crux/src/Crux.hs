@@ -133,12 +133,12 @@ data RunnableState sym where
 newtype SimulatorCallbacks msgs st r
   = SimulatorCallbacks
     { getSimulatorCallbacks ::
-        forall sym bak t fs.
+        forall sym bak t fm.
           ( IsSymBackend sym bak
           , Logs msgs
-          , sym ~ WE.ExprBuilder t st fs
+          , sym ~ WE.ExprBuilder t st (WE.Flags fm)
           ) =>
-          IO (SimulatorHooks sym bak t r)
+          WE.FloatModeRepr fm -> IO (SimulatorHooks sym bak t r)
     }
 
 
@@ -364,8 +364,10 @@ withSelectedOnlineBackend :: forall msgs scope st a.
     ( OnlineSolver solver
     , IsInterpretedFloatExprBuilder (WE.ExprBuilder scope st (WE.Flags fm))
     ) =>
-    (OnlineBackend solver scope st (WE.Flags fm) -> IO a)) ->
-    IO a
+    WE.FloatModeRepr fm ->
+    OnlineBackend solver scope st (WE.Flags fm) ->
+    IO a) ->
+  IO a
 withSelectedOnlineBackend cruxOpts nonceGen selectedSolver maybeExplicitFloatMode initSt k =
   case fromMaybe (floatMode cruxOpts) maybeExplicitFloatMode of
     "real" -> withOnlineBackendFM WE.FloatRealRepr
@@ -388,7 +390,7 @@ withSelectedOnlineBackend cruxOpts nonceGen selectedSolver maybeExplicitFloatMod
       IO a
     withOnlineBackendFM fm =
       do sym <- WE.newExprBuilder fm initSt nonceGen
-         withSelectedOnlineBackend' cruxOpts selectedSolver sym k
+         withSelectedOnlineBackend' cruxOpts selectedSolver sym $ k fm
 
 withSelectedOnlineBackend' ::
   Logs msgs =>
@@ -400,8 +402,9 @@ withSelectedOnlineBackend' ::
   WE.ExprBuilder scope st fs ->
   (forall solver.
     OnlineSolver solver =>
-    (OnlineBackend solver scope st fs -> IO a)) ->
-    IO a
+    OnlineBackend solver scope st fs ->
+    IO a) ->
+  IO a
 withSelectedOnlineBackend' cruxOpts selectedSolver sym k =
   let unsatCoreFeat | unsatCores cruxOpts
                     , not (yicesMCSat cruxOpts) = ProduceUnsatCores
@@ -631,14 +634,14 @@ runSimulatorWithUserState mkUser cruxOpts simCallback = do
   case CCS.parseSolverConfig cruxOpts of
 
     Right (CCS.SingleOnlineSolver onSolver) ->
-      withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing userState $ \bak -> do
+      withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing userState $ \fm bak -> do
         let monline = Just (SomeOnlineSolver bak)
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) (backendGetSym bak)
         (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts bak monline
-        doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline (proveGoalsOnline bak)
+        doSimWithResults cruxOpts simCallback fm bak execFeatures profInfo monline (proveGoalsOnline bak)
 
     Right (CCS.OnlineSolverWithOfflineGoals onSolver offSolver) ->
-      withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing userState $ \bak -> do
+      withSelectedOnlineBackend cruxOpts nonceGen onSolver Nothing userState $ \fm bak -> do
         let monline = Just (SomeOnlineSolver bak)
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) (backendGetSym bak)
         (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts bak monline
@@ -649,7 +652,7 @@ runSimulatorWithUserState mkUser cruxOpts simCallback = do
           -- been a different solver)
           unless (CCS.sameSolver onSolver offSolver) $
             extendConfig (WS.solver_adapter_config_options adapter) (getConfiguration (backendGetSym bak))
-          doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline (proveGoalsOffline [adapter])
+          doSimWithResults cruxOpts simCallback fm bak execFeatures profInfo monline (proveGoalsOffline [adapter])
 
     Right (CCS.OnlyOfflineSolvers offSolvers) ->
       withFloatRepr userState cruxOpts offSolvers $ \floatRepr -> do
@@ -661,18 +664,18 @@ runSimulatorWithUserState mkUser cruxOpts simCallback = do
           -- with the options taken from the solver adapter (e.g., solver path)
           extendConfig (WS.solver_adapter_config_options =<< adapters) (getConfiguration sym)
           (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts bak Nothing
-          doSimWithResults cruxOpts simCallback bak execFeatures profInfo Nothing (proveGoalsOffline adapters)
+          doSimWithResults cruxOpts simCallback floatRepr bak execFeatures profInfo Nothing (proveGoalsOffline adapters)
 
     Right (CCS.OnlineSolverWithSeparateOnlineGoals pathSolver goalSolver) ->
       -- This case is probably the most complicated because it needs two
       -- separate online solvers.  The two must agree on the floating point
       -- mode.
-      withSelectedOnlineBackend cruxOpts nonceGen pathSolver Nothing userState $ \pathSatBak -> do
+      withSelectedOnlineBackend cruxOpts nonceGen pathSolver Nothing userState $ \fm pathSatBak -> do
         let sym = backendGetSym pathSatBak
         setupSolver cruxOpts (pathSatSolverOutput cruxOpts) sym
         (execFeatures, profInfo) <- setupExecutionFeatures cruxOpts pathSatBak (Just (SomeOnlineSolver pathSatBak))
         withSelectedOnlineBackend' cruxOpts goalSolver sym $ \goalBak -> do
-          doSimWithResults cruxOpts simCallback pathSatBak execFeatures profInfo (Just (SomeOnlineSolver pathSatBak)) (proveGoalsOnline goalBak)
+          doSimWithResults cruxOpts simCallback fm pathSatBak execFeatures profInfo (Just (SomeOnlineSolver pathSatBak)) (proveGoalsOnline goalBak)
 
     Left rsns -> fail ("Invalid solver configuration:\n" ++ unlines rsns)
 
@@ -687,13 +690,14 @@ runSimulatorWithUserState mkUser cruxOpts simCallback = do
 -- The main work in this function is setting up appropriate solver frames and
 -- traversing the goals tree, as well as handling some reporting.
 doSimWithResults ::
-  forall sym bak r t st fs msgs.
-  sym ~ WE.ExprBuilder t st fs =>
+  forall sym bak r t st fm msgs.
+  sym ~ WE.ExprBuilder t st (WE.Flags fm) =>
   IsSymBackend sym bak =>
   Logs msgs =>
   SupportsCruxLogMessage msgs =>
   CruxOptions ->
   SimulatorCallbacks msgs st r ->
+  WE.FloatModeRepr fm ->
   bak ->
   [GenericExecutionFeature sym] ->
   ProfData sym ->
@@ -702,14 +706,14 @@ doSimWithResults ::
     {- ^ The function to use to prove goals; this is intended to be
          one of 'proveGoalsOffline' or 'proveGoalsOnline' -} ->
   IO r
-doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline goalProver = do
+doSimWithResults cruxOpts simCallback fm bak execFeatures profInfo monline goalProver = do
   compRef <- newIORef ProgramComplete
   glsRef <- newIORef Seq.empty
 
   frm <- pushAssumptionFrame bak
 
   SimulatorHooks setup onError interpretResult <-
-    getSimulatorCallbacks simCallback
+    getSimulatorCallbacks simCallback fm
   inFrame profInfo "<Crux>" $ do
     -- perform tool-specific setup
     RunnableStateWithExtensions initSt exts <- setup bak monline
@@ -756,7 +760,7 @@ doSimWithResults cruxOpts simCallback bak execFeatures profInfo monline goalProv
    -> IORef (Seq.Seq (ProcessedGoals, ProvedGoals))
    -> FrameIdentifier
    -> (Maybe (WE.GroundEvalFn t) -> LabeledPred (WE.Expr t BaseBoolType) SimError -> IO (Doc Void))
-   -> Result personality (WE.ExprBuilder t st fs)
+   -> Result personality (WE.ExprBuilder t st (WE.Flags fm))
    -> IO Bool
  resultCont compRef glsRef frm explainFailure (Result res) =
    do timedOut <-
