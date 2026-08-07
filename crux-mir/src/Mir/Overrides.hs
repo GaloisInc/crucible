@@ -554,6 +554,10 @@ bindFn _symOnline _cs fn cfg =
             -> (ExplodedDefId, SomeTypedOverride (p sym) sym MIR)
     symb_bv edid n = (edid, SomeTypedOverride $ makeSymbolicVar (BaseBVRepr n))
 
+    symb_float :: ExplodedDefId
+               -> (ExplodedDefId, SomeTypedOverride (p sym) sym MIR)
+    symb_float edid = (edid, SomeTypedOverride $ makeSymbolicVar BaseRealRepr)
+
     overrides :: IsSymBackend sym bak'
               => bak'
               -> Map ExplodedDefId (SomeTypedOverride (p sym) sym MIR)
@@ -574,6 +578,10 @@ bindFn _symOnline _cs fn cfg =
                , symb_bv ["crucible", "bitvector", "make_symbolic_128"] (knownNat @128)
                , symb_bv ["crucible", "bitvector", "make_symbolic_256"] (knownNat @256)
                , symb_bv ["crucible", "bitvector", "make_symbolic_512"] (knownNat @512)
+               , symb_float ["crucible", "symbolic", "symbolic_f16"]
+               , symb_float ["crucible", "symbolic", "symbolic_f32"]
+               , symb_float ["crucible", "symbolic", "symbolic_f64"]
+               , symb_float ["crucible", "symbolic", "symbolic_f128"]
 
                , let argTys = (Empty :> BoolRepr :> strrepr :> strrepr :> u32repr :> u32repr)
                  in override ["crucible", "crucible_assert_impl"] argTys MirAggregateRepr $

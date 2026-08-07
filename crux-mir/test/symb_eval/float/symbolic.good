@@ -1,0 +1,8 @@
+test symbolic/<DISAMB>::f128_test[0]: returned Symbolic real, ok
+test symbolic/<DISAMB>::f16_test[0]: returned Symbolic real, ok
+test symbolic/<DISAMB>::f32_test[0]: returned Symbolic real, ok
+test symbolic/<DISAMB>::f64_test[0]: returned Symbolic real, ok
+
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] All goals discharged through internal simplification.
+[Crux] Overall status: Valid.
