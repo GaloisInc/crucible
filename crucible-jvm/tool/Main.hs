@@ -192,7 +192,7 @@ instance Debug.HasContext (CruxJVM sym) Void sym JVM UnitType where
 
 simulateJVM :: Crux.CruxOptions -> JVMOptions -> Crux.SimulatorCallbacks msgs st Crux.CruxSimulationResult
 simulateJVM copts opts =
-  Crux.SimulatorCallbacks $
+  Crux.SimulatorCallbacks $ \_fm ->
     return $
       Crux.SimulatorHooks
         { Crux.setupHook =

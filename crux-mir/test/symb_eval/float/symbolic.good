@@ -1,0 +1,17 @@
+test symbolic/<DISAMB>::f128_test[0]: returned Symbolic float, [Crux] Attempting to prove verification conditions.
+ok
+test symbolic/<DISAMB>::f16_test[0]: returned Symbolic float, [Crux] Attempting to prove verification conditions.
+ok
+test symbolic/<DISAMB>::f32_test[0]: returned Symbolic float, [Crux] Attempting to prove verification conditions.
+ok
+test symbolic/<DISAMB>::f64_test[0]: returned Symbolic float, [Crux] Attempting to prove verification conditions.
+ok
+
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 4
+[Crux]   Proved: 4
+[Crux]   Disproved: 0
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Valid.

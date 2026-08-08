@@ -29,6 +29,7 @@ import Data.Text (Text)
 import Data.Vector(Vector)
 import qualified Data.Vector as V
 import Data.Word (Word64)
+import LibBF (BigFloat)
 
 import Mir.DefId
 import Mir.Mir
@@ -158,6 +159,9 @@ instance GenericOps Text    where
 
 instance GenericOps B.ByteString where
    uninternTys = const id
+
+instance GenericOps BigFloat where
+  uninternTys = const id
 
 instance GenericOps b => GenericOps (Map.Map a b) where
    uninternTys f     = Map.map (uninternTys f)

@@ -131,13 +131,13 @@ exploreCallback :: forall alg st.
   Crux.SimulatorCallbacks Crux.CruxLogMessage st Crux.Types.CruxSimulationResult
 exploreCallback cruxOpts ha outh mkSym =
   Crux.withCruxLogMessage $
-  Crux.SimulatorCallbacks $
+  Crux.SimulatorCallbacks $ \_fm ->
     return $
       Crux.SimulatorHooks
         { Crux.setupHook =
             \bak symOnline ->
               do (mainHdl, prims, globs, fns) <- mkSym bak
-                 p <- mkCruxPersonality 
+                 p <- mkCruxPersonality
                  let simCtx = initSimContext bak emptyIntrinsicTypes ha outh fns emptyExtensionImpl p
                      st0  = InitialState simCtx emptyGlobals defaultAbortHandler C.UnitRepr $
                                 runOverrideSim

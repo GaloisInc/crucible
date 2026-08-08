@@ -4,6 +4,9 @@ This release supports [version
 12](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#12) of
 `mir-json`'s schema.
 
+* Float-typed results (e.g., `f32`s or `f64`s) in `crux::test`s now display as
+  IEEE-754 floats instead of as rationals.
+
 # 0.12 -- 2026-01-29
 
 This release supports [version

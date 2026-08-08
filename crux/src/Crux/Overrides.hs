@@ -8,6 +8,8 @@ module Crux.Overrides
   , mkFreshFloat
   , baseFreshOverride
   , baseFreshOverride'
+  , baseFreshFloatOverride
+  , baseFreshFloatOverride'
   ) where
 
 import qualified Data.Parameterized.Context as Ctx
@@ -56,7 +58,7 @@ mkFreshFloat name fi =
 
 -- | Build an override that takes a string and returns a fresh constant with
 -- that string as its name.
-baseFreshOverride :: 
+baseFreshOverride ::
   C.IsSymInterface sym =>
   W4.BaseTypeRepr bty ->
   -- | The language's string type (e.g., @LLVMPointerType@ for LLVM)
@@ -76,7 +78,7 @@ baseFreshOverride bty sty getStr =
 -- | Build an override that takes no arguments and returns a fresh
 -- constant that uses the given name. Generally, frontends should prefer
 -- 'baseFreshOverride', to allow users to specify variable names.
-baseFreshOverride' :: 
+baseFreshOverride' ::
   C.IsSymInterface sym =>
   -- | Variable name
   W4.SolverSymbol ->
@@ -87,4 +89,40 @@ baseFreshOverride' nm bty =
   { C.typedOverrideHandler = \Ctx.Empty -> mkFresh nm bty
   , C.typedOverrideArgs = Ctx.Empty
   , C.typedOverrideRet = C.baseToType bty
+  }
+
+-- | Build an override that takes a string and returns a fresh floating-point
+-- constant with that string as its name.
+baseFreshFloatOverride ::
+  C.IsSymInterface sym =>
+  C.FloatInfoRepr fi ->
+  -- | The language's string type (e.g., @LLVMPointerType@ for LLVM)
+  C.TypeRepr stringTy ->
+  -- | Get the variable name as a concrete string from the override arguments
+  (C.RegValue' sym stringTy -> OverM p sym ext W4.SolverSymbol) ->
+  C.TypedOverride (p sym) sym ext (C.EmptyCtx C.::> stringTy) (C.FloatType fi)
+baseFreshFloatOverride fi sty getStr =
+  C.TypedOverride
+  { C.typedOverrideHandler = \(Ctx.Empty Ctx.:> strVal) -> do
+      str <- getStr strVal
+      mkFreshFloat str fi
+  , C.typedOverrideArgs = Ctx.Empty Ctx.:> sty
+  , C.typedOverrideRet = C.FloatRepr fi
+  }
+
+-- | Build an override that takes no arguments and returns a fresh
+-- floating-point constant that uses the given name. Generally, frontends
+-- should prefer 'baseFreshFloatOverride', to allow users to specify variable
+-- names.
+baseFreshFloatOverride' ::
+  C.IsSymInterface sym =>
+  -- | Variable name
+  W4.SolverSymbol ->
+  C.FloatInfoRepr fi ->
+  C.TypedOverride (p sym) sym ext C.EmptyCtx (C.FloatType fi)
+baseFreshFloatOverride' nm fi =
+  C.TypedOverride
+  { C.typedOverrideHandler = \Ctx.Empty -> mkFreshFloat nm fi
+  , C.typedOverrideArgs = Ctx.Empty
+  , C.typedOverrideRet = C.FloatRepr fi
   }

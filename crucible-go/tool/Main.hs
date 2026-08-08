@@ -56,7 +56,7 @@ simulateGo ::
   GoOptions ->
   Crux.SimulatorCallbacks msgs st Crux.CruxSimulationResult
 simulateGo copts _opts =
-  Crux.SimulatorCallbacks $
+  Crux.SimulatorCallbacks $ \_fm ->
     return $
       Crux.SimulatorHooks
         { Crux.setupHook =

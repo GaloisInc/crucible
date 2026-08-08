@@ -252,7 +252,12 @@ tyToRepr col t0 = case t0 of
         Right (Some MirAggregateRepr)
   M.TyDowncast _adt _i   -> Right (Some C.AnyRepr)
 
-  M.TyFloat _ -> Right (Some C.RealValRepr)
+  M.TyFloat fk ->
+    case fk of
+      M.F16 -> Right $ Some $ C.FloatRepr C.HalfFloatRepr
+      M.F32 -> Right $ Some $ C.FloatRepr C.SingleFloatRepr
+      M.F64 -> Right $ Some $ C.FloatRepr C.DoubleFloatRepr
+      M.F128 -> Right $ Some $ C.FloatRepr C.QuadFloatRepr
 
   -- Function types go to FunctionHandleRepr.  `RustCall` functions get special
   -- handling in `abiFnArgs`.

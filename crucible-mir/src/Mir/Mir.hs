@@ -36,6 +36,8 @@ import Data.Set (Set)
 import Data.Text (Text)
 import Data.Word (Word64)
 import Lens.Micro.TH (makeLenses)
+import LibBF (BFOpts, BigFloat, RoundMode)
+import qualified LibBF as BF
 
 import GHC.Generics
 
@@ -71,6 +73,17 @@ data FloatKind
   | F64
   | F128
   deriving (Eq, Ord, Show, Generic)
+
+floatKindBFOpts :: FloatKind -> RoundMode -> BFOpts
+floatKindBFOpts fk rm = opts rm <> BF.allowSubnormal
+  where
+    opts :: RoundMode -> BF.BFOpts
+    opts =
+      case fk of
+        F16 -> BF.float16
+        F32 -> BF.float32
+        F64 -> BF.float64
+        F128 -> BF.float128
 
 -- | Type parameters
 newtype Substs = Substs [Ty]
@@ -646,7 +659,7 @@ data IntLit
   deriving (Eq, Ord, Show, Generic)
 
 data FloatLit
-  = FloatLit FloatKind String
+  = FloatLit FloatKind BigFloat
   deriving (Eq, Ord, Show, Generic)
 
 

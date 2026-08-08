@@ -48,6 +48,7 @@ import Control.Monad.Writer
 import Lens.Micro ((^.), (^?), (%~), ix, to)
 import Lens.Micro.GHC (at)
 import Lens.Micro.Mtl (use, (.=), (%=))
+import qualified LibBF as BF
 
 import Data.Bits (shift, shiftL)
 import qualified Data.ByteString as BS
@@ -68,6 +69,7 @@ import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Traversable as Trav
+import GHC.Float (double2Float)
 import Numeric
 import Numeric.Natural()
 
@@ -78,6 +80,7 @@ import qualified Lang.Crucible.CFG.Generator as G
 import qualified Lang.Crucible.FunctionHandle as FH
 import qualified What4.ProgramLoc as PL
 import qualified What4.FunctionName as FN
+import qualified What4.Utils.FloatHelpers as W4
 import qualified What4.Utils.StringLiteral as W4
 import qualified Lang.Crucible.CFG.Reg as R
 import qualified Lang.Crucible.CFG.SSAConversion as SSA
@@ -200,11 +203,59 @@ transConstVal tupleTy@(M.TyClosure _) (Some MirAggregateRepr) (M.ConstClosure up
 transConstVal tupleTy@(M.TyCoroutineClosure _) (Some MirAggregateRepr) (M.ConstCoroutineClosure upvar_vals) =
     transConstTuple tupleTy upvar_vals
 
-transConstVal _ty (Some (C.RealValRepr)) (M.ConstFloat (M.FloatLit _ str)) =
-    case reads str of
-      (d , _):_ -> let rat = toRational (d :: Double) in
-                   return (MirExp C.RealValRepr (S.app $ E.RationalLit rat))
-      []        -> mirFail $ "cannot parse float constant: " ++ show str
+transConstVal _ty (Some (C.FloatRepr fi)) (M.ConstFloat (M.FloatLit fk bf)) =
+    case fk of
+      -- F32 and F64 literals can be constructed directly with Crucible's
+      -- FloatLit and DoubleLit constructors.
+      F32
+        | C.SingleFloatRepr <- fi ->
+          pure $ MirExp (C.FloatRepr fi)
+               $ S.app
+               $ E.FloatLit
+                 -- NB: Use GHC.Float.double2Float to convert from a Double to
+                 -- Float, as this is careful to preserve special values like
+                 -- NaN and infinity. (It does not necessarily preserve NaN
+                 -- payloads, but SMT solvers don't model these anyway.)
+               $ double2Float
+               $ W4.bfStatus
+               $ BF.bfToDouble BF.NearEven bf
+        | otherwise -> die
+      F64
+        | C.DoubleFloatRepr <- fi ->
+          pure $ MirExp (C.FloatRepr fi)
+               $ S.app
+               $ E.DoubleLit
+               $ W4.bfStatus
+               $ BF.bfToDouble BF.NearEven bf
+        | otherwise -> die
+      -- F16 and F128 literals do not have direct counterparts in Crucible's
+      -- expression language, so we first convert the values to bits and then
+      -- construct corresponding floating-point values using FloatFromBinary.
+      -- This won't look as nice if you pretty-print the Crucible CFG, but we
+      -- expect F16 and F128 to be rare in practice.
+      F16
+        | C.HalfFloatRepr <- fi ->
+          pure $ MirExp (C.FloatRepr fi)
+               $ S.app
+               $ E.FloatFromBinary fi
+               $ S.app
+               $ eBVLit knownNat
+               $ BF.bfToBits (floatKindBFOpts fk BF.NearEven) bf
+        | otherwise -> die
+      F128
+        | C.QuadFloatRepr <- fi ->
+          pure $ MirExp (C.FloatRepr fi)
+               $ S.app
+               $ E.FloatFromBinary fi
+               $ S.app
+               $ eBVLit knownNat
+               $ BF.bfToBits (floatKindBFOpts fk BF.NearEven) bf
+        | otherwise -> die
+  where
+    die :: a
+    die = panic
+            "transConstVal"
+            [ "Unexpected FloatInfoRepr for " ++ show fk ++ ": " ++ show fi ]
 
 transConstVal _ty _ (ConstStaticRef did) =
     staticPlace did >>= addrOfPlace
@@ -628,21 +679,22 @@ evalBinOp bop mat me1 me2 =
             M.Lt  -> return (MirExp C.BoolRepr (S.app (E.And (S.app (E.Not e1)) e2)), noOverflow)
             M.Le  -> return (MirExp C.BoolRepr (S.app (E.Or  (S.app (E.Not e1)) e2)), noOverflow)
             _ -> mirFail $ "No translation for bool binop: " ++ fmt bop
-      (MirExp C.RealValRepr e1, MirExp C.RealValRepr e2) ->
+      (MirExp (C.FloatRepr fi1) e1, MirExp (C.FloatRepr fi2) e2)
+        | Just Refl <- testEquality fi1 fi2 ->
           case bop of
-            M.Beq -> return (MirExp C.BoolRepr (S.app $ E.RealEq e1 e2), noOverflow)
-            M.Lt -> return (MirExp C.BoolRepr (S.app $ E.RealLt e1 e2), noOverflow)
-            M.Le -> return (MirExp C.BoolRepr (S.app $ E.RealLe e1 e2), noOverflow)
-            M.Gt -> return (MirExp C.BoolRepr (S.app $ E.RealLt e2 e1), noOverflow)
-            M.Ge -> return (MirExp C.BoolRepr (S.app $ E.RealLe e2 e1), noOverflow)
-            M.Ne -> return (MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.RealEq e1 e2), noOverflow)
+            M.Beq -> return (MirExp C.BoolRepr (S.app $ E.FloatFpEq e1 e2), noOverflow)
+            M.Lt -> return (MirExp C.BoolRepr (S.app $ E.FloatLt e1 e2), noOverflow)
+            M.Le -> return (MirExp C.BoolRepr (S.app $ E.FloatLe e1 e2), noOverflow)
+            M.Gt -> return (MirExp C.BoolRepr (S.app $ E.FloatLt e2 e1), noOverflow)
+            M.Ge -> return (MirExp C.BoolRepr (S.app $ E.FloatLe e2 e1), noOverflow)
+            M.Ne -> return (MirExp C.BoolRepr (S.app $ E.Not $ S.app $ E.FloatFpEq e1 e2), noOverflow)
 
             -- Binops on floats never set the overflow flag
-            M.Add -> return (MirExp C.RealValRepr (S.app $ E.RealAdd e1 e2), noOverflow)
-            M.Sub -> return (MirExp C.RealValRepr (S.app $ E.RealSub e1 e2), noOverflow)
-            M.Mul -> return (MirExp C.RealValRepr (S.app $ E.RealMul e1 e2), noOverflow)
-            M.Div -> return (MirExp C.RealValRepr (S.app $ E.RealDiv e1 e2), noOverflow)
-            M.Rem -> return (MirExp C.RealValRepr (S.app $ E.RealMod e1 e2), noOverflow)
+            M.Add -> return (MirExp (C.FloatRepr fi1) (S.app $ E.FloatAdd fi1 E.RNE e1 e2), noOverflow)
+            M.Sub -> return (MirExp (C.FloatRepr fi1) (S.app $ E.FloatSub fi1 E.RNE e1 e2), noOverflow)
+            M.Mul -> return (MirExp (C.FloatRepr fi1) (S.app $ E.FloatMul fi1 E.RNE e1 e2), noOverflow)
+            M.Div -> return (MirExp (C.FloatRepr fi1) (S.app $ E.FloatDiv fi1 E.RNE e1 e2), noOverflow)
+            M.Rem -> return (MirExp (C.FloatRepr fi1) (S.app $ E.FloatRem fi1 e1 e2), noOverflow)
 
             _ -> mirFail $ "No translation for real number binop: " ++ fmt bop
 
@@ -730,7 +782,7 @@ transUnaryOp uop op = do
       (M.Not, MirExp (C.BVRepr n) e) -> return $ MirExp (C.BVRepr n) $ S.app $ E.BVNot n e
       (M.Neg, MirExp (C.BVRepr n) e) -> return $ MirExp (C.BVRepr n) (S.app $ E.BVSub n (S.app $ eBVLit n 0) e)
       (M.Neg, MirExp C.IntegerRepr e) -> return $ MirExp C.IntegerRepr $ S.app $ E.IntNeg e
-      (M.Neg, MirExp C.RealValRepr e) -> return $ MirExp C.RealValRepr $ S.app $ E.RealNeg e
+      (M.Neg, MirExp (C.FloatRepr fi) e) -> return $ MirExp (C.FloatRepr fi) $ S.app $ E.FloatNeg fi e
       (M.PtrMetadata, MirExp MirSliceRepr e) -> return $ MirExp UsizeRepr $ getSliceLen e
       (_ , MirExp ty _) -> mirFail $ "Unimplemented unary op `" ++ fmt uop ++ "' for " ++ show ty
 
