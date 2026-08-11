@@ -862,7 +862,7 @@ typeOfProj elm baseTy = case elm of
     Index{}              -> peelIdx baseTy
     ConstantIndex{}      -> peelIdx baseTy
     Downcast i           -> TyDowncast baseTy i   --- TODO: check this
-    Subslice{}           -> TySlice (peelIdx baseTy)
+    Subslice f t e       -> subslice baseTy f t e
     OpaqueCast t         -> t
     UnwrapUnsafeBinder t -> t
   where
@@ -877,6 +877,16 @@ typeOfProj elm baseTy = case elm of
     peelIdx (TySlice t)   = t
     peelIdx (TyRef t m)   = TyRef (peelIdx t) m
     peelIdx t             = t
+
+    subslice :: Ty -> Int -> Int -> Bool -> Ty
+    subslice (TyArray elemTy len) fromIndex toIndex fromEnd =
+      let firstIndex = fromIndex
+          lastIndex
+            | fromEnd = len - toIndex
+            | otherwise = toIndex
+          newLen = lastIndex - firstIndex
+      in TyArray elemTy newLen
+    subslice t _ _ _ = t
 
 instance TypeOf Rvalue where
   typeOf (Use a) = typeOf a

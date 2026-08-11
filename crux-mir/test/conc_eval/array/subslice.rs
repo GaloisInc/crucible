@@ -1,5 +1,3 @@
-// FAIL: subslicing not yet supported on arrays
-
 #[cfg_attr(crux, crux::test)]
 fn crux_test() {
     let mut xs: [u32; 6] = [1, 2, 3, 4, 5, 6];

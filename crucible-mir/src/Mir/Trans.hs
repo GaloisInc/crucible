@@ -1818,13 +1818,9 @@ evalPlaceProj ty (MirPlace tpr ref meta) (M.Subslice fromIndex toIndex fromEnd) 
       elemSize <- tySizeM elemTy
       MirPlace elemTpr <$> mirRef_offset headRef firstIndex elemSize <*> pure newMeta
 
-    -- TODO: https://github.com/GaloisInc/crucible/issues/1494
-    --
-    -- NB: after implementing this, update `Mir.Mir.typeOfProj`, which currently
-    -- declares that `Subslice` unconditionally yields a slice. This is
-    -- incorrect; `Subslice` applied to an array will yield an array.
-    (M.TyArray {}, _, _, _) -> mirFail
-      "evalPlaceProj: subslicing not yet supported on arrays"
+    (M.TyArray elemTy _, headRef, MirAggregateRepr, _) -> do
+      elemSize <- tySizeM elemTy
+      MirPlace MirAggregateRepr <$> mirRef_offset headRef firstIndex elemSize <*> pure NoMeta
 
     _ -> mirFail $
       "evalPlaceProj: subslicing not supported on " ++ show (ty, tpr, meta)
