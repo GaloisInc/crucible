@@ -32,6 +32,10 @@
   of the metadata to be looked up.
 * **BREAKING**: `explainCex`, `concBadBehavior`, `concUB`, and `concPoison` now
   take a `FloatModeRepr` argument.
+* Fix the semantics of the `fptoui` and `fptosi` instructions. These
+  instructions now round towards zero (previously, they incorrectly rounded
+  towards negative infinity), and they now report undefined behavior if the
+  input does not fit in the return type.
 
 # 0.9 -- 2026-01-29
 

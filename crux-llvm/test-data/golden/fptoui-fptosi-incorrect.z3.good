@@ -1,0 +1,97 @@
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/fptoui-fptosi-incorrect.c:6:17: error: in main
+[Crux]   Undefined behavior encountered
+[Crux]   Details:
+[Crux]     Poison value created
+[Crux]     A floating-point value was converted to an unsigned integer,
+[Crux]     even though the value does not fit in the unsigned integer's type
+[Crux]     Floating-point type: Double
+[Crux]     Floating-point value: NaN
+[Crux]     Unsigned integer size (in bits): 64
+[Crux]     Reference: 
+[Crux]       The LLVM language reference, version 8
+[Crux]       ‘fptoui’ Instruction (Semantics)
+[Crux]       Document URL: https://releases.llvm.org/8.0.0/docs/LangRef.html
+[Crux]     in context:
+[Crux]       main
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/fptoui-fptosi-incorrect.c:7:16: error: in main
+[Crux]   Undefined behavior encountered
+[Crux]   Details:
+[Crux]     Poison value created
+[Crux]     A floating-point value was converted to a signed integer,
+[Crux]     even though the value does not fit in the signed integer's type
+[Crux]     Floating-point type: Double
+[Crux]     Floating-point value: NaN
+[Crux]     Signed integer size (in bits): 64
+[Crux]     Reference: 
+[Crux]       The LLVM language reference, version 8
+[Crux]       ‘fptosi’ Instruction (Semantics)
+[Crux]       Document URL: https://releases.llvm.org/8.0.0/docs/LangRef.html
+[Crux]     in context:
+[Crux]       main
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/fptoui-fptosi-incorrect.c:10:17: error: in main
+[Crux]   Undefined behavior encountered
+[Crux]   Details:
+[Crux]     Poison value created
+[Crux]     A floating-point value was converted to an unsigned integer,
+[Crux]     even though the value does not fit in the unsigned integer's type
+[Crux]     Floating-point type: Double
+[Crux]     Floating-point value: -Inf
+[Crux]     Unsigned integer size (in bits): 64
+[Crux]     Reference: 
+[Crux]       The LLVM language reference, version 8
+[Crux]       ‘fptoui’ Instruction (Semantics)
+[Crux]       Document URL: https://releases.llvm.org/8.0.0/docs/LangRef.html
+[Crux]     in context:
+[Crux]       main
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/fptoui-fptosi-incorrect.c:11:16: error: in main
+[Crux]   Undefined behavior encountered
+[Crux]   Details:
+[Crux]     Poison value created
+[Crux]     A floating-point value was converted to a signed integer,
+[Crux]     even though the value does not fit in the signed integer's type
+[Crux]     Floating-point type: Double
+[Crux]     Floating-point value: -Inf
+[Crux]     Signed integer size (in bits): 64
+[Crux]     Reference: 
+[Crux]       The LLVM language reference, version 8
+[Crux]       ‘fptosi’ Instruction (Semantics)
+[Crux]       Document URL: https://releases.llvm.org/8.0.0/docs/LangRef.html
+[Crux]     in context:
+[Crux]       main
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/fptoui-fptosi-incorrect.c:14:17: error: in main
+[Crux]   Undefined behavior encountered
+[Crux]   Details:
+[Crux]     Poison value created
+[Crux]     A floating-point value was converted to an unsigned integer,
+[Crux]     even though the value does not fit in the unsigned integer's type
+[Crux]     Floating-point type: Double
+[Crux]     Floating-point value: Inf
+[Crux]     Unsigned integer size (in bits): 64
+[Crux]     Reference: 
+[Crux]       The LLVM language reference, version 8
+[Crux]       ‘fptoui’ Instruction (Semantics)
+[Crux]       Document URL: https://releases.llvm.org/8.0.0/docs/LangRef.html
+[Crux]     in context:
+[Crux]       main
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/fptoui-fptosi-incorrect.c:15:16: error: in main
+[Crux]   Undefined behavior encountered
+[Crux]   Details:
+[Crux]     Poison value created
+[Crux]     A floating-point value was converted to a signed integer,
+[Crux]     even though the value does not fit in the signed integer's type
+[Crux]     Floating-point type: Double
+[Crux]     Floating-point value: Inf
+[Crux]     Signed integer size (in bits): 64
+[Crux]     Reference: 
+[Crux]       The LLVM language reference, version 8
+[Crux]       ‘fptosi’ Instruction (Semantics)
+[Crux]       Document URL: https://releases.llvm.org/8.0.0/docs/LangRef.html
+[Crux]     in context:
+[Crux]       main
+[Crux] Overall status: Invalid.
