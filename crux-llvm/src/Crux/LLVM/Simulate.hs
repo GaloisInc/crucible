@@ -195,7 +195,7 @@ simulateLLVMFile ::
   LLVMOptions ->
   Crux.SimulatorCallbacks msgs st Crux.Types.CruxSimulationResult
 simulateLLVMFile llvm_file llvmOpts =
-  Crux.SimulatorCallbacks $ \_fm ->
+  Crux.SimulatorCallbacks $ \fm ->
     do bbMapRef <- newIORef (Map.empty :: LLVMAnnMap sym)
        let ?recordLLVMAnnotation =
              \callStack an bb ->
@@ -207,7 +207,7 @@ simulateLLVMFile llvm_file llvmOpts =
                  do halloc <- newHandleAllocator
                     setupFileSim halloc llvm_file llvmOpts bak maybeOnline
            , Crux.onErrorHook =
-               \bak -> return (explainFailure (backendGetSym bak) bbMapRef)
+               \bak -> return (explainFailure (backendGetSym bak) fm bbMapRef)
            , Crux.resultHook = \_sym result -> return result
            }
 
@@ -426,13 +426,14 @@ detailLimit :: Int
 detailLimit = 10
 
 explainFailure :: IsSymInterface sym
-               => sym ~ WEB.ExprBuilder t st fs
+               => sym ~ WEB.ExprBuilder t st (WEB.Flags fm)
                => sym
+               -> WEB.FloatModeRepr fm
                -> IORef (LLVMAnnMap sym)
                -> Crux.Explainer sym t ann
-explainFailure sym bbMapRef evalFn gl =
+explainFailure sym fm bbMapRef evalFn gl =
   do bb <- readIORef bbMapRef
-     ex <- explainCex sym bb evalFn >>= \f -> f (gl ^. labeledPred)
+     ex <- explainCex sym fm bb evalFn >>= \f -> f (gl ^. labeledPred)
      let details =
            case ex of
              NoExplanation -> mempty

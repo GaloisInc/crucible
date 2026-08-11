@@ -30,6 +30,8 @@
 * **BREAKING**: Changed `lookupMetadata` to take the new `llvm-pretty`-provided
   `UnnamedMdIdx` rather than the older simple `Int` value to refer to the index
   of the metadata to be looked up.
+* **BREAKING**: `explainCex`, `concBadBehavior`, `concUB`, and `concPoison` now
+  take a `FloatModeRepr` argument.
 
 # 0.9 -- 2026-01-29
 

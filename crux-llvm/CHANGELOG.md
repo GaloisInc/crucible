@@ -1,6 +1,7 @@
 # next
 
 * Support LLVM 22.
+* **BREAKING**: `explainFailure` now takes a `FloatModeRepr` argument.
 
 # 0.12 -- 2026-01-29
 

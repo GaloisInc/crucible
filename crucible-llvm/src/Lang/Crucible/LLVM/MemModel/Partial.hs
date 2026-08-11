@@ -130,13 +130,14 @@ instance Semigroup (CexExplanation sym BaseBoolType) where
   x <> NoExplanation = x
   DisjOfFailures xs <> DisjOfFailures ys = DisjOfFailures (xs ++ ys)
 
-explainCex :: forall t st fs sym.
-  (IsSymInterface sym, sym ~ ExprBuilder t st fs) =>
+explainCex :: forall t st fm sym.
+  (IsSymInterface sym, sym ~ ExprBuilder t st (Flags fm)) =>
   sym ->
+  FloatModeRepr fm ->
   LLVMAnnMap sym ->
   Maybe (GroundEvalFn t) ->
   IO (Pred sym -> IO (CexExplanation sym BaseBoolType))
-explainCex sym bbMap evalFn =
+explainCex sym fm bbMap evalFn =
   do posCache <- newIdxCache
      negCache <- newIdxCache
      pure (evalPos posCache negCache)
@@ -155,7 +156,7 @@ explainCex sym bbMap evalFn =
           Nothing -> evalPos posCache negCache e'
           Just (callStack, bb) ->
             do bb' <- case evalFn of
-                        Just f  -> concBadBehavior sym (groundEval f) bb
+                        Just f  -> concBadBehavior sym fm (groundEval f) bb
                         Nothing -> pure bb
                pure (DisjOfFailures [ (callStack, bb') ])
 

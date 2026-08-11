@@ -71,7 +71,7 @@ import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), T
 import qualified Data.Parameterized.TraversableF as TF
 
 import qualified What4.Interface as W4I
-import           What4.Expr (GroundValue)
+import           What4.Expr (ExprBuilder, Flags, FloatModeRepr, GroundValue)
 
 import           Lang.Crucible.Types
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
@@ -560,12 +560,15 @@ instance TraversableF UndefinedBehavior where
      ) subterms
 
 
-concUB :: forall sym.
-  W4I.IsExprBuilder sym =>
+concUB :: forall sym t st fm.
+  ( W4I.IsExprBuilder sym
+  , sym ~ ExprBuilder t st (Flags fm)
+  ) =>
   sym ->
+  FloatModeRepr fm ->
   (forall tp. W4I.SymExpr sym tp -> IO (GroundValue tp)) ->
   UndefinedBehavior (RegValue' sym) -> IO (UndefinedBehavior (RegValue' sym))
-concUB sym conc ub =
+concUB sym fm conc ub =
   let bv :: forall w. (1 <= w) => RegValue' sym (BVType w) -> IO (RegValue' sym (BVType w))
       bv (RV x) = RV <$> concBV sym conc x in
   case ub of
@@ -614,4 +617,4 @@ concUB sym conc ub =
       AbsIntMin <$> bv v
 
     PoisonValueCreated poison ->
-      PoisonValueCreated <$> Poison.concPoison sym conc poison
+      PoisonValueCreated <$> Poison.concPoison sym fm conc poison
