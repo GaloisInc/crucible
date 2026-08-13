@@ -703,19 +703,41 @@ translateConversion instr op _inty x outty = do
            _ -> fail (unlines [unwords ["Invalid sitofp:", show op, show x, show outty], showI])
 
     L.FpToUi -> do
-       let demoteToInt :: (1 <= w) => NatRepr w -> Expr LLVM s (FloatType fi) -> LLVMExpr s arch
-           demoteToInt w v = BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w $ App $ FloatToBV w RNE v)
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
-           (Scalar _archProxy (FloatRepr _) x', LLVMPointerRepr w) -> return $ demoteToInt w x'
+           (Scalar _archProxy (FloatRepr fi) x', LLVMPointerRepr w) -> do
+             -- See Note [Checking for undefined behavior in fptoui and fptosi]
+             xBv <- fmap AtomExpr $ mkAtom $ app $ FloatToBV w RTZ x'
+             xRoundtrip <- fmap AtomExpr $ mkAtom $ app $ FloatFromBV fi RTZ xBv
+             xRounded <- fmap AtomExpr $ mkAtom $ app $ FloatRound fi RTZ x'
+             let noOverflow = app $ Or (app (FloatIsZero xRounded))
+                                       (app (FloatEq xRoundtrip xRounded))
+                 result = poisonSideCondition
+                            mvar
+                            (BVRepr w)
+                            (Poison.FpToUiNotRepresentable fi x' w)
+                            xBv
+                            noOverflow
+             return $ BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w result)
            _ -> fail (unlines [unwords ["Invalid fptoui:", show op, show x, show outty], showI])
 
     L.FpToSi -> do
-       let demoteToInt :: (1 <= w) => NatRepr w -> Expr LLVM s (FloatType fi) -> LLVMExpr s arch
-           demoteToInt w v = BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w $ App $ FloatToSBV w RNE v)
        llvmTypeAsRepr outty $ \outty' ->
          case (asScalar x, outty') of
-           (Scalar _archProxy (FloatRepr _) x', LLVMPointerRepr w) -> return $ demoteToInt w x'
+           (Scalar _archProxy (FloatRepr fi) x', LLVMPointerRepr w) -> do
+             -- See Note [Checking for undefined behavior in fptoui and fptosi]
+             xBv <- fmap AtomExpr $ mkAtom $ app $ FloatToSBV w RTZ x'
+             xRoundtrip <- fmap AtomExpr $ mkAtom $ app $ FloatFromSBV fi RTZ xBv
+             xRounded <- fmap AtomExpr $ mkAtom $ app $ FloatRound fi RTZ x'
+             let noOverflow = app $ Or (app (FloatIsZero xRounded))
+                                       (app (FloatEq xRoundtrip xRounded))
+                 result = poisonSideCondition
+                            mvar
+                            (BVRepr w)
+                            (Poison.FpToSiNotRepresentable fi x' w)
+                            xBv
+                            noOverflow
+             return $ BaseExpr (LLVMPointerRepr w) (BitvectorAsPointerExpr w result)
            _ -> fail (unlines [unwords ["Invalid fptosi:", show op, show x, show outty], showI])
 
     L.FpTrunc -> do
@@ -731,6 +753,112 @@ translateConversion instr op _inty x outty = do
            (Scalar _archProxy (FloatRepr _) x', FloatRepr fi) -> do
              return $ BaseExpr (FloatRepr fi) $ App $ FloatCast fi RNE x'
            _ -> fail (unlines [unwords ["Invalid fpext:", show op, show x, show outty], showI])
+
+{-
+Note [Checking for undefined behavior in fptoui and fptosi]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The `fptoui` and `fptosi` instructions convert a floating-point argument to an
+unsigned or signed integer value, respectively. Per the LLVM Language Reference
+Manual entries for `fptoui`
+(https://releases.llvm.org/22.1.0/docs/LangRef.html#fptoui-to-instruction) and
+`fptosi`
+(https://releases.llvm.org/22.1.0/docs/LangRef.html#fptosi-to-instruction),
+these instructions are partial and should return a poison value if the argument
+value cannot fit in the return type. For instance, `fptoui` should return a
+poison value if the argument value is NaN, infinite, is smaller than 0, or is
+larger than the maximum unsigned integer value.
+
+Note that Crucible's `FloatToBV` and `FloatToSBV` operations (which we use to
+implement `fptoui` and `fptosi`, respectively) do not check these edge cases,
+and they will simply return an unspecified value if the argument does not fit
+in the return type. (This behavior is inherited from SMT-LIB's `fp.to_ubv` and
+`fp.to_sbv` operations, which also return unspecified values if the argument
+does not fit.) As such, we must check the edge cases during crucible-llvm's
+translation in order to ensure that undefined behavior is reported as expected.
+
+Checking for NaN values or infinite values is straightforward enough, but
+checking if a float lies within the range of valid unsigned or signed integer
+values is surprisingly tricky. A naïve approach would be to convert the float
+to an integer (using `FloatTo{BV,SBV}`) and check to see if (1) it is greater
+than or equal to the minimum possible integer value, and (2) it is less than or
+equal to the maximum possible integer value. As noted above, however, if the
+float lies outside this range, then `FloatTo{BV,SBV}` is free to return
+whatever integer value it likes. This, in turn, can produce misleading results
+if you try to compare it to the minimum/maximum integer values.
+
+Another approach, which avoids the use of `FloatTo{BV,SBV}` for validation
+purposes, is to convert the argument float, the minimum integer value, and the
+maximum integer value to unbounded integers, and then check if the converted
+float lies within the range of possible bitvector values by using unbounded
+integer comparisons. There is no risk of unspecified conversion results here,
+as converting floats to unbounded integers is always well-defined. There are
+two notable downsides to this approach, however:
+
+1. This requires SMT-LIB's Ints theory, which is not supported by all SMT
+   solvers (e.g., Bitwuzla). Indeed, it's pretty surprising that `fpto{ui,si}`
+   would need unbounded integers, as nothing about the types of these
+   instructions would suggest this.
+
+2. Even if we restrict ourselves to solvers that do support unbounded integers
+   (e.g., CVC5 and Z3), these solvers' performance on unbounded integer
+   problems is usually much worse than problems that exclusively use bitvector
+   or floating-point types.
+
+Luckily, there is a third approach that is both correct and avoids the use of
+unbounded integers. The algorithm for checking the validity of `fpto{ui,si}` on
+an argument float `val` is as follows:
+
+1. If `val` is zero, then the cast is valid.
+2. Otherwise:
+  a. Compute `bv` by converting `val` to a bitvector using Crucible's
+     `FloatTo{BV,SBV}` operation with the RTZ (rounding towards zero) rounding
+     mode.
+  b. Compute `fp2` by converting `bv` back to a float using Crucible's
+     `FloatFrom{BV,SBV}` operation with the RTZ rounding mode.
+  c. Compute `val_rounded` by rounding `val` to the nearest integral value
+     that is representable in the `val`'s floating-point type. This is done by
+     using Crucible's `FloatRound` operation with the RTZ (rounding towards
+     zero) rounding mode.
+  d. If `fp2` equals `val_rounded` (according to logical floating-point
+     equality, i.e., Crucible's `FloatEq` operation), then the cast is valid.
+     Otherwise, it is invalid.
+
+Here is an argument for why this algorithm is correct:
+
+* As noted above, it is possible for `FloatTo{BV,SBV}` to return an unspecified
+  value if `val` lies outside the range of possible bitvectors. Steps (2)(b)
+  through (2)(d) are crucial for preventing unspecified values from producing
+  misleading results. Note that `FloatFrom{BV,SBV}` and `FloatRound` are
+  well-defined for all possible inputs, and because we are using the RTZ
+  rounding mode, they will never round a float up to positive infinity or down
+  to negative infinity. Moreover, `FloatFrom{BV,SBV}` will always return a
+  float that lies within the range of valid bitvectors.
+
+  If the equality check in step (2)(d) succeeds, then we know that
+  `FromTo{BV,SBV}` did not take a float lying outside the range of valid
+  bitvectors and turn it into a completely different bitvector. If it did, then
+  `FloatFrom{BV,SBV}` would produce a different float than what `FloatRound`
+  would produce. It is worth emphasizing that this trick only works with the
+  RTZ rounding mode, but thankfully, that is exactly the rounding mode that
+  `fpto{ui,si}` requires.
+
+* Why the special case for zero values in step (1)? It's because calling
+  `FloatTo{BV,SBV}` on negative zero will drop the negative sign, so converting
+  it back to a float with `FloatFrom{BV,SBV}` will return positive zero. On the
+  other hand, calling `FloatRound` on negative zero will return negative zero,
+  which is deemed logically unequal to positive zero.
+
+  An alternative approach would be to use IEEE floating-point equality (i.e.,
+  Crucible's `FloatFpEq` operation) instead of logical equality (i.e., the
+  `FloatEq` operation) in step (2)(d), as the former equates positive and
+  negative zero. On the other hand, we would need to change step (1) to add a
+  special case for NaN values, since NaN is deemded unequal to itself according
+  to IEEE equality. Either way, you need a special case of some sort.
+
+This approach is directly inspired by how the Alive2 translation validation
+tool for LLVM translates `fpto{ui,si}`. See
+https://github.com/AliveToolkit/alive2/blob/efddfc43bae2760cb5878b932a9c1a001fec374e/ir/instr.cpp#L2048-L2106
+-}
 
 
 --------------------------------------------------------------------------------

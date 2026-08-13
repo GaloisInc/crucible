@@ -649,6 +649,8 @@ evalApp bak itefns _logFn evalExt (evalSub :: forall tp. f tp -> IO (RegValue sy
       iFloatFpApart @_ @fi sym x y
     FloatCast fi rm (x_expr :: f (FloatType fi')) ->
       iFloatCast @_ @_ @fi' sym fi rm =<< evalSub x_expr
+    FloatRound _ rm (x_expr :: f (FloatType fi)) ->
+      iFloatRound @_ @fi sym rm =<< evalSub x_expr
     FloatFromBinary fi x_expr -> iFloatFromBinary sym fi =<< evalSub x_expr
     FloatToBinary fi x_expr -> iFloatToBinary sym fi =<< evalSub x_expr
     FloatFromBV fi rm x_expr -> iBVToFloat sym fi rm =<< evalSub x_expr

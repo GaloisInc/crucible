@@ -17,6 +17,9 @@
   - `cfgBreakpoints` -> `cfgCutpoints`
   - `setFrameBreakpointPostdomInfo` -> `setFrameCutpointPostdomInfo`
 * Add `reverseSymSequence` to `Lang.Crucible.Simulator.SymSequence`
+* **BREAKING:** Add `FloatRound` constructor tp `App` in
+  `Lang.Crucible.CFG.Expr` for rounding floating-point values to the nearest
+  representable integral value.
 * **BREAKING:** Add `SequenceReverse` constructor to `App` in
   `Lang.Crucible.CFG.Expr` for reversing symbolic sequences.
 * **BREAKING:** Change the signature of `getRecordedTrace` in

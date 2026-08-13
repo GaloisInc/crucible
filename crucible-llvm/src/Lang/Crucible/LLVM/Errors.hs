@@ -48,7 +48,7 @@ import           GHC.Generics (Generic)
 import           Prettyprinter
 
 import           What4.Interface
-import           What4.Expr (GroundValue)
+import           What4.Expr (ExprBuilder, Flags, FloatModeRepr, GroundValue)
 
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import qualified Lang.Crucible.LLVM.Errors.MemoryError as ME
@@ -66,13 +66,16 @@ data BadBehavior sym where
  deriving Typeable
 
 concBadBehavior ::
-  IsExprBuilder sym =>
+  ( IsExprBuilder sym
+  , sym ~ ExprBuilder t st (Flags fm)
+  ) =>
   sym ->
+  FloatModeRepr fm ->
   (forall tp. SymExpr sym tp -> IO (GroundValue tp)) ->
   BadBehavior sym -> IO (BadBehavior sym)
-concBadBehavior sym conc (BBUndefinedBehavior ub) =
-  BBUndefinedBehavior <$> UB.concUB sym conc ub
-concBadBehavior sym conc (BBMemoryError me) =
+concBadBehavior sym fm conc (BBUndefinedBehavior ub) =
+  BBUndefinedBehavior <$> UB.concUB sym fm conc ub
+concBadBehavior sym _fm conc (BBMemoryError me) =
   BBMemoryError <$> ME.concMemoryError sym conc me
 
 -- -----------------------------------------------------------------------

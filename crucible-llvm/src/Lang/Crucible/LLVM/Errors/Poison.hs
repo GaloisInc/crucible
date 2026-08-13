@@ -49,14 +49,16 @@ import qualified Data.Parameterized.TraversableF as TF
 import           Data.Parameterized.TraversableF (FunctorF(..), FoldableF(..), TraversableF(..))
 import qualified Data.Parameterized.TH.GADT as U
 import           Data.Parameterized.ClassesC (TestEqualityC(..), OrdC(..))
-import           Data.Parameterized.Classes (OrderingF(..), toOrdering)
+import           Data.Parameterized.Classes (OrderingF(..), OrdF(..), toOrdering)
 
 import           Lang.Crucible.LLVM.Errors.Standards
 import           Lang.Crucible.LLVM.MemModel.Pointer (LLVMPointerType, concBV, concPtr', ppPtr)
 import           Lang.Crucible.Simulator.RegValue (RegValue'(..))
 import           Lang.Crucible.Types
 import qualified What4.Interface as W4I
-import           What4.Expr (GroundValue)
+import qualified What4.InterpretedFloatingPoint as W4IFP
+import           What4.Expr (ExprBuilder, Flags, FloatModeRepr(..), GroundValue)
+import qualified What4.Expr.GroundEval as W4GE
 
 data Poison (e :: CrucibleType -> Type) where
   -- | Arguments: @op1@, @op2@
@@ -136,6 +138,18 @@ data Poison (e :: CrucibleType -> Type) where
   UiToFpNonNegative   :: (1 <= w)
                       => e (BVType w)
                       -> Poison e
+  FpToUiNotRepresentable
+                      :: (1 <= w)
+                      => FloatInfoRepr fi
+                      -> e (FloatType fi)
+                      -> NatRepr w
+                      -> Poison e
+  FpToSiNotRepresentable
+                      :: (1 <= w)
+                      => FloatInfoRepr fi
+                      -> e (FloatType fi)
+                      -> NatRepr w
+                      -> Poison e
   TruncNoUnsignedWrap :: (1 <= w)
                       => e (BVType w)
                       -> Poison e
@@ -172,6 +186,8 @@ standard =
     GEPOutOfBounds _ _      -> LLVMRef LLVM8
     ZExtNonNegative _       -> LLVMRef LLVM18
     UiToFpNonNegative _     -> LLVMRef LLVM19
+    FpToUiNotRepresentable _ _ _ -> LLVMRef LLVM8
+    FpToSiNotRepresentable _ _ _ -> LLVMRef LLVM8
     TruncNoUnsignedWrap _   -> LLVMRef LLVM20
     TruncNoSignedWrap _     -> LLVMRef LLVM20
     ICmpSameSign _ _        -> LLVMRef LLVM20
@@ -201,6 +217,8 @@ cite =
     GEPOutOfBounds _ _      -> "‘getelementptr’ Instruction (Semantics)"
     ZExtNonNegative _       -> "‘zext’ Instruction (Semantics)"
     UiToFpNonNegative _     -> "‘uitofp’ Instruction (Semantics)"
+    FpToUiNotRepresentable _ _ _ -> "‘fptoui’ Instruction (Semantics)"
+    FpToSiNotRepresentable _ _ _ -> "‘fptosi’ Instruction (Semantics)"
     TruncNoUnsignedWrap _   -> "‘trunc’ Instruction (Semantics)"
     TruncNoSignedWrap _     -> "‘trunc’ Instruction (Semantics)"
     ICmpSameSign _ _        -> "‘icmp’ Instruction (Semantics)"
@@ -263,6 +281,14 @@ explain =
       "A negative integer was zero-extended even though the `nneg` flag was set"
     UiToFpNonNegative _ ->
       "A negative integer was converted to a floating-point value even though the `nneg` flag was set"
+    FpToUiNotRepresentable _ _ _ -> cat $
+      [ "A floating-point value was converted to an unsigned integer,"
+      , "even though the value does not fit in the unsigned integer's type"
+      ]
+    FpToSiNotRepresentable _ _ _ -> cat $
+      [ "A floating-point value was converted to a signed integer,"
+      , "even though the value does not fit in the signed integer's type"
+      ]
     TruncNoUnsignedWrap _ ->
       "Unsigned truncation caused wrapping even though the `nuw` flag was set"
     TruncNoSignedWrap _ ->
@@ -298,6 +324,16 @@ details =
       ]
     ZExtNonNegative v -> args [v]
     UiToFpNonNegative v -> args [v]
+    FpToUiNotRepresentable fi (RV float) bvW ->
+      [ "Floating-point type:" <+> pretty fi
+      , "Floating-point value:" <+> W4I.printSymExpr float
+      , "Unsigned integer size (in bits):" <+> viaShow bvW
+      ]
+    FpToSiNotRepresentable fi (RV float) bvW ->
+      [ "Floating-point type:" <+> pretty fi
+      , "Floating-point value:" <+> W4I.printSymExpr float
+      , "Signed integer size (in bits):" <+> viaShow bvW
+      ]
     TruncNoUnsignedWrap v -> args [v]
     TruncNoSignedWrap v -> args [v]
     ICmpSameSign v1 v2 -> args [v1, v2]
@@ -329,14 +365,35 @@ ppReg ::W4I.IsExpr (W4I.SymExpr sym) => Poison (RegValue' sym) -> Doc ann
 ppReg = pp details
 
 -- | Concretize a poison error message.
-concPoison :: forall sym.
-  W4I.IsExprBuilder sym =>
+concPoison :: forall sym t st fm.
+  ( W4I.IsExprBuilder sym
+  , sym ~ ExprBuilder t st (Flags fm)
+  ) =>
   sym ->
+  FloatModeRepr fm ->
   (forall tp. W4I.SymExpr sym tp -> IO (GroundValue tp)) ->
   Poison (RegValue' sym) -> IO (Poison (RegValue' sym))
-concPoison sym conc poison =
+concPoison sym fm conc poison =
   let bv :: forall w. (1 <= w) => RegValue' sym (BVType w) -> IO (RegValue' sym (BVType w))
-      bv (RV x) = RV <$> concBV sym conc x in
+      bv (RV x) = RV <$> concBV sym conc x
+
+      fp ::
+        forall fi.
+        FloatInfoRepr fi ->
+        RegValue' sym (FloatType fi) ->
+        IO (RegValue' sym (FloatType fi))
+      fp fi (RV x) = do
+        v <- conc x
+        rv <-
+          case fm of
+            FloatIEEERepr ->
+              W4I.floatLit sym (floatInfoToPrecisionRepr fi) v
+            FloatUninterpretedRepr -> do
+              sv <- W4GE.groundToSym sym (floatInfoToBVTypeRepr fi) v
+              W4IFP.iFloatFromBinary sym fi sv
+            FloatRealRepr ->
+              W4IFP.iFloatLitRational sym fi v
+        pure $ RV rv in
   case poison of
     AddNoUnsignedWrap v1 v2 ->
       AddNoUnsignedWrap <$> bv v1 <*> bv v2
@@ -380,6 +437,10 @@ concPoison sym conc poison =
       ZExtNonNegative <$> bv v
     UiToFpNonNegative v ->
       UiToFpNonNegative <$> bv v
+    FpToUiNotRepresentable v1 v2 v3 ->
+      FpToUiNotRepresentable v1 <$> fp v1 v2 <*> pure v3
+    FpToSiNotRepresentable v1 v2 v3 ->
+      FpToSiNotRepresentable v1 <$> fp v1 v2 <*> pure v3
     TruncNoUnsignedWrap v ->
       TruncNoUnsignedWrap <$> bv v
     TruncNoSignedWrap v ->
@@ -407,6 +468,8 @@ eqcPoison subterms =
            Nothing   -> Nothing
    in $(U.structuralTypeEquality [t|Poison|]
        [ ( U.DataArg 0 `U.TypeApp` U.AnyType, [| subterms' |])
+       , ( U.ConType [t| FloatInfoRepr |] `U.TypeApp` U.AnyType, [| testEquality |])
+       , ( U.ConType [t| NatRepr |] `U.TypeApp` U.AnyType, [| testEquality |])
        ])
 
 ordcPoison :: forall e f.
@@ -422,6 +485,8 @@ ordcPoison subterms =
 
    in $(U.structuralTypeOrd [t|Poison|]
        [ ( U.DataArg 0 `U.TypeApp` U.AnyType, [| subterms' |])
+       , ( U.ConType [t| FloatInfoRepr |] `U.TypeApp` U.AnyType, [| compareF |])
+       , ( U.ConType [t| NatRepr |] `U.TypeApp` U.AnyType, [| compareF |])
        ])
 
 instance TestEqualityC Poison where

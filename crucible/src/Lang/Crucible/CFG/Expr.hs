@@ -402,6 +402,11 @@ data App (ext :: Type) (f :: CrucibleType -> Type) (tp :: CrucibleType) where
     -> !RoundingMode
     -> !(f (FloatType fi'))
     -> App ext f (FloatType fi)
+  FloatRound
+    :: !(FloatInfoRepr fi)
+    -> !RoundingMode
+    -> !(f (FloatType fi))
+    -> App ext f (FloatType fi)
   FloatFromBinary
     :: !(FloatInfoRepr fi)
     -> !(f (BVType (FloatInfoToBitWidth fi)))
@@ -1181,6 +1186,7 @@ instance TypeApp (ExprExtension ext) => TypeApp (App ext) where
     FloatFpApart{} -> knownRepr
     FloatIte fi _ _ _ -> FloatRepr fi
     FloatCast fi _ _ -> FloatRepr fi
+    FloatRound fi _ _ -> FloatRepr fi
     FloatFromBinary fi _ -> FloatRepr fi
     FloatToBinary fi _ -> case floatInfoToBVTypeRepr fi of
       BaseBVRepr w -> BVRepr w
