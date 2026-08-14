@@ -663,6 +663,8 @@ evalBinOp bop mat me1 me2 =
               (M.Ge, Just M.Unsigned) -> return (MirExp (C.BoolRepr) (S.app $ E.BVUle n e2 e1), noOverflow)
               (M.Ge, Just M.Signed)   -> return (MirExp (C.BoolRepr) (S.app $ E.BVSle n e2 e1), noOverflow)
 
+              (M.Cmp, Just arithTy) -> threeWayCompare arithTy n e1 e2
+
               (M.Ne, _) -> return (MirExp (C.BoolRepr) (S.app $ E.Not $ S.app $ E.BVEq n e1 e2), noOverflow)
               (M.Beq, _) -> return (MirExp (C.BoolRepr) (S.app $ E.BVEq n e1 e2), noOverflow)
               _ -> mirFail $ "No translation for binop: " ++ show bop ++ " " ++ show mat
@@ -773,6 +775,55 @@ evalBinOp bop mat me1 me2 =
                 (S.app $ E.BVEq w x $ S.app $ eBVLit w (1 `shiftL` (w' - 1)))
                 (S.app $ E.BVEq w y $ S.app $ eBVLit w ((1 `shiftL` w') - 1))
       where w' = fromIntegral $ intValue w
+
+    -- Perform a three-way comparison between two unsigned or signed bitvector
+    -- values @x@ and @y@. Return @Ordering::Less@ if @x < y@,
+    -- @Ordering::Equal@ is @x == y@, and @Ordering::Greater@ if @x > y@, where
+    -- @x < y@ and @x > y@ perform unsigned or signed comparisons as
+    -- appropriate.
+    threeWayCompare ::
+        (1 <= w) =>
+        M.ArithType ->
+        NatRepr w ->
+        R.Expr MIR s (C.BVType w) ->
+        R.Expr MIR s (C.BVType w) ->
+        MirGenerator h s ret (MirExp s, R.Expr MIR s C.BoolType)
+    threeWayCompare arithTy w x y = do
+        orderingAdt <- findExplodedAdtInst orderingExplodedDefId (Substs [])
+        SomeRustEnumRepr
+          (orderingDiscrTpr :: C.TypeRepr orderingDiscrTp)
+          (orderingVariantsCtx :: C.CtxRepr orderingVariantsCtx) <-
+            enumVariantsM orderingAdt
+        let orderingEnumTpr = RustEnumRepr orderingDiscrTpr orderingVariantsCtx
+
+        let buildOrdering ::
+              Int ->
+              MirGenerator h s ret
+                (R.Expr MIR s (RustEnumType orderingDiscrTp orderingVariantsCtx))
+            buildOrdering discr = do
+              MirExp orderingTpr ordering <- buildEnum orderingAdt discr []
+              Refl <- expectEnumOrFail orderingDiscrTpr orderingVariantsCtx orderingTpr
+              pure ordering
+        let bvLt = case arithTy of
+                     M.Unsigned -> E.BVUlt
+                     M.Signed   -> E.BVSlt
+
+        -- We only check @x < y@ and @x == y@ below, and if neither are true,
+        -- then @x > y@ must hold. We are allowed to assume this because the
+        -- Cmp binop is restricted to primitive integral types that implement
+        -- Ord, so we don't have to worry about unusual comparisons where this
+        -- assumption doesn't hold (e.g., primitive float types).
+        ordering <-
+          G.ifte'
+            orderingEnumTpr
+            (S.app (bvLt w x y))
+            (buildOrdering orderingDiscrLess)
+            (G.ifte'
+              orderingEnumTpr
+              (S.app (E.BVEq w x y))
+              (buildOrdering orderingDiscrEqual)
+              (buildOrdering orderingDiscrGreater))
+        pure (MirExp orderingEnumTpr ordering, noOverflow)
 
 transUnaryOp :: M.UnOp -> M.Operand -> MirGenerator h s ret (MirExp s)
 transUnaryOp uop op = do
