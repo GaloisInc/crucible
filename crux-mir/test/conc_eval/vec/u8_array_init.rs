@@ -1,7 +1,5 @@
-//! This exercises `RawVec`'s `[u8; N]` allocation behavior, which had precisely
-//! the same `*const [u8; N]` to `*const u8` casting issue as `TypedAllocator`,
-//! as described and tested against in `u8_array_push.rs` in this directory. See
-//! https://github.com/GaloisInc/mir-json/pull/150.
+//! This exercises `RawVec`'s `[u8; N]` allocation behavior, which involves a
+//! `*const [u8; N]` to `*const u8` pointer cast.
 
 #[cfg_attr(crux, crux::test)]
 fn test() -> [u8; 4] {

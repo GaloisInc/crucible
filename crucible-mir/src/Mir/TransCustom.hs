@@ -184,8 +184,6 @@ customOpDefs = Map.fromList $ [
                          , ptr_read
                          , ptr_write
                          , ptr_swap
-                         , ptr_null
-                         , ptr_null_mut
                          , drop_in_place_dyn
 
                          , intrinsics_copy
@@ -672,23 +670,6 @@ ptr_swap = ( ["core", "ptr", "swap"], \substs -> case substs of
             MirExp MirAggregateRepr <$> mirAggregate_zst
         _ -> mirFail $ "bad arguments for ptr::swap: " ++ show ops
     _ -> Nothing)
-
-ptr_null :: (ExplodedDefId, CustomRHS)
-ptr_null = ( ["core", "ptr", "null", "crucible_null_hook"]
-           , null_ptr_impl "ptr::null" )
-
-ptr_null_mut :: (ExplodedDefId, CustomRHS)
-ptr_null_mut = ( ["core", "ptr", "null_mut", "crucible_null_hook"]
-               , null_ptr_impl "ptr::null_mut" )
-
-null_ptr_impl :: String -> CustomRHS
-null_ptr_impl what substs = case substs of
-    Substs [_] -> Just $ CustomOp $ \_ ops -> case ops of
-        [] -> do
-            ref <- integerToMirRef $ R.App $ eBVLit knownNat 0
-            return $ MirExp MirReferenceRepr ref
-        _  -> mirFail $ "expected no arguments for " ++ what ++ ", received: " ++ show ops
-    _ -> Nothing
 
 -- | Experimentally, we've observed that rustc seems not to generate proper drop
 -- glue for @&dyn Trait@ drops. We get around this by overriding
