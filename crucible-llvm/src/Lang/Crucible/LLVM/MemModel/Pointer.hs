@@ -104,7 +104,6 @@ import qualified Text.LLVM.AST as L
 
 import qualified What4.Expr.GroundEval as W4GE
 import           What4.Interface
-import           What4.InterpretedFloatingPoint
 import           What4.Expr (GroundValue)
 
 import           Lang.Crucible.Backend
@@ -293,21 +292,6 @@ muxLLVMPtr sym p (LLVMPointer b1 off1) (LLVMPointer b2 off2) =
   do b   <- natIte sym p b1 b2
      off <- bvIte sym p off1 off2
      return $ LLVMPointer b off
-
-data FloatSize (fi :: FloatInfo) where
-  SingleSize :: FloatSize SingleFloat
-  DoubleSize :: FloatSize DoubleFloat
-
-deriving instance Eq (FloatSize fi)
-
-deriving instance Ord (FloatSize fi)
-
-deriving instance Show (FloatSize fi)
-
-instance TestEquality FloatSize where
-  testEquality SingleSize SingleSize = Just Refl
-  testEquality DoubleSize DoubleSize = Just Refl
-  testEquality _ _ = Nothing
 
 -- | Generate a concrete offset value from an @Addr@ value.
 constOffset :: (1 <= w, IsExprBuilder sym) => sym -> NatRepr w -> G.Addr -> IO (SymBV sym w)
