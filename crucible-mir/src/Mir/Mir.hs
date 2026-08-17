@@ -839,6 +839,29 @@ pattern CTyOrdering <- TyAdt _ $(explodedDefIdPat ["$lang", "OrderingEnum"]) (Su
           (textId "$lang/0::OrderingEnum")
           (Substs [])
 
+orderingExplodedDefId :: ExplodedDefId
+orderingExplodedDefId = ["$lang", "OrderingEnum"]
+
+-- Note that the values below are only meaningful for Crucible, which uses
+-- zero-based indexing to look up enum variants from discriminants. The actual
+-- implementation of Ordering in Rust uses different discriminant values:
+--
+-- #[repr(i8)]
+-- pub enum Ordering {
+--     Less = -1,
+--     Equal = 0,
+--     Greater = 1,
+-- }
+
+orderingDiscrLess :: Int
+orderingDiscrLess = 0
+
+orderingDiscrEqual :: Int
+orderingDiscrEqual = 1
+
+orderingDiscrGreater :: Int
+orderingDiscrGreater = 2
+
 --------------------------------------------------------------------------------------
 -- | TypeOf
 
