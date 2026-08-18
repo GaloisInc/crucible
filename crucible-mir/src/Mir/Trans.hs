@@ -573,7 +573,64 @@ transBinOp bop op1 op2 = do
             elemSize <- tySizeM elemTy
             newRef <- mirRef_offsetWrap e1 e2 elemSize
             pure $ MirExp MirReferenceRepr newRef
+        -- Raw pointer inequality operations. Note that pointer /equality/
+        -- operations are included elsewhere (in evalBinOp).
+        Lt
+          | MirExp MirReferenceRepr e1 <- me1
+          , MirExp MirReferenceRepr e2 <- me2 -> do
+            offset <- evalPtrOffset e1 e2
+            let offsetNeg = R.App $ E.BVSlt (knownNat @SizeBits) offset zeroIsize
+            pure $ MirExp C.BoolRepr offsetNeg
+        Le
+          | MirExp MirReferenceRepr e1 <- me1
+          , MirExp MirReferenceRepr e2 <- me2 -> do
+            offset <- evalPtrOffset e1 e2
+            let offsetNonPos = R.App $ E.BVSle (knownNat @SizeBits) offset zeroIsize
+            pure $ MirExp C.BoolRepr offsetNonPos
+        Gt
+          | MirExp MirReferenceRepr e1 <- me1
+          , MirExp MirReferenceRepr e2 <- me2 -> do
+            offset <- evalPtrOffset e1 e2
+            let offsetPos = R.App $ E.BVSlt (knownNat @SizeBits) zeroIsize offset
+            pure $ MirExp C.BoolRepr offsetPos
+        Ge
+          | MirExp MirReferenceRepr e1 <- me1
+          , MirExp MirReferenceRepr e2 <- me2 -> do
+            offset <- evalPtrOffset e1 e2
+            let offsetNonNeg = R.App $ E.BVSle (knownNat @SizeBits) zeroIsize offset
+            pure $ MirExp C.BoolRepr offsetNonNeg
         _ -> fst <$> evalBinOp bop mat me1 me2
+  where
+    zeroIsize :: R.Expr MIR s IsizeType
+    zeroIsize = R.App $ isizeLit 0
+
+    -- Compute the offset (in bytes) between two raw pointers. If the two
+    -- pointers are not derived from the same allocation, raise an error.
+    --
+    -- This is used as a crude way to approximate the behavior of raw pointer
+    -- comparisons. In actual Rust code, pointer comparisons are implemented by
+    -- comparing the pointers' addresses, but MirReferences don't have
+    -- addresses. At the very least, we can simulate comparisons between
+    -- pointers derived from the same allocation, which is a reasonably common
+    -- use case.
+    --
+    -- Precondition: the types of the expressions must be raw pointer types.
+    evalPtrOffset ::
+      R.Expr MIR s MirReferenceType ->
+      R.Expr MIR s MirReferenceType ->
+      MirGenerator h s ret (R.Expr MIR s IsizeType)
+    evalPtrOffset e1 e2 = do
+        elemTy <- case typeOf op1 of
+            TyRawPtr ty _mut -> pure ty
+            t -> mirFail $
+              "Pointer comparison on expression with unexpected type: " <>
+              show (pretty t)
+        elemSize <- tySizeM elemTy
+        maybeOffset <- mirRef_tryOffsetFrom e1 e2 elemSize
+        let errMsg = R.App $ E.StringLit $ fromString $
+              "Pointer comparison (" ++ show (pretty bop) ++
+              ") between pointers not in same allocation"
+        pure $ R.App $ E.FromJustValue IsizeRepr maybeOffset errMsg
 
 -- Evaluate a binop, returning both the result and an overflow flag.
 evalBinOp :: forall h s ret. M.BinOp -> Maybe M.ArithType -> MirExp s -> MirExp s ->
@@ -701,6 +758,9 @@ evalBinOp bop mat me1 me2 =
             _ -> mirFail $ "No translation for real number binop: " ++ fmt bop
 
       (MirExp MirReferenceRepr e1, MirExp MirReferenceRepr e2) ->
+          -- Note that special cases for pointer inequality operations are
+          -- included elsewhere (in transBinOp), as they need to scrutinize the
+          -- MIR types of the operands.
           case bop of
             M.Beq -> do
                 eq <- mirRef_eq e1 e2
