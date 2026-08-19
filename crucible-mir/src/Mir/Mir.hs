@@ -687,7 +687,7 @@ data ConstVal =
   | ConstRawPtr Integer
   | ConstStruct [ConstVal]
   | ConstEnum Int [ConstVal]
-  | ConstUnion
+  | ConstUnion Int ConstVal
   | ConstFnPtr DefId
   -- | A reference to a trait object (e.g., @&dyn Trait@). The 'DefId' is the
   -- allocation backing the reference, the 'TraitName' is the name of the

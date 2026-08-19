@@ -292,6 +292,32 @@ transConstVal ty@(M.TyAdt aname _ _) tpr (ConstEnum variant fields) = do
             let fieldTys = map (\f -> f ^. fty) fieldDefs
             exps <- zipWithM (\val ty' -> tyToReprM ty' >>= \rpr -> transConstVal ty' rpr val) fields fieldTys
             buildEnum adt variant exps
+
+transConstVal (M.TyAdt aname _ _) tpr (ConstUnion variant val) = do
+    adt <- findAdt aname
+    col <- use (cs . collection)
+    let fieldDefs = adt ^. adtvariants . ix 0 . vfields
+    let fieldTys  = map (\f -> f ^. fty) fieldDefs
+    case findReprTransparentField col adt of
+        Just idx -> do
+            let ty' = fieldTys !! idx
+            if idx == variant
+              then transConstVal ty' tpr val
+              else
+                do
+                  -- XXX: this is not 100% correct as the value should
+                  -- be uninitialized, but we are initializing it, but it
+                  -- is not clear how to represent this case at the moment.
+                  mb <- initialValue ty'
+                  case mb of
+                    Nothing -> mirFail "uninitialized transparent union, without a standard default value"
+                    Just v  -> pure v
+
+        Nothing -> do
+            let ty' = fieldTys !! variant
+            ex <- tyToReprM ty' >>= \rpr -> transConstVal ty' rpr val
+            buildUnion adt variant ex
+
 transConstVal ty (Some MirReferenceRepr) cv = do
     let pointeeTy = M.typeOfProj M.Deref ty
     Some tpr <- tyToReprM pointeeTy
