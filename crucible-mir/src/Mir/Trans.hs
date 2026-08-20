@@ -3429,13 +3429,13 @@ transStatics colState halloc = do
   -- TODO: make the name of the static initialization function configurable
   let initName = FN.functionNameFromText "static_initializer"
   initHandle <- FH.mkHandle' halloc initName Ctx.empty C.UnitRepr
-  let allStatics :: [Static]
-      allStatics = Map.elems (colState ^. collection.statics)
+  let staticDecls :: [Static]
+      staticDecls = Map.elems (colState ^. collection.statics)
   
   let def :: G.FunctionDef MIR FnState Ctx.EmptyCtx C.UnitType (ST w)
       def _inputs = (s, f) where
           s = initFnState colState StaticContext
-          f = do mapM_ initializeStatic allStatics
+          f = do mapM_ initializeStatic staticDecls
                  return (R.App $ E.EmptyApp)
   init_cfg <- stToIO $ do
     R.SomeCFG g <- defineFunctionNoAuxs initHandle def

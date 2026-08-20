@@ -326,8 +326,7 @@ data Collection = Collection {
     -- ADTs, indexed by original (pre-monomorphization) DefId
     _adtsOrig  :: !(Map AdtName [Adt]),
     _traits    :: !(Map TraitName Trait),
-    -- Static decls, indexed by name.  For each of these, there is an
-    -- initializer in `functions` with the same name.
+    -- Static decls, indexed by name.
     _statics   :: !(Map DefId Static),
     _vtables   :: !(Map VtableName Vtable),
     _intrinsics :: !(Map IntrinsicName Intrinsic),
