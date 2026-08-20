@@ -2734,27 +2734,6 @@ transInstance colState (M.Intrinsic defId (M.Instance kind origDefId _substs))
       return $ Just (name, cfg, Just fti)
   | otherwise = return Nothing
 
-transStatic :: forall h.
-  ( HasCallStack, ?debug::Int, ?customOps::CustomOpMap, ?assertFalseOnError::Bool
-  , ?printCrucible::Bool)
-  => CollectionState
-  -> M.Static
-  -> ST h (Maybe (Text, Core.AnyCFG MIR, FnTransInfo))
-transStatic colState st
-  -- Statics with a `ConstVal` initializer don't need a CFG, and might not have
-  -- a MIR body in `functions`.
-  | Just _ <- st ^. M.sConstVal = return Nothing
-  | otherwise = do
-      let defId = st ^. M.sName
-      fn <- case colState ^. collection . M.functions . at defId of
-        Just x -> return x
-        -- For each entry in `statics`, there should be a corresponding entry
-        -- in `functions` giving the MIR body of the static initializer.
-        Nothing -> panic "transStatic" ["function " ++ show defId ++ " not found for static"]
-      (name, cfg, fti) <- transCommon colState defId (FnContext fn) (genFn fn)
-      return $ Just (name, cfg, fti)
-
-
 -- | Allocate method handles for each of the functions in the Collection
 mkHandleMap :: (HasCallStack) => Collection -> FH.HandleAllocator -> IO HandleMap
 mkHandleMap col halloc = mapM mkHandle (col ^. functions) where
@@ -3405,11 +3384,8 @@ transCollection col halloc = do
     -- translate all of the functions
     fnInfo <- Maybe.catMaybes <$>
       mapM (stToIO . transInstance colState) (Map.elems (col ^. M.intrinsics))
-    staticInfo <- Maybe.catMaybes <$>
-      mapM (stToIO . transStatic colState) (Map.elems (col ^. M.statics))
-    let allInfo = fnInfo ++ [(n, c, Just i) | (n, c, i) <- staticInfo]
-    let pairs1 = [(name, cfg) | (name, cfg, _) <- allInfo]
-    let transInfo' = Map.fromList [(name, fti) | (name, _, Just fti) <- allInfo]
+    let pairs1 = [(name, cfg) | (name, cfg, _) <- fnInfo]
+    let transInfo' = Map.fromList [(name, fti) | (name, _, Just fti) <- fnInfo]
     pairs2 <- mapM (stToIO . transVtable colState) (Map.elems (col ^. M.vtables))
 
     return $ RustModule
@@ -3432,35 +3408,22 @@ transStatics ::
   CollectionState -> FH.HandleAllocator -> IO (Core.AnyCFG MIR)
 transStatics colState halloc = do
   let sm = colState ^. staticMap
-  let hmap = colState ^. handleMap
   let initializeStatic :: forall h s r . Static -> MirGenerator h s r ()
       initializeStatic static =
         let staticName = static ^. sName in
         case Map.lookup staticName sm of
-          Just (StaticVar g) ->
-            let repr = G.globalType g in
-            if |  Just constval <- static ^. sConstVal
-               -> do let constty = static ^. sTy
-                     Some tpr <- tyToReprM constty
-                     MirExp constty' constval' <- transConstVal constty (Some tpr) constval
-                     case testEquality repr constty' of
-                       Just Refl -> G.writeGlobal g constval'
-                       Nothing -> error $ "BUG: invalid type for constant initializer " ++ fmt staticName
-                                       ++ ", expected " ++ show repr ++ ", got " ++ show constty'
+          Just (StaticVar g) -> do
+            let repr = G.globalType g
+                constval = static ^. sConstVal
+                constty = static ^. sTy
+            Some tpr <- tyToReprM constty
+            MirExp constty' constval' <- transConstVal constty (Some tpr) constval
+            case testEquality repr constty' of
+              Just Refl -> G.writeGlobal g constval'
+              Nothing -> error $ "BUG: invalid type for constant initializer " ++ fmt staticName
+                              ++ ", expected " ++ show repr ++ ", got " ++ show constty'
 
-               |  Just (MirHandle _ _ (handle :: FH.FnHandle init ret))
-                    <- Map.lookup staticName hmap
-               -> case ( testEquality repr        (FH.handleReturnType handle)
-                       , testEquality (Ctx.empty) (FH.handleArgTypes handle)
-                       ) of
-                    (Just Refl, Just Refl) -> do
-                      val <- G.call (G.App $ E.HandleLit handle) Ctx.empty
-                      G.writeGlobal g val
-
-                    _ -> error $ "BUG: invalid type for initializer function " ++ fmt staticName
-
-               |  otherwise
-               -> error $ "BUG: cannot find initializer for static " ++ fmt staticName
+             
           Nothing -> error $ "BUG: cannot find global for " ++ fmt staticName
 
   -- TODO: make the name of the static initialization function configurable
@@ -3468,26 +3431,11 @@ transStatics colState halloc = do
   initHandle <- FH.mkHandle' halloc initName Ctx.empty C.UnitRepr
   let allStatics :: [Static]
       allStatics = Map.elems (colState ^. collection.statics)
-  -- Partition the static items into those with constant initializer expressions
-  -- (constValStatics) and those with non-constant initializer expressions
-  -- (nonConstValStatics). We do this because nonConstValStatics can depend on
-  -- constValStatics, but because constValStatics typically use names like
-  -- {{alloc}}[0], their names are almost certain to be later alphabetically
-  -- than nonConstValStatics' names. This, in turn, is liable to trigger the
-  -- issues observed in #1108 when one tries to translate a nonConstValStatic
-  -- before the constValStatic that it depends on.
-  --
-  -- To work around #1108, we deliberately translate all constValStatics before
-  -- translating any nonConstValStatics. This is not a complete fix for #1108,
-  -- but it does make it far less likely to appear in practice.
-  let constValStatics, nonConstValStatics :: [Static]
-      (constValStatics, nonConstValStatics) =
-        List.partition (\s -> Maybe.isJust (s ^. sConstVal)) allStatics
+  
   let def :: G.FunctionDef MIR FnState Ctx.EmptyCtx C.UnitType (ST w)
       def _inputs = (s, f) where
           s = initFnState colState StaticContext
-          f = do mapM_ initializeStatic constValStatics
-                 mapM_ initializeStatic nonConstValStatics
+          f = do mapM_ initializeStatic allStatics
                  return (R.App $ E.EmptyApp)
   init_cfg <- stToIO $ do
     R.SomeCFG g <- defineFunctionNoAuxs initHandle def
