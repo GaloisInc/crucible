@@ -629,6 +629,7 @@ data Vtable = Vtable
 data CastKind =
     Misc
   | PointerExposeProvenance
+  | PointerWithExposedProvenance
   | IntToInt
   | FloatToInt
   | FloatToFloat

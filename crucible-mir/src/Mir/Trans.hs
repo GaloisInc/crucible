@@ -1115,8 +1115,8 @@ evalCast' ck ty1 e ty2  = do
 
       -- Integer-to-pointer casts.  Pointer-to-integer casts are not yet
       -- supported.
-      (M.Misc, M.TyInt _, M.TyRawPtr _ _) -> transmuteExp e ty1 ty2
-      (M.Misc, M.TyUint _, M.TyRawPtr _ _) -> transmuteExp e ty1 ty2
+      (M.PointerWithExposedProvenance, M.TyInt _, M.TyRawPtr _ _) -> transmuteExp e ty1 ty2
+      (M.PointerWithExposedProvenance, M.TyUint _, M.TyRawPtr _ _) -> transmuteExp e ty1 ty2
 
       --  *const [T] -> *T (discards the length and returns only the pointer)
       (M.Misc, M.TyRawPtr (M.TySlice t1) m1, M.TyRawPtr t2 m2)
