@@ -1094,16 +1094,6 @@ evalCast' ck ty1 e ty2  = do
       (M.UnsizeVtable vtable, M.TyRawPtr (M.TyAdt an1 _ _) m1, M.TyRawPtr (M.TyAdt an2 _ _) m2) ->
         unsizeAdtDyn vtable M.TyRawPtr an1 m1 an2 m2
 
-      -- C-style adts, casting an enum value to a TyInt
-      (M.Misc, M.TyAdt aname _ _, M.TyInt sz) -> do
-        adt <- findAdt aname
-        discr <- enumDiscriminant adt e
-        evalCast' M.IntToInt (M.TyInt M.USize) discr (M.TyInt sz)
-      (M.Misc, M.TyAdt aname _ _, M.TyUint sz) -> do
-        adt <- findAdt aname
-        discr <- enumDiscriminant adt e
-        evalCast' M.IntToInt (M.TyInt M.USize) discr (M.TyUint sz)
-
       -- References have the same representation as Raw pointers
       (M.PtrToPtr, M.TyRef ty1' mut1, M.TyRawPtr ty2' mut2)
          | ty1' == ty2' && mut1 == mut2 -> return e
