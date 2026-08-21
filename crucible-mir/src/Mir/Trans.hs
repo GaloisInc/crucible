@@ -1147,7 +1147,6 @@ evalCast' ck ty1 e ty2  = do
       -- (i.e. both MirReferenceRepr, or both MirSliceRepr, or both DynRefRepr).
       -- This is similar to calling `transmute`.
       (M.PtrToPtr, M.TyRawPtr _ _, M.TyRawPtr _ _)
-         | ty1 == ty2 -> return e
          | tyToRepr col ty1 == tyToRepr col ty2 -> return e
 
       (M.ReifyFnPointer, M.TyFnDef defId, M.TyFnPtr sig)
