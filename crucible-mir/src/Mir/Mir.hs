@@ -634,6 +634,7 @@ data CastKind =
   | FloatToInt
   | FloatToFloat
   | IntToFloat
+  | PtrToPtr
   | FnPtrToPtr
   | ReifyFnPointer
   | ClosureFnPointer DefId

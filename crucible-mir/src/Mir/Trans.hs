@@ -945,7 +945,7 @@ evalCast' :: forall h s ret. HasCallStack => M.CastKind -> M.Ty -> MirExp s -> M
 evalCast' ck ty1 e ty2  = do
     col <- use $ cs . collection
     case (ck, ty1, ty2) of
-      (M.Misc,a,b) | a == b -> return e
+      (M.PtrToPtr,a,b) | a == b -> return e
 
       (M.IntToInt, M.TyUint M.USize, M.TyInt M.USize)
        | MirExp UsizeRepr e0 <- e
@@ -1078,7 +1078,7 @@ evalCast' ck ty1 e ty2  = do
           , "expected `UnsizeVtable` cast kind, but saw `Unsize` cast kind" ]
 
       -- trait object cast down to underlying object reference (forgetting vtable)
-      (M.Misc, M.TyRawPtr (M.TyDynamic _) _, M.TyRawPtr _ _)
+      (M.PtrToPtr, M.TyRawPtr (M.TyDynamic _) _, M.TyRawPtr _ _)
         | Right (Some MirReferenceRepr) <- tyToRepr col ty2
         , MirExp DynRefRepr a <- e
         -> pure (MirExp MirReferenceRepr (R.App (E.GetStruct a dynRefDataIndex MirReferenceRepr)))
@@ -1107,7 +1107,7 @@ evalCast' ck ty1 e ty2  = do
         evalCast' M.IntToInt (M.TyInt M.USize) discr (M.TyUint sz)
 
       -- References have the same representation as Raw pointers
-      (M.Misc, M.TyRef ty1' mut1, M.TyRawPtr ty2' mut2)
+      (M.PtrToPtr, M.TyRef ty1' mut1, M.TyRawPtr ty2' mut2)
          | ty1' == ty2' && mut1 == mut2 -> return e
 
       (M.MutToConstPointer, M.TyRawPtr ty1' M.Mut, M.TyRawPtr ty2' M.Immut)
@@ -1119,21 +1119,21 @@ evalCast' ck ty1 e ty2  = do
       (M.PointerWithExposedProvenance, M.TyUint _, M.TyRawPtr _ _) -> transmuteExp e ty1 ty2
 
       --  *const [T] -> *T (discards the length and returns only the pointer)
-      (M.Misc, M.TyRawPtr (M.TySlice t1) m1, M.TyRawPtr t2 m2)
+      (M.PtrToPtr, M.TyRawPtr (M.TySlice t1) m1, M.TyRawPtr t2 m2)
         | t1 == t2, m1 == m2, MirExp MirSliceRepr e' <- e
         -> return $ MirExp MirReferenceRepr (getSlicePtr e')
-      (M.Misc, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TyUint M.B8) m2)
+      (M.PtrToPtr, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TyUint M.B8) m2)
         | m1 == m2, MirExp MirSliceRepr e' <- e
         -> return $ MirExp MirReferenceRepr (getSlicePtr e')
 
       --  *const [T; N] -> *const T (get first element) - a no-op
-      (M.Misc, M.TyRawPtr (M.TyArray t1 _) m1, M.TyRawPtr t2 m2)
+      (M.PtrToPtr, M.TyRawPtr (M.TyArray t1 _) m1, M.TyRawPtr t2 m2)
         | t1 == t2, m1 == m2 -> pure e
 
       --  *const [u8] <-> *const str (no-ops)
-      (M.Misc, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m1, M.TyRawPtr M.TyStr m2)
+      (M.PtrToPtr, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m1, M.TyRawPtr M.TyStr m2)
         | m1 == m2 -> return e
-      (M.Misc, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m2)
+      (M.PtrToPtr, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m2)
         | m1 == m2 -> return e
 
       -- repr(transparent) pointer-to-pointer cast. Some of the
@@ -1143,16 +1143,16 @@ evalCast' ck ty1 e ty2  = do
       -- the unwrapped type. It's important that this case comes before the
       -- general pointer-to-pointer case, which would just leave the pointer
       -- unmodified.
-      (M.Misc, M.TyRawPtr (M.TyAdt an1 _ _) m1, M.TyRawPtr _ _)
+      (M.PtrToPtr, M.TyRawPtr (M.TyAdt an1 _ _) m1, M.TyRawPtr _ _)
         | Just adt1 <- findAdt' col an1
         , Just fieldTy1 <- reprTransparentFieldTy col adt1
-        -> evalCast' M.Misc (M.TyRawPtr fieldTy1 m1) e ty2
+        -> evalCast' M.PtrToPtr (M.TyRawPtr fieldTy1 m1) e ty2
 
       -- Arbitrary pointer-to-pointer casts are allowed as long as the source
       -- and destination *pointer* types have the same Crucible representation
       -- (i.e. both MirReferenceRepr, or both MirSliceRepr, or both DynRefRepr).
       -- This is similar to calling `transmute`.
-      (M.Misc, M.TyRawPtr _ _, M.TyRawPtr _ _)
+      (M.PtrToPtr, M.TyRawPtr _ _, M.TyRawPtr _ _)
          | ty1 == ty2 -> return e
          | tyToRepr col ty1 == tyToRepr col ty2 -> return e
 
@@ -2393,7 +2393,7 @@ transTerminatorKind (M.Assert cond expected msg target) _tpos _tr = do
 transTerminatorKind (M.Resume) _tpos tr =
     doReturn tr -- resume happens when unwinding
 transTerminatorKind (M.Drop dlv dt dropFn) _tpos _tr = do
-    let ptrOp = M.Temp $ M.Cast M.Misc
+    let ptrOp = M.Temp $ M.Cast M.PtrToPtr
             (M.Temp $ M.AddressOf M.Mut dlv) (M.TyRawPtr (M.typeOf dlv) M.Mut)
     maybe (return ()) (\f -> void $ callExp f [ptrOp]) dropFn
     jumpToBlock dt

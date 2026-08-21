@@ -506,7 +506,7 @@ instance FromJSON CastKind where
             Just (String "FloatToInt") -> pure FloatToInt
             Just (String "FloatToFloat") -> pure FloatToFloat
             Just (String "IntToFloat") -> pure IntToFloat
-            Just (String "PtrToPtr") -> pure Misc
+            Just (String "PtrToPtr") -> pure PtrToPtr
             Just (String "FnPtrToPtr") -> pure FnPtrToPtr
             Just (String "Transmute") -> pure Transmute
             Just (String "Subtype") -> pure Subtype
