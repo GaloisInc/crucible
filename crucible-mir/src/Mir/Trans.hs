@@ -1032,7 +1032,7 @@ evalCast' ck ty1 e ty2  = do
       -- Not sure why this appears in generated MIR, but libcore has some no-op
       -- unsizes from `*const dyn Any` to `*const dyn Any`
       -- TODO: Remove this completely.
-      (M.Unsize,a,b) | a == b -> return e
+      (M.Unsize, a, b) | a == b -> return e
 
       -- ADT -> ADT unsizing is done via `CoerceUnsized`, and handled here.
       -- Reference-to-ADT -> reference-to-ADT casting is handled separately,
@@ -1140,7 +1140,7 @@ evalCast' ck ty1 e ty2  = do
       -- will optimize away these sorts of trivial casts, but they can
       -- sometimes arise when compiling instantiations of polymorphic functions
       -- that perform pointer-to-pointer casts.
-      (M.PtrToPtr,a,b) | a == b -> return e
+      (M.PtrToPtr, a, b) | a == b -> return e
 
       -- Arbitrary pointer-to-pointer casts are allowed as long as the source
       -- and destination *pointer* types have the same Crucible representation
