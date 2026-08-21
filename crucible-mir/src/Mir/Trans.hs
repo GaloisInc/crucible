@@ -945,8 +945,6 @@ evalCast' :: forall h s ret. HasCallStack => M.CastKind -> M.Ty -> MirExp s -> M
 evalCast' ck ty1 e ty2  = do
     col <- use $ cs . collection
     case (ck, ty1, ty2) of
-      (M.PtrToPtr,a,b) | a == b -> return e
-
       (M.IntToInt, M.TyUint M.USize, M.TyInt M.USize)
        | MirExp UsizeRepr e0 <- e
        -> return $ MirExp IsizeRepr (usizeToIsize R.App e0)
@@ -1147,6 +1145,12 @@ evalCast' ck ty1 e ty2  = do
         | Just adt1 <- findAdt' col an1
         , Just fieldTy1 <- reprTransparentFieldTy col adt1
         -> evalCast' M.PtrToPtr (M.TyRawPtr fieldTy1 m1) e ty2
+
+      -- Pointer-to-pointer casts to the same type are no-ops. Usually, rustc
+      -- will optimize away these sorts of trivial casts, but they can
+      -- sometimes arise when compiling instantiations of polymorphic functions
+      -- that perform pointer-to-pointer casts.
+      (M.PtrToPtr,a,b) | a == b -> return e
 
       -- Arbitrary pointer-to-pointer casts are allowed as long as the source
       -- and destination *pointer* types have the same Crucible representation
