@@ -634,6 +634,7 @@ data CastKind =
   | FloatToInt
   | FloatToFloat
   | IntToFloat
+  | FnPtrToPtr
   | ReifyFnPointer
   | ClosureFnPointer DefId
   -- ^ Closure-to-fnptr cast.  The `DefId` refers to the
