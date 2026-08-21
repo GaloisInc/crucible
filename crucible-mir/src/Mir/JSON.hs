@@ -502,7 +502,6 @@ instance FromJSON CastKind where
             -- https://github.com/GaloisInc/crucible/issues/1223
             Just (String "PointerExposeProvenance") -> pure PointerExposeProvenance
             Just (String "PointerWithExposedProvenance") -> pure PointerWithExposedProvenance
-            Just (String "DynStar") -> pure Misc
             Just (String "IntToInt") -> pure IntToInt
             Just (String "FloatToInt") -> pure FloatToInt
             Just (String "FloatToFloat") -> pure FloatToFloat
