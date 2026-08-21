@@ -625,10 +625,8 @@ data Vtable = Vtable
     }
     deriving (Show, Eq, Ord, Generic)
 
--- TODO: add other castkinds (see https://github.com/GaloisInc/crucible/issues/1223)
 data CastKind =
-    Misc
-  | PointerExposeProvenance
+    PointerExposeProvenance
   | PointerWithExposedProvenance
   | IntToInt
   | FloatToInt
@@ -643,7 +641,6 @@ data CastKind =
   | UnsafeFnPointer
   | Unsize
   | UnsizeVtable VtableName
-  | MutToConstPointer
   | Transmute
   | Subtype
   deriving (Show,Eq, Ord, Generic)
