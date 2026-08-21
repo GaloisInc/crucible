@@ -625,9 +625,15 @@ data Vtable = Vtable
     }
     deriving (Show, Eq, Ord, Generic)
 
--- TODO: add other castkinds (see https://github.com/GaloisInc/crucible/issues/1223)
 data CastKind =
-    Misc
+    PointerExposeProvenance
+  | PointerWithExposedProvenance
+  | IntToInt
+  | FloatToInt
+  | FloatToFloat
+  | IntToFloat
+  | PtrToPtr
+  | FnPtrToPtr
   | ReifyFnPointer
   | ClosureFnPointer DefId
   -- ^ Closure-to-fnptr cast.  The `DefId` refers to the
@@ -635,7 +641,6 @@ data CastKind =
   | UnsafeFnPointer
   | Unsize
   | UnsizeVtable VtableName
-  | MutToConstPointer
   | Transmute
   | Subtype
   deriving (Show,Eq, Ord, Generic)

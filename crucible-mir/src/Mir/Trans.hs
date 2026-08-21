@@ -945,101 +945,94 @@ evalCast' :: forall h s ret. HasCallStack => M.CastKind -> M.Ty -> MirExp s -> M
 evalCast' ck ty1 e ty2  = do
     col <- use $ cs . collection
     case (ck, ty1, ty2) of
-      (M.Misc,a,b) | a == b -> return e
-
-      (M.Misc, M.TyUint M.USize, M.TyInt M.USize)
+      (M.IntToInt, M.TyUint M.USize, M.TyInt M.USize)
        | MirExp UsizeRepr e0 <- e
        -> return $ MirExp IsizeRepr (usizeToIsize R.App e0)
-      (M.Misc, M.TyInt M.USize, M.TyUint M.USize)
+      (M.IntToInt, M.TyInt M.USize, M.TyUint M.USize)
        | MirExp IsizeRepr e0 <- e
        -> return $ MirExp UsizeRepr (isizeToUsize R.App e0)
 
-      (M.Misc, M.TyUint _, M.TyInt  M.USize)
+      (M.IntToInt, M.TyUint _, M.TyInt M.USize)
        | MirExp (C.BVRepr sz) e0 <- e
        -> return $ MirExp IsizeRepr (bvToIsize sz R.App e0)
 
-      (M.Misc, M.TyUint _, M.TyUint  M.USize)
+      (M.IntToInt, M.TyUint _, M.TyUint M.USize)
        | MirExp (C.BVRepr sz) e0 <- e
        -> return $ MirExp UsizeRepr (bvToUsize sz R.App e0)
 
-      (M.Misc, M.TyInt _, M.TyInt  M.USize)
+      (M.IntToInt, M.TyInt _, M.TyInt M.USize)
        | MirExp (C.BVRepr sz) e0 <- e
        -> return $ MirExp IsizeRepr (sbvToIsize sz R.App e0)
 
-      (M.Misc, M.TyInt _, M.TyUint  M.USize)
+      (M.IntToInt, M.TyInt _, M.TyUint M.USize)
        | MirExp (C.BVRepr sz) e0 <- e
        -> return $ MirExp UsizeRepr (sbvToUsize sz R.App e0)
 
-      (M.Misc, M.TyUint M.USize, M.TyUint bsz)
+      (M.IntToInt, M.TyUint M.USize, M.TyUint bsz)
        | MirExp UsizeRepr e0 <- e
        -> baseSizeToNatCont bsz $ \w -> return $
          MirExp (C.BVRepr w) (usizeToBv w R.App e0)
 
-      (M.Misc, M.TyInt M.USize, M.TyUint bsz)
+      (M.IntToInt, M.TyInt M.USize, M.TyUint bsz)
        | MirExp IsizeRepr e0 <- e
        -> baseSizeToNatCont bsz $ \w -> return $
          MirExp (C.BVRepr w) (isizeToBv w R.App e0)
 
-      (M.Misc, M.TyUint M.USize, M.TyInt bsz)
+      (M.IntToInt, M.TyUint M.USize, M.TyInt bsz)
        | MirExp UsizeRepr e0 <- e
        -> baseSizeToNatCont bsz $ \w -> return $
          MirExp (C.BVRepr w) (usizeToBv w R.App e0)
 
-      (M.Misc, M.TyInt M.USize, M.TyInt bsz)
+      (M.IntToInt, M.TyInt M.USize, M.TyInt bsz)
        | MirExp IsizeRepr e0 <- e
        -> baseSizeToNatCont bsz $ \w -> return $
          MirExp (C.BVRepr w) (isizeToBv w R.App e0)
 
-      (M.Misc, M.TyUint _, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e
-      (M.Misc, M.TyInt _,  M.TyInt s)  -> baseSizeToNatCont s $ extendSignedBV e
+      (M.IntToInt, M.TyUint _, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e
+      (M.IntToInt, M.TyInt _,  M.TyInt s)  -> baseSizeToNatCont s $ extendSignedBV e
 
       -- unsigned to signed (nothing to do except fix sizes)
-      (M.Misc, M.TyUint _, M.TyInt s)  -> baseSizeToNatCont s $ extendUnsignedBV e
+      (M.IntToInt, M.TyUint _, M.TyInt s)  -> baseSizeToNatCont s $ extendUnsignedBV e
 
       -- signed to unsigned.  Testing indicates that this sign-extends.
-      (M.Misc, M.TyInt _,  M.TyUint s) -> baseSizeToNatCont s $ extendSignedBV e
+      (M.IntToInt, M.TyInt _,  M.TyUint s) -> baseSizeToNatCont s $ extendSignedBV e
 
        -- boolean to nat
-      (M.Misc, TyBool, TyUint M.USize)
+      (M.IntToInt, TyBool, TyUint M.USize)
        | MirExp C.BoolRepr e0 <- e
        -> return $ MirExp UsizeRepr (R.App $ usizeIte e0 (R.App $ usizeLit 1) (R.App $ usizeLit 0))
-      (M.Misc, TyBool, TyInt M.USize)
+      (M.IntToInt, TyBool, TyInt M.USize)
 
        -- boolean to integer
        | MirExp C.BoolRepr e0 <- e
        -> return $ MirExp IsizeRepr (R.App $ isizeIte e0 (R.App $ isizeLit 1) (R.App $ isizeLit 0))
 
       -- booleans to BVs
-      (M.Misc, TyBool, TyUint bsz)
+      (M.IntToInt, TyBool, TyUint bsz)
        | MirExp C.BoolRepr e0 <- e
        -> baseSizeToNatCont bsz $ \w ->
            return $ MirExp (C.BVRepr w) (R.App $ E.BVIte e0 w (R.App $ eBVLit w 1) (R.App $ eBVLit w 0))
-      (M.Misc, TyBool, TyInt bsz)
+      (M.IntToInt, TyBool, TyInt bsz)
        | MirExp C.BoolRepr e0 <- e
        -> baseSizeToNatCont bsz $ \w ->
            return $ MirExp (C.BVRepr w) (R.App $ E.BVIte e0 w (R.App $ eBVLit w 1) (R.App $ eBVLit w 0))
 
       -- char to usize
-      (M.Misc, M.TyChar, M.TyUint  M.USize)
+      (M.IntToInt, M.TyChar, M.TyUint  M.USize)
        | MirExp (C.BVRepr sz) e0 <- e
        -> return $ MirExp UsizeRepr (bvToUsize sz R.App e0)
       -- char to other uint
-      (M.Misc, M.TyChar, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e
+      (M.IntToInt, M.TyChar, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e
 
       -- byte to char
-      (M.Misc, M.TyUint B8, M.TyChar) -> baseSizeToNatCont M.B32 $ extendUnsignedBV e
+      (M.IntToInt, M.TyUint B8, M.TyChar) -> baseSizeToNatCont M.B32 $ extendUnsignedBV e
 
 
-
-{-      -- BV to Float
-      (M.Misc, M.TyInt bsz, TyFloat fsz)
-       | MirExp (C.BVRepr sz) e0 <- e
-       -> return $ MirExp C.FloatRepr -}
 
       -- Not sure why this appears in generated MIR, but libcore has some no-op
       -- unsizes from `*const dyn Any` to `*const dyn Any`
       -- TODO: Remove this completely.
-      (M.Unsize,a,b) | a == b -> return e
+      (M.Unsize, a, b) | a == b -> return e
 
       -- ADT -> ADT unsizing is done via `CoerceUnsized`, and handled here.
       -- Reference-to-ADT -> reference-to-ADT casting is handled separately,
@@ -1083,7 +1076,7 @@ evalCast' ck ty1 e ty2  = do
           , "expected `UnsizeVtable` cast kind, but saw `Unsize` cast kind" ]
 
       -- trait object cast down to underlying object reference (forgetting vtable)
-      (M.Misc, M.TyRawPtr (M.TyDynamic _) _, M.TyRawPtr _ _)
+      (M.PtrToPtr, M.TyRawPtr (M.TyDynamic _) _, M.TyRawPtr _ _)
         | Right (Some MirReferenceRepr) <- tyToRepr col ty2
         , MirExp DynRefRepr a <- e
         -> pure (MirExp MirReferenceRepr (R.App (E.GetStruct a dynRefDataIndex MirReferenceRepr)))
@@ -1101,44 +1094,34 @@ evalCast' ck ty1 e ty2  = do
       (M.UnsizeVtable vtable, M.TyRawPtr (M.TyAdt an1 _ _) m1, M.TyRawPtr (M.TyAdt an2 _ _) m2) ->
         unsizeAdtDyn vtable M.TyRawPtr an1 m1 an2 m2
 
-      -- C-style adts, casting an enum value to a TyInt
-      (M.Misc, M.TyAdt aname _ _, M.TyInt sz) -> do
-        adt <- findAdt aname
-        discr <- enumDiscriminant adt e
-        evalCast' M.Misc (M.TyInt M.USize) discr (M.TyInt sz)
-      (M.Misc, M.TyAdt aname _ _, M.TyUint sz) -> do
-        adt <- findAdt aname
-        discr <- enumDiscriminant adt e
-        evalCast' M.Misc (M.TyInt M.USize) discr (M.TyUint sz)
-
       -- References have the same representation as Raw pointers
-      (M.Misc, M.TyRef ty1' mut1, M.TyRawPtr ty2' mut2)
+      (M.PtrToPtr, M.TyRef ty1' mut1, M.TyRawPtr ty2' mut2)
          | ty1' == ty2' && mut1 == mut2 -> return e
 
-      (M.MutToConstPointer, M.TyRawPtr ty1' M.Mut, M.TyRawPtr ty2' M.Immut)
+      (M.PtrToPtr, M.TyRawPtr ty1' M.Mut, M.TyRawPtr ty2' M.Immut)
          | ty1' == ty2' -> return e
 
       -- Integer-to-pointer casts.  Pointer-to-integer casts are not yet
       -- supported.
-      (M.Misc, M.TyInt _, M.TyRawPtr _ _) -> transmuteExp e ty1 ty2
-      (M.Misc, M.TyUint _, M.TyRawPtr _ _) -> transmuteExp e ty1 ty2
+      (M.PointerWithExposedProvenance, M.TyInt _, M.TyRawPtr _ _) -> transmuteExp e ty1 ty2
+      (M.PointerWithExposedProvenance, M.TyUint _, M.TyRawPtr _ _) -> transmuteExp e ty1 ty2
 
       --  *const [T] -> *T (discards the length and returns only the pointer)
-      (M.Misc, M.TyRawPtr (M.TySlice t1) m1, M.TyRawPtr t2 m2)
+      (M.PtrToPtr, M.TyRawPtr (M.TySlice t1) m1, M.TyRawPtr t2 m2)
         | t1 == t2, m1 == m2, MirExp MirSliceRepr e' <- e
         -> return $ MirExp MirReferenceRepr (getSlicePtr e')
-      (M.Misc, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TyUint M.B8) m2)
+      (M.PtrToPtr, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TyUint M.B8) m2)
         | m1 == m2, MirExp MirSliceRepr e' <- e
         -> return $ MirExp MirReferenceRepr (getSlicePtr e')
 
       --  *const [T; N] -> *const T (get first element) - a no-op
-      (M.Misc, M.TyRawPtr (M.TyArray t1 _) m1, M.TyRawPtr t2 m2)
+      (M.PtrToPtr, M.TyRawPtr (M.TyArray t1 _) m1, M.TyRawPtr t2 m2)
         | t1 == t2, m1 == m2 -> pure e
 
       --  *const [u8] <-> *const str (no-ops)
-      (M.Misc, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m1, M.TyRawPtr M.TyStr m2)
+      (M.PtrToPtr, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m1, M.TyRawPtr M.TyStr m2)
         | m1 == m2 -> return e
-      (M.Misc, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m2)
+      (M.PtrToPtr, M.TyRawPtr M.TyStr m1, M.TyRawPtr (M.TySlice (M.TyUint M.B8)) m2)
         | m1 == m2 -> return e
 
       -- repr(transparent) pointer-to-pointer cast. Some of the
@@ -1148,17 +1131,22 @@ evalCast' ck ty1 e ty2  = do
       -- the unwrapped type. It's important that this case comes before the
       -- general pointer-to-pointer case, which would just leave the pointer
       -- unmodified.
-      (M.Misc, M.TyRawPtr (M.TyAdt an1 _ _) m1, M.TyRawPtr _ _)
+      (M.PtrToPtr, M.TyRawPtr (M.TyAdt an1 _ _) m1, M.TyRawPtr _ _)
         | Just adt1 <- findAdt' col an1
         , Just fieldTy1 <- reprTransparentFieldTy col adt1
-        -> evalCast' M.Misc (M.TyRawPtr fieldTy1 m1) e ty2
+        -> evalCast' M.PtrToPtr (M.TyRawPtr fieldTy1 m1) e ty2
+
+      -- Pointer-to-pointer casts to the same type are no-ops. Usually, rustc
+      -- will optimize away these sorts of trivial casts, but they can
+      -- sometimes arise when compiling instantiations of polymorphic functions
+      -- that perform pointer-to-pointer casts.
+      (M.PtrToPtr, a, b) | a == b -> return e
 
       -- Arbitrary pointer-to-pointer casts are allowed as long as the source
       -- and destination *pointer* types have the same Crucible representation
       -- (i.e. both MirReferenceRepr, or both MirSliceRepr, or both DynRefRepr).
       -- This is similar to calling `transmute`.
-      (M.Misc, M.TyRawPtr _ _, M.TyRawPtr _ _)
-         | ty1 == ty2 -> return e
+      (M.PtrToPtr, M.TyRawPtr _ _, M.TyRawPtr _ _)
          | tyToRepr col ty1 == tyToRepr col ty2 -> return e
 
       (M.ReifyFnPointer, M.TyFnDef defId, M.TyFnPtr sig)
@@ -2398,7 +2386,7 @@ transTerminatorKind (M.Assert cond expected msg target) _tpos _tr = do
 transTerminatorKind (M.Resume) _tpos tr =
     doReturn tr -- resume happens when unwinding
 transTerminatorKind (M.Drop dlv dt dropFn) _tpos _tr = do
-    let ptrOp = M.Temp $ M.Cast M.Misc
+    let ptrOp = M.Temp $ M.Cast M.PtrToPtr
             (M.Temp $ M.AddressOf M.Mut dlv) (M.TyRawPtr (M.typeOf dlv) M.Mut)
     maybe (return ()) (\f -> void $ callExp f [ptrOp]) dropFn
     jumpToBlock dt

@@ -487,8 +487,13 @@ instance FromJSON CastKind where
                         case lookupKM "kind" v' of
                             Just (String "ReifyFnPointer") -> pure ReifyFnPointer
                             Just (String "UnsafeFnPointer") -> pure UnsafeFnPointer
-                            Just (String "MutToConstPointer") -> pure MutToConstPointer
-                            Just (String "ArrayToPointer") -> pure Misc
+                            -- rustc upholds an invariant that by the time it
+                            -- generates runtime MIR, all MutToConstPointer and
+                            -- ArrayToPointer casts will have been normalized
+                            -- to PtrToPtr. We do the same normalization on the
+                            -- crucible-mir side.
+                            Just (String "MutToConstPointer") -> pure PtrToPtr
+                            Just (String "ArrayToPointer") -> pure PtrToPtr
                             Just (String "Unsize") -> pure Unsize
                             Just (String "ClosureFnPointer") ->
                               fail $ "bad PointerCastKind: ClosureFnPointer should be "
@@ -497,18 +502,14 @@ instance FromJSON CastKind where
                 in v .: "cast" >>= go
             Just (String "UnsizeVtable") -> UnsizeVtable <$> v .: "vtable"
             Just (String "ClosureFnPointer") -> ClosureFnPointer <$> v .: "shim"
-            -- TODO: actually plumb this information through if it is relevant
-            -- instead of using Misc. See
-            -- https://github.com/GaloisInc/crucible/issues/1223
-            Just (String "PointerExposeProvenance") -> pure Misc
-            Just (String "PointerWithExposedProvenance") -> pure Misc
-            Just (String "DynStar") -> pure Misc
-            Just (String "IntToInt") -> pure Misc
-            Just (String "FloatToInt") -> pure Misc
-            Just (String "FloatToFloat") -> pure Misc
-            Just (String "IntToFloat") -> pure Misc
-            Just (String "PtrToPtr") -> pure Misc
-            Just (String "FnPtrToPtr") -> pure Misc
+            Just (String "PointerExposeProvenance") -> pure PointerExposeProvenance
+            Just (String "PointerWithExposedProvenance") -> pure PointerWithExposedProvenance
+            Just (String "IntToInt") -> pure IntToInt
+            Just (String "FloatToInt") -> pure FloatToInt
+            Just (String "FloatToFloat") -> pure FloatToFloat
+            Just (String "IntToFloat") -> pure IntToFloat
+            Just (String "PtrToPtr") -> pure PtrToPtr
+            Just (String "FnPtrToPtr") -> pure FnPtrToPtr
             Just (String "Transmute") -> pure Transmute
             Just (String "Subtype") -> pure Subtype
             x -> fail ("bad CastKind: " ++ show x)
