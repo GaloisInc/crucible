@@ -628,6 +628,9 @@ data Vtable = Vtable
 -- TODO: add other castkinds (see https://github.com/GaloisInc/crucible/issues/1223)
 data CastKind =
     Misc
+  | FloatToInt
+  | FloatToFloat
+  | IntToFloat
   | ReifyFnPointer
   | ClosureFnPointer DefId
   -- ^ Closure-to-fnptr cast.  The `DefId` refers to the

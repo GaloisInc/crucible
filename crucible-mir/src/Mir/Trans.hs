@@ -1031,11 +1031,6 @@ evalCast' ck ty1 e ty2  = do
 
 
 
-{-      -- BV to Float
-      (M.Misc, M.TyInt bsz, TyFloat fsz)
-       | MirExp (C.BVRepr sz) e0 <- e
-       -> return $ MirExp C.FloatRepr -}
-
       -- Not sure why this appears in generated MIR, but libcore has some no-op
       -- unsizes from `*const dyn Any` to `*const dyn Any`
       -- TODO: Remove this completely.

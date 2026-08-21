@@ -504,9 +504,9 @@ instance FromJSON CastKind where
             Just (String "PointerWithExposedProvenance") -> pure Misc
             Just (String "DynStar") -> pure Misc
             Just (String "IntToInt") -> pure Misc
-            Just (String "FloatToInt") -> pure Misc
-            Just (String "FloatToFloat") -> pure Misc
-            Just (String "IntToFloat") -> pure Misc
+            Just (String "FloatToInt") -> pure FloatToInt
+            Just (String "FloatToFloat") -> pure FloatToFloat
+            Just (String "IntToFloat") -> pure IntToFloat
             Just (String "PtrToPtr") -> pure Misc
             Just (String "FnPtrToPtr") -> pure Misc
             Just (String "Transmute") -> pure Transmute
