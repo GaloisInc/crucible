@@ -628,6 +628,7 @@ data Vtable = Vtable
 -- TODO: add other castkinds (see https://github.com/GaloisInc/crucible/issues/1223)
 data CastKind =
     Misc
+  | IntToInt
   | FloatToInt
   | FloatToFloat
   | IntToFloat

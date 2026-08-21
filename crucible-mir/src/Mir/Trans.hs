@@ -947,87 +947,87 @@ evalCast' ck ty1 e ty2  = do
     case (ck, ty1, ty2) of
       (M.Misc,a,b) | a == b -> return e
 
-      (M.Misc, M.TyUint M.USize, M.TyInt M.USize)
+      (M.IntToInt, M.TyUint M.USize, M.TyInt M.USize)
        | MirExp UsizeRepr e0 <- e
        -> return $ MirExp IsizeRepr (usizeToIsize R.App e0)
-      (M.Misc, M.TyInt M.USize, M.TyUint M.USize)
+      (M.IntToInt, M.TyInt M.USize, M.TyUint M.USize)
        | MirExp IsizeRepr e0 <- e
        -> return $ MirExp UsizeRepr (isizeToUsize R.App e0)
 
-      (M.Misc, M.TyUint _, M.TyInt  M.USize)
+      (M.IntToInt, M.TyUint _, M.TyInt M.USize)
        | MirExp (C.BVRepr sz) e0 <- e
        -> return $ MirExp IsizeRepr (bvToIsize sz R.App e0)
 
-      (M.Misc, M.TyUint _, M.TyUint  M.USize)
+      (M.IntToInt, M.TyUint _, M.TyUint M.USize)
        | MirExp (C.BVRepr sz) e0 <- e
        -> return $ MirExp UsizeRepr (bvToUsize sz R.App e0)
 
-      (M.Misc, M.TyInt _, M.TyInt  M.USize)
+      (M.IntToInt, M.TyInt _, M.TyInt M.USize)
        | MirExp (C.BVRepr sz) e0 <- e
        -> return $ MirExp IsizeRepr (sbvToIsize sz R.App e0)
 
-      (M.Misc, M.TyInt _, M.TyUint  M.USize)
+      (M.IntToInt, M.TyInt _, M.TyUint M.USize)
        | MirExp (C.BVRepr sz) e0 <- e
        -> return $ MirExp UsizeRepr (sbvToUsize sz R.App e0)
 
-      (M.Misc, M.TyUint M.USize, M.TyUint bsz)
+      (M.IntToInt, M.TyUint M.USize, M.TyUint bsz)
        | MirExp UsizeRepr e0 <- e
        -> baseSizeToNatCont bsz $ \w -> return $
          MirExp (C.BVRepr w) (usizeToBv w R.App e0)
 
-      (M.Misc, M.TyInt M.USize, M.TyUint bsz)
+      (M.IntToInt, M.TyInt M.USize, M.TyUint bsz)
        | MirExp IsizeRepr e0 <- e
        -> baseSizeToNatCont bsz $ \w -> return $
          MirExp (C.BVRepr w) (isizeToBv w R.App e0)
 
-      (M.Misc, M.TyUint M.USize, M.TyInt bsz)
+      (M.IntToInt, M.TyUint M.USize, M.TyInt bsz)
        | MirExp UsizeRepr e0 <- e
        -> baseSizeToNatCont bsz $ \w -> return $
          MirExp (C.BVRepr w) (usizeToBv w R.App e0)
 
-      (M.Misc, M.TyInt M.USize, M.TyInt bsz)
+      (M.IntToInt, M.TyInt M.USize, M.TyInt bsz)
        | MirExp IsizeRepr e0 <- e
        -> baseSizeToNatCont bsz $ \w -> return $
          MirExp (C.BVRepr w) (isizeToBv w R.App e0)
 
-      (M.Misc, M.TyUint _, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e
-      (M.Misc, M.TyInt _,  M.TyInt s)  -> baseSizeToNatCont s $ extendSignedBV e
+      (M.IntToInt, M.TyUint _, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e
+      (M.IntToInt, M.TyInt _,  M.TyInt s)  -> baseSizeToNatCont s $ extendSignedBV e
 
       -- unsigned to signed (nothing to do except fix sizes)
-      (M.Misc, M.TyUint _, M.TyInt s)  -> baseSizeToNatCont s $ extendUnsignedBV e
+      (M.IntToInt, M.TyUint _, M.TyInt s)  -> baseSizeToNatCont s $ extendUnsignedBV e
 
       -- signed to unsigned.  Testing indicates that this sign-extends.
-      (M.Misc, M.TyInt _,  M.TyUint s) -> baseSizeToNatCont s $ extendSignedBV e
+      (M.IntToInt, M.TyInt _,  M.TyUint s) -> baseSizeToNatCont s $ extendSignedBV e
 
        -- boolean to nat
-      (M.Misc, TyBool, TyUint M.USize)
+      (M.IntToInt, TyBool, TyUint M.USize)
        | MirExp C.BoolRepr e0 <- e
        -> return $ MirExp UsizeRepr (R.App $ usizeIte e0 (R.App $ usizeLit 1) (R.App $ usizeLit 0))
-      (M.Misc, TyBool, TyInt M.USize)
+      (M.IntToInt, TyBool, TyInt M.USize)
 
        -- boolean to integer
        | MirExp C.BoolRepr e0 <- e
        -> return $ MirExp IsizeRepr (R.App $ isizeIte e0 (R.App $ isizeLit 1) (R.App $ isizeLit 0))
 
       -- booleans to BVs
-      (M.Misc, TyBool, TyUint bsz)
+      (M.IntToInt, TyBool, TyUint bsz)
        | MirExp C.BoolRepr e0 <- e
        -> baseSizeToNatCont bsz $ \w ->
            return $ MirExp (C.BVRepr w) (R.App $ E.BVIte e0 w (R.App $ eBVLit w 1) (R.App $ eBVLit w 0))
-      (M.Misc, TyBool, TyInt bsz)
+      (M.IntToInt, TyBool, TyInt bsz)
        | MirExp C.BoolRepr e0 <- e
        -> baseSizeToNatCont bsz $ \w ->
            return $ MirExp (C.BVRepr w) (R.App $ E.BVIte e0 w (R.App $ eBVLit w 1) (R.App $ eBVLit w 0))
 
       -- char to usize
-      (M.Misc, M.TyChar, M.TyUint  M.USize)
+      (M.IntToInt, M.TyChar, M.TyUint  M.USize)
        | MirExp (C.BVRepr sz) e0 <- e
        -> return $ MirExp UsizeRepr (bvToUsize sz R.App e0)
       -- char to other uint
-      (M.Misc, M.TyChar, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e
+      (M.IntToInt, M.TyChar, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e
 
       -- byte to char
-      (M.Misc, M.TyUint B8, M.TyChar) -> baseSizeToNatCont M.B32 $ extendUnsignedBV e
+      (M.IntToInt, M.TyUint B8, M.TyChar) -> baseSizeToNatCont M.B32 $ extendUnsignedBV e
 
 
 
@@ -1100,11 +1100,11 @@ evalCast' ck ty1 e ty2  = do
       (M.Misc, M.TyAdt aname _ _, M.TyInt sz) -> do
         adt <- findAdt aname
         discr <- enumDiscriminant adt e
-        evalCast' M.Misc (M.TyInt M.USize) discr (M.TyInt sz)
+        evalCast' M.IntToInt (M.TyInt M.USize) discr (M.TyInt sz)
       (M.Misc, M.TyAdt aname _ _, M.TyUint sz) -> do
         adt <- findAdt aname
         discr <- enumDiscriminant adt e
-        evalCast' M.Misc (M.TyInt M.USize) discr (M.TyUint sz)
+        evalCast' M.IntToInt (M.TyInt M.USize) discr (M.TyUint sz)
 
       -- References have the same representation as Raw pointers
       (M.Misc, M.TyRef ty1' mut1, M.TyRawPtr ty2' mut2)

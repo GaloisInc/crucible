@@ -503,7 +503,7 @@ instance FromJSON CastKind where
             Just (String "PointerExposeProvenance") -> pure Misc
             Just (String "PointerWithExposedProvenance") -> pure Misc
             Just (String "DynStar") -> pure Misc
-            Just (String "IntToInt") -> pure Misc
+            Just (String "IntToInt") -> pure IntToInt
             Just (String "FloatToInt") -> pure FloatToInt
             Just (String "FloatToFloat") -> pure FloatToFloat
             Just (String "IntToFloat") -> pure IntToFloat
