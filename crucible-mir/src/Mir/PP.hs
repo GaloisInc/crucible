@@ -409,7 +409,7 @@ instance Pretty ConstVal where
     pretty (ConstRawPtr a) = pretty a
     pretty (ConstStruct fs) = pretty "struct" <> list (map pretty fs)
     pretty (ConstEnum v fs) = pretty "enum" <> list ((pretty "variant" <+> pretty v) : map pretty fs)
-    pretty ConstUnion = pretty "union"
+    pretty (ConstUnion v f) = pretty "union" <> list [pretty "variant" <+> pretty v, pretty f]
     pretty (ConstSliceRef a _len) = pretty "&" <> pr_id a
     pretty (ConstFnPtr i)   = pretty "fn_ptr" <> brackets (pretty i)
     pretty (ConstTraitObject a trait vtable) =
@@ -442,9 +442,9 @@ instance Pretty Trait where
           rbrace]
 
 instance Pretty Static where
-  pretty (Static nm ty mut mbConst) =
+  pretty (Static nm ty mut constI) =
     pretty mut <+> pretty nm <+> pretty ":" <+> pretty ty <+>
-    maybe mempty (\c -> pretty "=" <+> pretty c) mbConst
+      pretty "=" <+> pretty constI
 
 instance Pretty Intrinsic where
   pretty (Intrinsic name inst) = pretty name <+> pretty "=" <+> pretty inst

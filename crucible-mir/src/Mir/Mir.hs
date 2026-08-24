@@ -326,8 +326,7 @@ data Collection = Collection {
     -- ADTs, indexed by original (pre-monomorphization) DefId
     _adtsOrig  :: !(Map AdtName [Adt]),
     _traits    :: !(Map TraitName Trait),
-    -- Static decls, indexed by name.  For each of these, there is an
-    -- initializer in `functions` with the same name.
+    -- Static decls, indexed by name.
     _statics   :: !(Map DefId Static),
     _vtables   :: !(Map VtableName Vtable),
     _intrinsics :: !(Map IntrinsicName Intrinsic),
@@ -692,7 +691,7 @@ data ConstVal =
   | ConstRawPtr Integer
   | ConstStruct [ConstVal]
   | ConstEnum Int [ConstVal]
-  | ConstUnion
+  | ConstUnion Int ConstVal
   | ConstFnPtr DefId
   -- | A reference to a trait object (e.g., @&dyn Trait@). The 'DefId' is the
   -- allocation backing the reference, the 'TraitName' is the name of the
@@ -724,8 +723,7 @@ data Static   = Static {
     _sName          :: DefId            -- ^ name of fn that initializes this static
   , _sTy            :: Ty
   , _sMutable       :: Bool             -- ^ true for "static mut"
-  , _sConstVal      :: Maybe ConstVal   -- ^ 'Just' if this static is initialized
-                                        -- with a constant value. 'Nothing' otherwise.
+  , _sConstVal      :: ConstVal         -- ^ Initial value
   }
   deriving (Show, Eq, Ord, Generic)
 
