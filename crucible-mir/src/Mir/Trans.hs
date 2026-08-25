@@ -3405,13 +3405,17 @@ transStatics colState halloc = do
                 constval = static ^. sConstVal
                 constty = static ^. sTy
             Some tpr <- tyToReprM constty
-            MirExp constty' constval' <- transConstVal constty (Some tpr) constval
-            case testEquality repr constty' of
-              Just Refl -> G.writeGlobal g constval'
-              Nothing -> error $ "BUG: invalid type for constant initializer " ++ fmt staticName
-                              ++ ", expected " ++ show repr ++ ", got " ++ show constty'
+            case constval of
+              -- If the initializer is unsupported, leave it uninitialized
+              ConstUnsupported -> pure ()
+              _ ->
+                do
+                  MirExp constty' constval' <- transConstVal constty (Some tpr) constval
+                  case testEquality repr constty' of
+                    Just Refl -> G.writeGlobal g constval'
+                    Nothing -> error $ "BUG: invalid type for constant initializer " ++ fmt staticName
+                                    ++ ", expected " ++ show repr ++ ", got " ++ show constty'
 
-             
           Nothing -> error $ "BUG: cannot find global for " ++ fmt staticName
 
   -- TODO: make the name of the static initialization function configurable

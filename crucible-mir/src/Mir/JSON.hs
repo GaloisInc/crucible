@@ -627,6 +627,8 @@ instance FromJSON ConstVal where
               <*> v .: "trait_id"
               <*> v .: "vtable"
 
+        Just (String "unsupported") -> pure ConstUnsupported
+
         o -> do
             fail $ "parseJSON - bad rendered constant kind: " ++ show o
 

@@ -698,6 +698,7 @@ data ConstVal =
   -- trait object's principal trait, and the 'VtableName' is the name of the
   -- trait object's vtable.
   | ConstTraitObject DefId TraitName VtableName
+  | ConstUnsupported -- ^ A value that `mir-json` doesn't know how to handle
   deriving (Show,Eq, Ord, Generic)
 
 data AggregateKind =
