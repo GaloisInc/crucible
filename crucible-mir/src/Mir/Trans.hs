@@ -3411,7 +3411,7 @@ transStatics colState halloc = do
               Nothing -> error $ "BUG: invalid type for constant initializer " ++ fmt staticName
                               ++ ", expected " ++ show repr ++ ", got " ++ show constty'
 
-             
+
           Nothing -> error $ "BUG: cannot find global for " ++ fmt staticName
 
   -- TODO: make the name of the static initialization function configurable
@@ -3419,7 +3419,7 @@ transStatics colState halloc = do
   initHandle <- FH.mkHandle' halloc initName Ctx.empty C.UnitRepr
   let staticDecls :: [Static]
       staticDecls = Map.elems (colState ^. collection.statics)
-  
+
   let def :: G.FunctionDef MIR FnState Ctx.EmptyCtx C.UnitType (ST w)
       def _inputs = (s, f) where
           s = initFnState colState StaticContext
