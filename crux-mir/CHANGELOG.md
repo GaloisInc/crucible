@@ -1,7 +1,7 @@
 # next
 
 This release supports [version
-12](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#12) of
+13](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#13) of
 `mir-json`'s schema.
 
 * Float-typed results (e.g., `f32`s or `f64`s) in `crux::test`s now display as

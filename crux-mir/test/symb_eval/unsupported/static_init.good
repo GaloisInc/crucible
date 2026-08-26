@@ -1,0 +1,25 @@
+test static_init/<DISAMB>::crux_test[0]: [Crux] Attempting to prove verification conditions.
+FAILED
+
+failures:
+
+---- static_init/<DISAMB>::crux_test[0] counterexamples ----
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/unsupported/static_init.rs:15:14: 15:19: error: in static_init/<DISAMB>::crux_test[0]
+[Crux]   Attempted to read uninitialized reference cell
+[Crux]   Context:
+[Crux]     test/symb_eval/unsupported/static_init.rs:15:14: 15:19: static_init/<DISAMB>::crux_test[0]
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/unsupported/static_init.rs:15:14: 15:19: error: in static_init/<DISAMB>::crux_test[0]
+[Crux]   attempted to read empty mux tree
+[Crux]   Context:
+[Crux]     test/symb_eval/unsupported/static_init.rs:15:14: 15:19: static_init/<DISAMB>::crux_test[0]
+
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 2
+[Crux]   Proved: 0
+[Crux]   Disproved: 2
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Invalid.
