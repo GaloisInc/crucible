@@ -27,6 +27,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE NoDeepSubsumption #-} -- workaround for 9.12 bug, see #1828
 
 {-# OPTIONS_GHC -fno-warn-orphans #-}
 module Lang.Crucible.SymIO
