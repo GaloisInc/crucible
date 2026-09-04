@@ -1,5 +1,7 @@
 # next
 
+- Add support for GHC 9.12 (at 9.12.2) and bump from 9.10.1 to 9.10.3.
+
 - **Breaking:** Drop the `Generic` instances from `ColorOptions`, `CruxOptions`,
   `EarlyConfig`, and `OutputOptions`.
 - The following `Lens'` functions are now exported: `outputOptionsL`,

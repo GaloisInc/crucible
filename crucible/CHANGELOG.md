@@ -1,5 +1,6 @@
 # next
 
+* Add support for GHC 9.12 (at 9.12.2) and bump from 9.10.1 to 9.10.3.
 * Fix `uniquelyConcRegMap` blocking clause: use disjunction (OR) instead of
   conjunction (AND). The old code would falsely report a `RegMap` as uniquely
   concretized whenever any single component was unique, even if other components

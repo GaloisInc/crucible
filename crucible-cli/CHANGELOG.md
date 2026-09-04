@@ -1,5 +1,6 @@
 # next
 
+* Add support for GHC 9.12 (at 9.12.2) and bump from 9.10.1 to 9.10.3.
 * Test-specific overrides (`proveObligations` and `crucible-print-assumption-state`)
   have been moved from `crucible-syntax`'s `Lang.Crucible.Syntax.Overrides` module
   into the `crucible-cli` test suite's `Overrides` module. This prevents library
