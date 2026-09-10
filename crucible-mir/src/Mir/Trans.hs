@@ -1468,8 +1468,8 @@ mkTraitObject :: forall h s ret.
     MirExp s ->
     MirGenerator h s ret (MirExp s)
 mkTraitObject traitName' vtableName e = do
-    handles <- Maybe.fromMaybe (error $ "missing vtable handles for " ++ show vtableName) <$>
-        use (cs . vtableMap . at vtableName)
+    mbHandles <- use (cs . vtableMap . at vtableName)
+    let handles = Maybe.fromMaybe (error $ "missing vtable handles for " ++ show vtableName) mbHandles
 
     col <- use $ cs . collection
     vtable <- case col ^. vtables . at vtableName of
@@ -1491,9 +1491,10 @@ mkTraitObject traitName' vtableName e = do
     -- trait.  A mismatch would cause runtime errors at calls to trait methods.
     trait <- Maybe.fromMaybe (error $ "unknown trait " ++ show traitName') <$>
         use (cs . collection . M.traits . at traitName')
-    Some vtableTy' <- case traitVtableType col trait of
-                        Left err -> error ("mkTraitObject: " ++ err)
-                        Right x -> return x
+    let someVtableTy' = case traitVtableType col trait of
+          Left err -> error ("mkTraitObject: " ++ err)
+          Right x -> x
+    Some vtableTy' <- pure someVtableTy'
     case testEquality vtableTy vtableTy' of
         Just _ -> return ()
         Nothing -> error $ unwords

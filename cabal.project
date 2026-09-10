@@ -36,3 +36,11 @@ optional-packages:
   dependencies/what4/what4-domains/
   dependencies/rme/rme/
   dependencies/rme/rme-what4/
+
+-- there is no ring-buffer that permits GHC 9.12's base version
+--    https://github.com/bgamari/ring-buffer/pull/9
+allow-newer: ring-buffer:base
+
+-- boomerang doesn't permit GHC 9.12's template-haskell
+--    https://github.com/Happstack/boomerang/issues/14
+allow-newer: boomerang:template-haskell

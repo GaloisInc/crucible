@@ -4,6 +4,8 @@ This release supports [version
 13](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#13) of
 `mir-json`'s schema.
 
+* Add support for GHC 9.12 (at 9.12.2) and bump from 9.10.1 to 9.10.3.
+
 * Float-typed results (e.g., `f32`s or `f64`s) in `crux::test`s now display as
   IEEE-754 floats instead of as rationals.
 

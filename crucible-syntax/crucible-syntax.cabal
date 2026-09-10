@@ -34,7 +34,6 @@ common shared
   ghc-options:
     -Wall
     -Werror=ambiguous-fields
-    -Werror=compat-unqualified-imports
     -Werror=deferred-type-errors
     -Werror=deprecated-flags
     -Werror=deprecations
@@ -106,13 +105,17 @@ common shared
       -Werror=deprecated-type-abstractions
       -Werror=incomplete-record-selectors
 
+  if impl(ghc < 9.12)
+    ghc-options:
+      -Werror=compat-unqualified-imports
+
   ghc-prof-options: -O2 -fprof-auto-top
   default-language: Haskell2010
 
 library
   import: shared
   build-depends:
-    base >= 4.9 && < 4.21,
+    base >= 4.9 && < 4.22,
     bv-sized >= 1.0.0,
     containers >= 0.6.0.1,
     crucible >= 0.1,
