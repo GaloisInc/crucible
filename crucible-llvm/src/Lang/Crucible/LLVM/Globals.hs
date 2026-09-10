@@ -437,7 +437,7 @@ buildLoadRelConstInitMap globalMap m = foldMap defineConstInits (L.modDefines m)
     stmtConstInits (L.Effect instr _ _)   = instrConstInits instr
 
     instrConstInits :: L.Instr -> LoadRelConstInitMap
-    instrConstInits (L.Call _ _ (L.ValSymbol fun) [ptr, _offset])
+    instrConstInits (L.Call _ _ (L.ValSymbol fun) [ptr, _offset] _)
       | L.Symbol funStr <- fun
       , "llvm.load.relative.i" `isPrefixOf` funStr
       , Just (gs, foldedConstTy, foldedConstInit) <-

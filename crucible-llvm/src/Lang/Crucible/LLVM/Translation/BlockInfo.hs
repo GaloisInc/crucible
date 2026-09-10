@@ -122,10 +122,16 @@ buildSuccSet (s:ss) =
     L.Unreachable -> mempty
     L.Jump l -> Set.singleton l
     L.Br _ l1 l2 -> Set.fromList [l1,l2]
-    L.CallBr _ _ _ norm other -> Set.fromList (norm:other)
-    L.Invoke _ _ _ l1 l2 -> Set.fromList [l1,l2]
+    L.CallBr _ _ _ norm other _ -> Set.fromList (norm:other)
+    L.Invoke _ _ _ l1 l2 _ -> Set.fromList [l1,l2]
     L.IndirectBr _ ls -> Set.fromList ls
     L.Switch _ ldef ls -> Set.fromList (ldef:map snd ls)
+    -- Windows SEH terminators: simulation refuses these, but the successor
+    -- sets must stay accurate so predecessor maps remain correct.
+    L.CatchRet _ l -> Set.singleton l
+    L.CleanupRet _ ml -> maybe Set.empty Set.singleton ml
+    L.CatchSwitch _ ls ml ->
+      Set.union (Set.fromList ls) (maybe Set.empty Set.singleton ml)
     _ -> buildSuccSet ss
 
 
@@ -192,7 +198,7 @@ updateUseSet lab bi bim = if newuse == block_use_set bi then Nothing else Just b
 
   loop (L.Result nm i _dr _md:ss) =
     case i of
-      L.Invoke _tp f args l_normal l_unwind ->
+      L.Invoke _tp f args l_normal l_unwind _ ->
             -- the use sets from the function value, arguments, and unwind label
         let uss = [useVal f, useLabel lab l_unwind bim] ++ map useTypedVal args
             -- the use set from the normal return label, note that nm is in scope here
@@ -200,7 +206,7 @@ updateUseSet lab bi bim = if newuse == block_use_set bi then Nothing else Just b
             -- invoke is a block terminator, we can ignore the tail of the list
          in Set.unions (u_normal : uss)
 
-      L.CallBr _tp f args l_normal ls ->
+      L.CallBr _tp f args l_normal ls _ ->
             -- the use sets from the function value, arguments, and non-normal
             -- labels
         let uss = useVal f:(map (\l -> useLabel lab l bim) ls ++ map useTypedVal args)
@@ -224,9 +230,9 @@ instrUse from i bim = Set.unions $ case i of
   L.Arith _op x y -> [useTypedVal x, useVal y]
   L.Bit _op x y -> [useTypedVal x, useVal y ]
   L.Conv _op x _tp -> [useTypedVal x]
-  L.Call _tailCall _tp f args -> useVal f : map useTypedVal args
+  L.Call _tailCall _tp f args _ -> useVal f : map useTypedVal args
   -- NB, this is only correct for "callbr" instructions that don't assign the return value
-  L.CallBr _tp f args norm ls ->
+  L.CallBr _tp f args norm ls _ ->
     [useVal f, useLabel from norm bim] ++
       map (\l -> useLabel from l bim) ls ++
       map useTypedVal args
@@ -249,7 +255,7 @@ instrUse from i bim = Set.unions $ case i of
   L.Jump l -> [useLabel from l bim]
   L.Br c l1 l2 -> [useTypedVal c, useLabel from l1 bim, useLabel from l2 bim]
   -- NB, this is only correct for "invoke" instructions that don't assign the return value
-  L.Invoke _tp f args l1 l2 -> [useVal f, useLabel from l1 bim, useLabel from l2 bim] ++ map useTypedVal args
+  L.Invoke _tp f args l1 l2 _ -> [useVal f, useLabel from l1 bim, useLabel from l2 bim] ++ map useTypedVal args
   L.Comment{} -> []
   L.Unreachable -> []
   L.Unwind -> [] -- ??
@@ -261,6 +267,12 @@ instrUse from i bim = Set.unions $ case i of
   L.LandingPad _tp (Just cleanup) _ cls -> useTypedVal cleanup : map useClause cls
   L.UnaryArith _op x -> [useTypedVal x]
   L.Freeze x -> [useTypedVal x]
+  L.CleanupPad p as -> useTypedVal p : map useTypedVal as
+  L.CatchPad p as -> useTypedVal p : map useTypedVal as
+  L.CleanupRet p ml -> useTypedVal p : maybe [] (\l -> [useLabel from l bim]) ml
+  L.CatchRet p l -> [useTypedVal p, useLabel from l bim]
+  L.CatchSwitch p ls ml -> useTypedVal p : map (\l -> useLabel from l bim) ls
+                           ++ maybe [] (\l -> [useLabel from l bim]) ml
 
 useClause :: L.Clause -> Set L.Ident
 useClause (L.Catch v) = useTypedVal v

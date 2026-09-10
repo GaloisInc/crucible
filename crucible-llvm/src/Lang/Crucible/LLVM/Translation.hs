@@ -265,7 +265,7 @@ processDbgDeclare = snd . go
               m'  = Map.alter (Just . maybe md' (md'++)) y m
            in (m', stmt:stmts)
 
-        L.Effect (L.Call _ _ (L.ValSymbol "llvm.dbg.declare") (L.Typed _ (L.ValMd (L.ValMdValue (L.Typed _ (L.ValIdent x)))) : _)) _dr md ->
+        L.Effect (L.Call _ _ (L.ValSymbol "llvm.dbg.declare") (L.Typed _ (L.ValMd (L.ValMdValue (L.Typed _ (L.ValIdent x)))) : _) _) _dr md ->
           (Map.insert x md m, stmt : stmts')
 
         -- This is needlessly fragile. Let's just ignore debug declarations we don't understand.
