@@ -140,7 +140,7 @@ library
     microlens-mtl,
     microlens-th,
     itanium-abi >= 0.1.1.1 && < 0.2,
-    llvm-pretty >= 0.14.0.0.100 && < 0.15,
+    llvm-pretty >= 0.15.0.0 && < 0.16,
     mtl,
     parameterized-utils >= 2.3 && < 2.4,
     pretty,
