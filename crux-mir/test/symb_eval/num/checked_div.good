@@ -1,4 +1,4 @@
-test checked_div/<DISAMB>::crux_test[0]: returned 65, [Crux] Attempting to prove verification conditions.
+test checked_div/<DISAMB>::crux_test[0]: returned Symbolic BV, [Crux] Attempting to prove verification conditions.
 FAILED
 
 failures:
@@ -22,12 +22,17 @@ failures:
 [Crux]   Context:
 [Crux]     test/symb_eval/num/checked_div.rs:8:5: 8:10: checked_div/<DISAMB>::div_unsigned[0]
 [Crux]     test/symb_eval/num/checked_div.rs:20:17: 20:35: checked_div/<DISAMB>::crux_test[0]
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/num/checked_div.rs:22:33: 22:40: error: in checked_div/<DISAMB>::crux_test[0]
+[Crux]   attempt to compute `copy _6 + copy _7`, which would overflow
+[Crux]   Context:
+[Crux]     test/symb_eval/num/checked_div.rs:22:33: 22:40: checked_div/<DISAMB>::crux_test[0]
 
 [Crux-MIR] ---- FINAL RESULTS ----
 [Crux] Goal status:
-[Crux]   Total: 3
-[Crux]   Proved: 0
-[Crux]   Disproved: 3
+[Crux]   Total: 6
+[Crux]   Proved: 2
+[Crux]   Disproved: 4
 [Crux]   Incomplete: 0
 [Crux]   Unknown: 0
 [Crux] Overall status: Invalid.
