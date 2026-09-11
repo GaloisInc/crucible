@@ -54,6 +54,8 @@ This release supports [version
 * Allow casting pointers to unsafe pointers, which at present should be OK,
   as we don't track the safe/unsafe attribute of pointers anyway.
 
+# next
+
 # 0.10 -- 2025-03-21
 
 This release supports [version
