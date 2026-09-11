@@ -1,4 +1,4 @@
-# next
+# 0.13 -- 2026-09-11
 
 This release supports [version
 13](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#13) of
@@ -53,6 +53,8 @@ This release supports [version
 * Allow calling `crucible::concretize` on `static` references.
 * Allow casting pointers to unsafe pointers, which at present should be OK,
   as we don't track the safe/unsafe attribute of pointers anyway.
+
+# next
 
 # 0.10 -- 2025-03-21
 

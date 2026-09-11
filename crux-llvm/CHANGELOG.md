@@ -1,4 +1,4 @@
-# next
+# 0.13 -- 2026-09-11
 
 * Add support for GHC 9.12 (at 9.12.2) and bump from 9.10.1 to 9.10.3.
 * Support LLVM 22.
@@ -10,6 +10,8 @@
 
 * Sync the version number with `crux-mir-0.11` as part of the overall Crux 0.10
   release.
+
+# next
 
 # 0.10 -- 2025-03-24
 
