@@ -157,7 +157,8 @@ jobs:
           cargo install --locked --force
           mir-json-translate-libs
           echo "CRUX_RUST_LIBRARY_PATH=$(pwd)/rlibs" >> $GITHUB_ENV
-
+        env:
+          SCHEMA_VER: ${mir-json -V | grep "schema"}
       - run: .github/ci.sh configure
 
       - name: Generate source distributions
@@ -176,13 +177,39 @@ jobs:
           crucible-syntax
           crux-mir
 
+      
+
       - name: Haddock
         # See Note [--disable-documentation] in `crucible-go-build.yml`.
         run: cabal haddock --disable-documentation crucible-syntax crucible-concurrency crux-mir
 
       - run: .github/ci.sh test crucible-mir-syntax
       - run: .github/ci.sh test crucible-mir-cli
+      
+      - name: Save MIR schema version
+        run: echo "SCHEMA_VER=$(mir-json -V | grep "schema" | sed -r 's/[ ()]+/-/g')" >> $GITHUB_ENV
+
+      # Restore cache for MIR tests to avoid long CI builds
+      - name: Restore MIR cache
+        uses: actions/cache/restore@v6
+        id: mir-cache
+        if: always()
+        with:
+            path: |
+              crux-mir/test/**/*.mir
+            key: mir-cache-os-${{ matrix.os }}-arch-${{ runner.arch }}-ghc-${{ matrix.ghc }}-${{env.SCHEMA_VER}}
+
       - run: .github/ci.sh test crux-mir
+
+
+      - name: Save MIR cache
+        uses: actions/cache/save@v6
+        if: always()
+        with:
+          path: |
+            crux-mir/test/**/*.mir
+          key: ${{ steps.mir-cache.outputs.cache-primary-key }}
+
 
       - uses: actions/cache/save@v6
         name: Save cabal store cache
