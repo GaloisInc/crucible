@@ -186,29 +186,29 @@ jobs:
       - run: .github/ci.sh test crucible-mir-syntax
       - run: .github/ci.sh test crucible-mir-cli
       
-      - name: Save MIR schema version
-        run: echo "SCHEMA_VER=$(mir-json -V | grep "schema" | sed -r 's/[ ()]+/-/g')" >> $GITHUB_ENV
+      # - name: Save MIR schema version
+      #   run: echo "SCHEMA_VER=$(mir-json -V | grep "schema" | sed -r 's/[ ()]+/-/g')" >> $GITHUB_ENV
 
-      # Restore cache for MIR tests to avoid long CI builds
-      - name: Restore MIR cache
-        uses: actions/cache/restore@v6
-        id: mir-cache
-        if: always()
-        with:
-            path: |
-              crux-mir/test/**/*.mir
-            key: mir-cache-os-${{ matrix.os }}-arch-${{ runner.arch }}-ghc-${{ matrix.ghc }}-${{env.SCHEMA_VER}}
+      # # Restore cache for MIR tests to avoid long CI builds
+      # - name: Restore MIR cache
+      #   uses: actions/cache/restore@v6
+      #   id: mir-cache
+      #   if: always()
+      #   with:
+      #       path: |
+      #         crux-mir/test/**/*.mir
+      #       key: mir-cache-os-${{ matrix.os }}-arch-${{ runner.arch }}-ghc-${{ matrix.ghc }}-${{env.SCHEMA_VER}}
 
       - run: .github/ci.sh test crux-mir
 
 
-      - name: Save MIR cache
-        uses: actions/cache/save@v6
-        if: always()
-        with:
-          path: |
-            crux-mir/test/**/*.mir
-          key: ${{ steps.mir-cache.outputs.cache-primary-key }}
+      # - name: Save MIR cache
+      #   uses: actions/cache/save@v6
+      #   if: always()
+      #   with:
+      #     path: |
+      #       crux-mir/test/**/*.mir
+      #     key: ${{ steps.mir-cache.outputs.cache-primary-key }}
 
 
       - uses: actions/cache/save@v6
