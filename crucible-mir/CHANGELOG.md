@@ -1,3 +1,9 @@
+# next
+
+This release supports [version
+13](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#13) of
+`mir-json`'s schema.
+
 # 0.7 -- 2026-09-25
 
 This release supports [version
