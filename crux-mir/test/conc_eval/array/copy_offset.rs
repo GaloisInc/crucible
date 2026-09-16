@@ -24,7 +24,7 @@ fn crux_test() -> u32 {
     };
     let mut dest = [A(0, 0); 3];
     unsafe {
-        std::ptr::copy(&b.y[0], &mut dest[0], 3);
+        std::ptr::copy(b.y.as_ptr(), dest.as_mut_ptr(), 3);
     }
     dest[1].1
 }
