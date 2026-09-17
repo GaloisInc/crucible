@@ -1,11 +1,4 @@
-// FAIL: non-integer peelIndex
-//
-// `ptr::copy` dispatches to `intrinsics::copy`, which calls `mirRef_peelIndex` on the `src`
-// pointer.  This tries to convert the offset of the `AgOffset_RefPath` to an index by dividing it
-// by the element size, failing if this would produce a non-integer index.  This can fail in
-// practice if the element type has size strictly greater than alignment, like in this case where
-// type `A` has size 8, alignment 4, and the offset of the pointer is 4 (a multiple of the
-// alignment but not of the size).
+//! A regression test for #1901.
 
 #[derive(Clone, Copy)]
 struct A(u32, u32);
