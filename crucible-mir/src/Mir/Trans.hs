@@ -1200,6 +1200,7 @@ evalCast' ck ty1 e ty2  = do
                         show shimDefId
 
       (M.Transmute, _, _) -> transmuteExp e ty1 ty2
+      (M.BoxDerefTransmute, _, _) -> transmuteExp e ty1 ty2
 
       -- This casts from a safe pointer to an unsafe one.
       -- Since we don't track safeness this is just a no-op for now, but if
@@ -1527,6 +1528,8 @@ mkTraitObject traitName' vtableName e = do
 
 evalRval :: HasCallStack => M.Rvalue -> MirGenerator h s ret (MirExp s)
 evalRval (M.Use op) = evalOperand op
+evalRval (M.Reborrow {}) =
+    mirFail "evalRval: Reborrow not supported"
 evalRval (M.Repeat op size) = buildRepeat op size
 evalRval (M.Ref _bk lv _) = evalPlace lv >>= addrOfPlace
 evalRval (M.AddressOf _mutbl lv) = evalPlace lv >>= addrOfPlace

@@ -224,6 +224,7 @@ instance Pretty Lvalue where
 
 instance Pretty Rvalue where
     pretty (Use a) = pretty a
+    pretty (Reborrow place targetTy) = pretty_fn2 "Reborrow" place targetTy
     pretty (Repeat a b) = brackets (pretty a <> semi <> pretty b)
     pretty (Ref Shared b _c) = pretty "&" <> pretty b
     pretty (Ref Mutable b _c) = pretty "&mut" <+> pretty b

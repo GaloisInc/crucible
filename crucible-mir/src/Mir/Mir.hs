@@ -245,6 +245,7 @@ data Instance = Instance
 data InstanceKind =
       IkItem
     | IkIntrinsic
+    | IkLlvmIntrinsic
     | IkVtableShim
     | IkReifyShim
     | IkFnPtrShim Ty
@@ -465,6 +466,7 @@ instance Ord Lvalue where
 data Rvalue =
         Use { _uop :: Operand }
         -- ^ just read an lvalue
+      | Reborrow { _reborrowPlace :: Lvalue, _reborrowTargetTy :: Ty }
       | Repeat { _rop :: Operand, _rlen :: ConstUsize }
       | Ref { _rbk :: BorrowKind, _rvar :: Lvalue, _rregion :: Text }
       | AddressOf { _aomutbl :: Mutability, _aoplace :: Lvalue }
@@ -641,6 +643,7 @@ data CastKind =
   | Unsize
   | UnsizeVtable VtableName
   | Transmute
+  | BoxDerefTransmute
   | Subtype
   deriving (Show,Eq, Ord, Generic)
 
@@ -917,6 +920,7 @@ typeOfProj elm baseTy = case elm of
 
 instance TypeOf Rvalue where
   typeOf (Use a) = typeOf a
+  typeOf (Reborrow _ targetTy) = targetTy
   typeOf (Repeat a sz) = TyArray (typeOf a) (fromIntegral sz)
   typeOf (Ref Shared lv _)  = TyRef (typeOf lv) Immut
   typeOf (Ref Mutable lv _) = TyRef (typeOf lv) Mut
@@ -1028,5 +1032,3 @@ dropSubsts = coerce (drop @Ty)
 -- length n and second element is the remainder of the list
 splitAtSubsts :: Int -> Substs -> (Substs,Substs)
 splitAtSubsts = coerce (splitAt @Ty)
-
-
