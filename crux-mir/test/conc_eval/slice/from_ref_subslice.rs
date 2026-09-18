@@ -1,5 +1,3 @@
-// FAIL: pointer arithmetic on a non-array
-
 #[cfg_attr(crux, crux::test)]
 fn crux_test() {
     let foo: i32 = 42;

@@ -2453,7 +2453,20 @@ initLocals localVars = forM_ localVars $ \v -> do
                   ++ ", for " ++ show (pretty ty)
             return $ Just val
 
-    ref <- newMirRef tpr
+    -- Local variables are allocated RefCells not of their own `TypeRepr`, but
+    -- of `MirAggregateRepr`. This is more faithful to Rust's own approach to
+    -- local variable representation, and allows us to do things like simulate
+    -- casts between `*mut T` and `*mut [T; 1]` such that the source and
+    -- destination refer to the same memory.
+    --
+    -- We get away with this without type mismatch errors on read/write because
+    -- `MirAggregate`s allow themselves to be read from and written to at any
+    -- type, and will succeed or fail depending on whether they contain a value
+    -- of that type at some offset. (That offset is assumed to be zero except
+    -- with `RefPath` operations that explicitly say otherwise.)
+    ref <- newMirRef MirAggregateRepr
+    ag <- mirAggregate_uninit_constSize tySize
+    writeMirRef MirAggregateRepr ref All ag
     case optVal of
         Nothing -> return ()
         Just val -> writeMirRef tpr ref (Width tySize) val
