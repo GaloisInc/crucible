@@ -243,6 +243,9 @@ tyToRepr col t0 = case t0 of
       _ | Just ty <- reprTransparentFieldTy col adt ->
           tyToRepr col ty
       M.Struct -> Right (Some MirAggregateRepr)
+      M.Enum _ | adt ^. M.adtSize == 0 ->
+        -- See Note [enum representation]
+        Right (Some MirAggregateRepr)
       M.Enum discrTy -> do
         Some discrTp <- tyToRepr col discrTy
         SomeRustEnumRepr _ ctx <- enumVariants col adt
@@ -1480,7 +1483,11 @@ buildStruct adt es =
 
 buildEnum' :: HasCallStack => M.Adt -> Int -> [Maybe (MirExp s)] ->
     MirGenerator h s ret (MirExp s)
-buildEnum' adt i es = do
+buildEnum' adt i es
+  | adt ^. M.adtSize == 0 =
+    -- See Note [enum representation]
+    MirExp MirAggregateRepr <$> mirAggregate_zst
+  | otherwise = do
     Some discrTp <- case adt ^. M.adtkind of
         M.Enum discrTy -> tyToReprM discrTy
         _ -> mirFail $ "expected enum, but got adt " ++ show (adt ^. M.adtname)
@@ -1607,6 +1614,26 @@ buildUnion unionAdt fieldIdx (MirExp actualFieldTpr fieldExpr) = do
   fullAg <- mirAggregate_set fieldOffset fieldSize actualFieldTpr fieldExpr emptyAg
   pure (MirExp MirAggregateRepr fullAg)
 
+
+{-
+Note [enum representation]
+--------------------------
+
+Crucible represents Rust enums of sizes greater than zero as
+`Mir.Intrinsics.Enum.RustEnumRepr`, which is roughly a pair of a discriminant
+value and a sequence of variants.
+
+Enums of size zero are a special case; Crucible represents them as (empty)
+`MirAggregate` values instead. Rust tends to give zero-sized types special
+treatment, such as eliding reads from or writes to memory containing them when
+generating MIR. This choice of representation makes it easier for us to
+accommodate those elisions by creating dummy values - constructing a dummy enum
+is a bit involved, while constructing a dummy aggregate is practically trivial.
+It also helps us maintain a quasi-invariant that all types of size 0 are
+represented as `MirAggregate`s.
+-}
+
+
 {-
 Note [union representation]
 ----------------------------------------
@@ -1730,7 +1757,18 @@ enumFieldRef adt i j ref0 = do
 
 enumDiscriminant :: M.Adt -> MirExp s ->
     MirGenerator h s ret (MirExp s)
-enumDiscriminant adt (MirExp enumTpr v) = do
+enumDiscriminant adt (MirExp enumTpr v)
+  | adt ^. M.adtSize == 0 = do
+    case filter (^. M.vinhabited) (adt ^. M.adtvariants) of
+      [variant] -> do
+        SomeRustEnumRepr discrTpr _ <- enumVariantsM adt
+        discr <- enumDiscrLit discrTpr (variant ^. M.discrval)
+        pure $ MirExp discrTpr (R.App discr)
+      [] ->
+        mirFail $ "can't evaluate discriminant of zero-variant enum (" <> show adt <> ")"
+      _ ->
+        mirFail $ "can't evaluate discriminant of multiple-variant, size-0 enum (" <> show adt <> ")"
+  | otherwise = do
     SomeRustEnumRepr discrTpr variantsCtx <- enumVariantsM adt
     Refl <- expectEnumOrFail discrTpr variantsCtx enumTpr
     return $ MirExp discrTpr $ R.App $ rustEnumDiscriminant discrTpr v
@@ -2027,6 +2065,9 @@ initialValue (M.TyAdt nm _ _) = do
             let var = M.onlyVariant adt
             fldExps <- mapM initField (var ^. M.vfields)
             Just <$> buildStruct' adt fldExps
+        M.Enum _ | adt ^. M.adtSize == 0 ->
+            -- See Note [enum representation]
+            Just . MirExp MirAggregateRepr <$> mirAggregate_zst
         M.Enum _ -> do
             case ifind (\_ vars -> vars ^. M.vinhabited) (adt ^. M.adtvariants) of
                 -- Uninhabited enums can't be initialized.
