@@ -1211,6 +1211,12 @@ evalCast' ck ty1 e ty2  = do
       -- explicit during optimizations and codegen.
       (M.Subtype, _, _) -> pure e
 
+      -- Allow certain casts on pattern types.  @TyPat t@ has the same Crucible
+      -- representation as @t@ itself, so simply unwrapping the type is okay.
+      (M.Unsize, M.TyPat ty1', M.TyPat ty2') -> evalCast' ck ty1' e ty2'
+      (M.UnsizeVtable _, M.TyPat ty1', M.TyPat ty2') -> evalCast' ck ty1' e ty2'
+      -- `M.Transmute` also implicitly works due to the reprs being identical.
+
       _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++
         "\n  ty: " ++ (show ty1) ++ "\n  as: " ++ (show ty2)
   where
