@@ -681,7 +681,7 @@ ptr_swap = ( ["core", "ptr", "swap"], \substs -> case substs of
 -- will not apply, and we will defer to the rustc-provided implementation.
 drop_in_place_dyn :: (ExplodedDefId, CustomRHS)
 drop_in_place_dyn =
-    ( ["core", "ptr", "drop_in_place"],
+    ( ["core", "ptr", "drop_glue"],
       \case
         Substs [TyDynamic traitName'] ->
             Just $ CustomOp $ \argTys args -> case (argTys, args) of
