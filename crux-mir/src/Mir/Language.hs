@@ -626,6 +626,14 @@ showRegEntry sym fm col mty entry@(C.RegEntry tp rv) =
                             ("when printing struct type " ++ show mty)
                 strs <- showAgFields mty ("struct type " ++ show mty) rv
                 return $ Right (var, strs)
+            Enum _ | adt ^. adtSize == 0 -> do
+                inhabitedVariant <- case filter (^. vinhabited) (adt ^. adtvariants) of
+                  [variant] ->
+                    pure variant
+                  vs -> fail $
+                    "when printing size-0 enum " <> show mty <>
+                    ", expected exactly 1 inhabited variant, but saw " <> show (length vs)
+                pure (Right (inhabitedVariant, []))
             Enum _ -> do
              case enumVariants col adt of
                Left err -> fail ("Type not supported: " ++ err)
@@ -690,7 +698,7 @@ showRegEntry sym fm col mty entry@(C.RegEntry tp rv) =
             aggregateLeafType ty'
         | Just adt <- findAdt' col name,
           Enum _ <- adt ^. adtkind ->
-            True
+            adt ^. adtSize /= 0
       _ -> False
 
     readFields :: FieldCtxRepr ctx -> Ctx.Assignment (C.RegValue' sym) ctx ->
