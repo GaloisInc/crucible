@@ -243,13 +243,14 @@ tyToRepr col t0 = case t0 of
       _ | Just ty <- reprTransparentFieldTy col adt ->
           tyToRepr col ty
       M.Struct -> Right (Some MirAggregateRepr)
-      M.Enum _ | adt ^. M.adtSize == 0 ->
-        -- See Note [enum representation]
-        Right (Some MirAggregateRepr)
-      M.Enum discrTy -> do
-        Some discrTp <- tyToRepr col discrTy
-        SomeRustEnumRepr _ ctx <- enumVariants col adt
-        Right (Some (RustEnumRepr discrTp ctx))
+      M.Enum discrTy
+        | adt ^. M.adtSize == 0 ->
+          -- See Note [enum representation]
+          Right (Some MirAggregateRepr)
+        | otherwise -> do
+          Some discrTp <- tyToRepr col discrTy
+          SomeRustEnumRepr _ ctx <- enumVariants col adt
+          Right (Some (RustEnumRepr discrTp ctx))
       M.Union ->
         -- See Note [union representation]
         Right (Some MirAggregateRepr)
@@ -2065,10 +2066,11 @@ initialValue (M.TyAdt nm _ _) = do
             let var = M.onlyVariant adt
             fldExps <- mapM initField (var ^. M.vfields)
             Just <$> buildStruct' adt fldExps
-        M.Enum _ | adt ^. M.adtSize == 0 ->
+        M.Enum _
+          | adt ^. M.adtSize == 0 ->
             -- See Note [enum representation]
             Just . MirExp MirAggregateRepr <$> mirAggregate_zst
-        M.Enum _ -> do
+          | otherwise -> do
             case ifind (\_ vars -> vars ^. M.vinhabited) (adt ^. M.adtvariants) of
                 -- Uninhabited enums can't be initialized.
                 Nothing -> return Nothing
