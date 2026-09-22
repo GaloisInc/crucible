@@ -746,11 +746,8 @@ intrinsics_copy = ( ["core", "intrinsics", "copy"], \substs -> case substs of
             --
             -- TODO: check for overlap and copy in reverse order if needed.
             -- This will let us avoid the temporary `constMirRef`.
-            (srcAg, srcIdx) <- mirRef_peelIndex src elemSize
-            srcSnapAg <- readMirRef MirAggregateRepr All srcAg
-            srcSnapRoot <- constMirRef MirAggregateRepr srcSnapAg
-            let srcElemOff = R.App $ usizeMul srcIdx (R.App $ usizeLit $ fromIntegral elemSize)
-            srcSnap <- mirRef_agOffset srcElemOff srcSnapRoot
+            srcSnapAg <- readMirRef MirAggregateRepr All src
+            srcSnap <- constMirRef MirAggregateRepr srcSnapAg
 
             ptrCopy elemTpr srcSnap dest count elemSize
             MirExp MirAggregateRepr <$> mirAggregate_zst
