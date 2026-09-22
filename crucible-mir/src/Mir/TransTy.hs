@@ -1357,7 +1357,17 @@ enumInfo adt i j = do
     return $ EnumInfo discrTp ctx idx ctx' idx' kind
 
 getEnumField :: M.Adt -> Int -> Int -> MirExp s -> MirGenerator h s ret (MirExp s)
-getEnumField adt i j (MirExp enumTpr e0) = do
+getEnumField adt i j e@(MirExp enumTpr e0)
+  | adt ^. M.adtSize == 0 =
+    -- See Note [enum representation]
+    case enumTpr of
+      MirAggregateRepr ->
+        pure e
+      _ ->
+        mirFail $
+          "getEnumField: zero-size enum (" <> show adt <>
+          ") had non-MirAggregate representation: " <> show enumTpr
+  | otherwise = do
     EnumInfo discrTp ctx idx ctx' idx' fld <- enumInfo adt i j
     Refl <- expectEnumOrFail discrTp ctx enumTpr
     e1 <- readEnumVariant ctx idx e0
@@ -1371,7 +1381,20 @@ getEnumField adt i j (MirExp enumTpr e0) = do
 
 setEnumField :: M.Adt -> Int -> Int ->
     MirExp s -> MirExp s -> MirGenerator h s ret (MirExp s)
-setEnumField adt i j (MirExp enumTpr enumExp) (MirExp fldTpr fldExp) = do
+setEnumField adt i j e@(MirExp enumTpr enumExp) (MirExp fldTpr fldExp)
+  | adt ^. M.adtSize == 0 = do
+    -- See Note [enum representation]
+    case (enumTpr, fldTpr) of
+      (MirAggregateRepr, MirAggregateRepr) ->
+        pure e
+      _ ->
+        mirFail $ unwords
+          [ "setEnumField: expected"
+          , "enum", show adt, "and field #", show j
+          , "to be MirAggregates, but they were"
+          , show enumTpr, "and", show fldTpr
+          ]
+  | otherwise = do
     EnumInfo discrTp ctx idx ctx' idx' fld <- enumInfo adt i j
     Refl <- expectEnumOrFail discrTp ctx enumTpr
     Refl <- testEqualityOrFail fldTpr (fieldDataType fld) (errFieldType fld)
@@ -1747,7 +1770,10 @@ enumFieldRef ::
     M.Adt -> Int -> Int ->
     R.Expr MIR s MirReferenceType ->
     MirGenerator h s ret (MirPlace s)
-enumFieldRef adt i j ref0 = do
+enumFieldRef adt i j ref0
+  | adt ^. M.adtSize == 0 =
+    return $ MirPlace MirReferenceRepr ref0 NoMeta
+  | otherwise = do
     EnumInfo discrTp ctx idx ctx' idx' fld <- enumInfo adt i j
     ref1 <- subvariantRef discrTp ctx ref0 idx
     ref2 <- subfieldRef ctx' ref1 idx'
