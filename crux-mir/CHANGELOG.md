@@ -1,3 +1,8 @@
+# next
+
+* The CVC4 SMT solver is no longer supported. As such, the `--solver`
+  command-line option no longer accepts `cvc4` as a valid option.
+
 # 0.13 -- 2026-09-11
 
 This release supports [version

@@ -23,7 +23,7 @@ import qualified What4.InterpretedFloatingPoint as WIF
 
 import qualified Crux.Config.Common as CCC
 
-data SolverOnline = Yices | Z3 | CVC4 | CVC5 | STP | Bitwuzla
+data SolverOnline = Yices | Z3 | CVC5 | STP | Bitwuzla
   deriving (Eq, Ord, Show)
 data SolverOffline = SolverOnline SolverOnline | Boolector | DReal | RME
   deriving (Eq, Ord, Show)
@@ -38,7 +38,6 @@ class HasDefaultFloatRepr solver where
 instance HasDefaultFloatRepr SolverOnline where
   withDefaultFloatRepr _ s k =
     case s of
-      CVC4 -> k WEB.FloatRealRepr
       CVC5 -> k WEB.FloatRealRepr
       STP -> k WEB.FloatRealRepr
       Yices -> k WEB.FloatRealRepr
@@ -125,15 +124,14 @@ asAnyOfflineSolver s = case s of
       "rme" -> pure RME
       "z3" -> pure (SolverOnline Z3)
       "yices" -> pure (SolverOnline Yices)
-      "cvc4" -> pure (SolverOnline CVC4)
       "cvc5" -> pure (SolverOnline CVC5)
       "stp" -> pure (SolverOnline STP)
       "bitwuzla" -> pure (SolverOnline Bitwuzla)
-      _ -> invalid (printf "%s is not a valid solver (expected dreal, boolector, z3, yices, cvc4, cvc5, stp, rme, or bitwuzla)" s)
+      _ -> invalid (printf "%s is not a valid solver (expected dreal, boolector, z3, yices, cvc5, stp, rme, or bitwuzla)" s)
 
 asManyOfflineSolvers :: String -> Validated [SolverOffline]
 asManyOfflineSolvers s
-  | s == "all"         = asManyOfflineSolvers "dreal,boolector,z3,yices,cvc4,cvc5,stp,bitwuzla,rme"
+  | s == "all"         = asManyOfflineSolvers "dreal,boolector,z3,yices,cvc5,stp,bitwuzla,rme"
   | length solvers > 1 = traverse asAnyOfflineSolver solvers
   | otherwise          = invalid (printf "%s is not a valid solver list (expected 'all' or a comma separated list of solvers)" s)
   where
@@ -144,12 +142,11 @@ asOnlineSolver :: String -> Validated SolverOnline
 asOnlineSolver s =
   case s of
     "yices" -> pure Yices
-    "cvc4" -> pure CVC4
     "cvc5" -> pure CVC5
     "z3" -> pure Z3
     "stp" -> pure STP
     "bitwuzla" -> pure Bitwuzla
-    _ -> invalid (printf "%s is not a valid online solver (expected yices, cvc4, cvc5, z3, stp, or bitwuzla)" s)
+    _ -> invalid (printf "%s is not a valid online solver (expected yices, cvc5, z3, stp, or bitwuzla)" s)
 
 -- | Examine a 'CCC.CruxOptions' and determine what solver configuration to use for
 -- symbolic execution.  This can fail if an invalid solver configuration is

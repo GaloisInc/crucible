@@ -1,5 +1,9 @@
 # next
 
+* The CVC4 SMT solver is no longer supported. As such,
+  `Lang.Crucible.Backend.Online` no longer defines `CVC4OnlineBackend` or
+  `withCVC4OnlineBackend`.
+
 # 0.10 -- 2026-09-11
 
 * Add support for GHC 9.12 (at 9.12.2) and bump from 9.10.1 to 9.10.3.
