@@ -2,6 +2,7 @@
 
 * The CVC4 SMT solver is no longer supported. As such, the `--solver`
   command-line option no longer accepts `cvc4` as a valid option.
+* Support LLVM 23.
 
 # 0.13 -- 2026-09-11
 

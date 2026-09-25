@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # This script is adapted from the upstream code at
-# https://github.com/opencollab/llvm-jenkins.debian.net/blob/e8ed1494564deb4c2eb2cdaa00685db736ff97e8/llvm.sh.
+# https://github.com/opencollab/llvm-jenkins.debian.net/blob/f06955b550a0d0a3186d9a37c3a474c7d24ae39f/llvm.sh.
 # We choose to vendor in a specific copy of the script so that we do not have
 # to download it on each CI run. This avoids issues related to broken/partial
 # downloads or unexpected changes to the code upstream.
@@ -41,10 +41,10 @@ usage() {
     echo -e "-n=code_name\t\tSpecifies the distro codename, for example bionic" 1>&2
     echo -e "-h\t\t\tPrints this help." 1>&2
     echo -e "-m=repo_base_url\tSpecifies the base URL from which to download." 1>&2
-    exit 1;
+    exit $#
 }
 
-CURRENT_LLVM_STABLE=20
+CURRENT_LLVM_STABLE=22
 BASE_URL="https://apt.llvm.org"
 
 NEW_DEBIAN_DISTROS=("trixie" "forky" "unstable")
@@ -76,7 +76,7 @@ download_key() {
 check_url() {
     local url="$1"
     if command -v wget &>/dev/null; then
-        wget -q --method=HEAD "$url" &>/dev/null
+        wget -q --method=HEAD --timeout=15 --tries=3 "$url" &>/dev/null
     elif command -v curl &>/dev/null; then
         curl --proto '=https' --tlsv1.2 -sSf --head --retry 2 "$url" >/dev/null 2>&1
     else
@@ -142,6 +142,15 @@ case ${DISTRO} in
         ;;
 esac
 
+# check for long options
+for arg in "$@"; do
+    case "${arg}" in
+        (--help|-h) usage ;;
+        (--version) usage error ;;
+        (--) break ;;
+    esac
+done
+
 # read optional command line arguments
 if [ "$#" -ge 1 ] && [ "${1::1}" != "-" ]; then
     if [ "$1" != "all" ]; then
@@ -200,7 +209,8 @@ LLVM_VERSION_PATTERNS[19]="-19"
 LLVM_VERSION_PATTERNS[20]="-20"
 LLVM_VERSION_PATTERNS[21]="-21"
 LLVM_VERSION_PATTERNS[22]="-22"
-LLVM_VERSION_PATTERNS[23]=""
+LLVM_VERSION_PATTERNS[23]="-23"
+LLVM_VERSION_PATTERNS[24]=""
 
 if [ ! ${LLVM_VERSION_PATTERNS[$LLVM_VERSION]+_} ]; then
     error "This script does not support LLVM version $LLVM_VERSION" 3
@@ -212,7 +222,7 @@ LLVM_VERSION_STRING=${LLVM_VERSION_PATTERNS[$LLVM_VERSION]}
 if [[ -n "${CODENAME}" ]]; then
     REPO_NAME="deb ${BASE_URL}/${CODENAME}/  llvm-toolchain${LINKNAME}${LLVM_VERSION_STRING} main"
     # check if the repository exists for the distro and version
-    if ! check_url "${BASE_URL}/${CODENAME}"; then
+    if ! check_url "${BASE_URL}/${CODENAME}/"; then
         if [[ -n "${CODENAME_FROM_ARGUMENTS}" ]]; then
             error "Specified codename '${CODENAME}' is not supported by this script." 2
         else
@@ -225,7 +235,7 @@ fi
 # install everything
 
 if [[ ! -f /etc/apt/trusted.gpg.d/apt.llvm.org.asc ]]; then
-    GPG_KEY_URL="https://apt.llvm.org/llvm-snapshot.gpg.key"
+    GPG_KEY_URL="${BASE_URL}/llvm-snapshot.gpg.key"
     if ! check_url "$GPG_KEY_URL"; then
         error "GPG key not reachable at $GPG_KEY_URL" 2
     fi
