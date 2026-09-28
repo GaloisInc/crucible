@@ -626,33 +626,42 @@ showRegEntry sym fm col mty entry@(C.RegEntry tp rv) =
                             ("when printing struct type " ++ show mty)
                 strs <- showAgFields mty ("struct type " ++ show mty) rv
                 return $ Right (var, strs)
-            Enum _ -> do
-             case enumVariants col adt of
-               Left err -> fail ("Type not supported: " ++ err)
-               Right (SomeRustEnumRepr discrTp vctx) -> do
-                let expectedEnumTpr = RustEnumRepr discrTp vctx
-                Refl <-
-                  case testEquality expectedEnumTpr tp of
-                    Just r -> pure r
-                    Nothing -> fail $
-                      "expected enum to have type " ++ show expectedEnumTpr ++
-                      ", but got " ++ show tp
-                -- Note we don't look at the discriminant here, because mapping
-                -- a discriminant value to a variant index is somewhat complex.
-                -- Instead we just find the first PartExpr that's initialized.
-                case findVariant vctx (C.unRV $ rv Ctx.! Ctx.i2of2) of
-                    Just (C.Some (FoundVariant idx tpr fields)) -> do
-                        let i = Ctx.indexVal idx
-                        let var = fromMaybe (error "bad index from findVariant?") $
-                                adt ^? adtvariants . ix i
-                        case variantFields' col var of
-                            Left err -> return (Left ("Type not supported: " ++ err))
-                            Right (C.Some fctx) -> do
-                                Refl <- failIfNotEqual tpr (C.StructRepr $ fieldCtxType fctx)
-                                            ("when printing enum type " ++ show name)
-                                strs <- showFields var fctx fields
-                                return $ Right (var, strs)
-                    Nothing -> return $ Left "Symbolic enum"
+            Enum _
+              | adt ^. adtSize == 0 -> do
+                inhabitedVariant <- case filter (^. vinhabited) (adt ^. adtvariants) of
+                  [variant] ->
+                    pure variant
+                  vs -> fail $
+                    "when printing size-0 enum " <> show mty <>
+                    ", expected exactly 1 inhabited variant, but saw " <> show (length vs)
+                pure (Right (inhabitedVariant, []))
+              | otherwise -> do
+                case enumVariants col adt of
+                  Left err -> fail ("Type not supported: " ++ err)
+                  Right (SomeRustEnumRepr discrTp vctx) -> do
+                    let expectedEnumTpr = RustEnumRepr discrTp vctx
+                    Refl <-
+                      case testEquality expectedEnumTpr tp of
+                        Just r -> pure r
+                        Nothing -> fail $
+                          "expected enum to have type " ++ show expectedEnumTpr ++
+                          ", but got " ++ show tp
+                    -- Note we don't look at the discriminant here, because mapping
+                    -- a discriminant value to a variant index is somewhat complex.
+                    -- Instead we just find the first PartExpr that's initialized.
+                    case findVariant vctx (C.unRV $ rv Ctx.! Ctx.i2of2) of
+                        Just (C.Some (FoundVariant idx tpr fields)) -> do
+                            let i = Ctx.indexVal idx
+                            let var = fromMaybe (error "bad index from findVariant?") $
+                                    adt ^? adtvariants . ix i
+                            case variantFields' col var of
+                                Left err -> return (Left ("Type not supported: " ++ err))
+                                Right (C.Some fctx) -> do
+                                    Refl <- failIfNotEqual tpr (C.StructRepr $ fieldCtxType fctx)
+                                                ("when printing enum type " ++ show name)
+                                    strs <- showFields var fctx fields
+                                    return $ Right (var, strs)
+                        Nothing -> return $ Left "Symbolic enum"
             Union -> return $ Left "union printing is not yet implemented"
         case optParts of
             Left err -> return err
@@ -690,7 +699,7 @@ showRegEntry sym fm col mty entry@(C.RegEntry tp rv) =
             aggregateLeafType ty'
         | Just adt <- findAdt' col name,
           Enum _ <- adt ^. adtkind ->
-            True
+            adt ^. adtSize /= 0
       _ -> False
 
     readFields :: FieldCtxRepr ctx -> Ctx.Assignment (C.RegValue' sym) ctx ->
