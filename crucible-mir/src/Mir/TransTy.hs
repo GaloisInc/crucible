@@ -105,6 +105,13 @@ baseSizeToNatCont M.B64  k = k (knownNat :: NatRepr 64)
 baseSizeToNatCont M.B128 k = k (knownNat :: NatRepr 128)
 baseSizeToNatCont M.USize k = k (knownNat :: NatRepr SizeBits)
 
+-- | Convert a 'M.FloatKind' to a 'C.FloatInfoRepr'.
+floatKindInfoRepr :: M.FloatKind -> Some C.FloatInfoRepr
+floatKindInfoRepr M.F16 = Some C.HalfFloatRepr
+floatKindInfoRepr M.F32 = Some C.SingleFloatRepr
+floatKindInfoRepr M.F64 = Some C.DoubleFloatRepr
+floatKindInfoRepr M.F128 = Some C.QuadFloatRepr
+
 
 -- Custom type aliases
 pattern CTyInt512 :: M.Ty
@@ -256,12 +263,9 @@ tyToRepr col t0 = case t0 of
         Right (Some MirAggregateRepr)
   M.TyDowncast _adt _i   -> Right (Some C.AnyRepr)
 
-  M.TyFloat fk ->
-    case fk of
-      M.F16 -> Right $ Some $ C.FloatRepr C.HalfFloatRepr
-      M.F32 -> Right $ Some $ C.FloatRepr C.SingleFloatRepr
-      M.F64 -> Right $ Some $ C.FloatRepr C.DoubleFloatRepr
-      M.F128 -> Right $ Some $ C.FloatRepr C.QuadFloatRepr
+  M.TyFloat fk -> do
+    Some fi <- pure $ floatKindInfoRepr fk
+    Right $ Some $ C.FloatRepr fi
 
   -- Function types go to FunctionHandleRepr.  `RustCall` functions get special
   -- handling in `abiFnArgs`.

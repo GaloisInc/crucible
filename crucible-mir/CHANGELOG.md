@@ -9,6 +9,8 @@ This release supports [version
   simulate the `crux::test` entrypoints, and it will only fail if an
   untranslated static item is accessed during simulation.
 * Support simulating Rust code up to version 1.91 (`nightly-2026-08-24`).
+* Support `as` casts involving floating-point types.
+* Support `transmute`s between floating-point types and integer types.
 
 # 0.7 -- 2026-09-25
 
