@@ -1,0 +1,4 @@
+[Crux] Found counterexample for verification goal
+[Crux]   test-data/golden/cvc5-float-ieee.c:8:0: error: in main
+[Crux]   crucible_assert
+[Crux] Overall status: Invalid.

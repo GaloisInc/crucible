@@ -374,9 +374,11 @@ withSelectedOnlineBackend cruxOpts nonceGen selectedSolver maybeExplicitFloatMod
     "uninterpreted" -> withOnlineBackendFM WE.FloatUninterpretedRepr
     "default" ->
       case selectedSolver of
+        -- Yices does not support IEEE-754 floating point (FloatIEEERepr), so
+        -- fall back to FloatRealRepr instead.
         CCS.Yices -> withOnlineBackendFM WE.FloatRealRepr
-        CCS.CVC5 -> withOnlineBackendFM WE.FloatRealRepr
-        CCS.STP -> withOnlineBackendFM WE.FloatRealRepr
+        CCS.CVC5 -> withOnlineBackendFM WE.FloatIEEERepr
+        CCS.STP -> withOnlineBackendFM WE.FloatIEEERepr
         CCS.Z3 -> withOnlineBackendFM WE.FloatIEEERepr
         CCS.Bitwuzla -> withOnlineBackendFM WE.FloatIEEERepr
     fm -> fail ("Unknown floating point mode: " ++ fm ++ "; expected one of [real|ieee|uninterpreted|default]")
