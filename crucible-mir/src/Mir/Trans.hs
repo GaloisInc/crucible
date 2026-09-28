@@ -50,6 +50,7 @@ import Lens.Micro.GHC (at)
 import Lens.Micro.Mtl (use, (.=), (%=))
 import qualified LibBF as BF
 
+import qualified Data.BitVector.Sized as BV
 import Data.Bits (shift, shiftL)
 import qualified Data.ByteString as BS
 import qualified Data.Char as Char
@@ -1053,6 +1054,87 @@ evalCast' ck ty1 e ty2  = do
       -- byte to char
       (M.IntToInt, M.TyUint B8, M.TyChar) -> baseSizeToNatCont M.B32 $ extendUnsignedBV e
 
+      -- float to integer
+      --
+      -- The semantics of of these operations are somewhat tricky, as we have
+      -- to detect whether a given float fits within the bounds of the integer
+      -- type being casted to. The approach we use here is largely the same as
+      -- what we use for crucible-llvm's equivalent instructions (see Note
+      -- [Checking for undefined behavior in fptoui and fptosi]), but unlike in
+      -- crucible-llvm, all inputs are well-defined. We note below where we
+      -- return specific values for special inputs.
+      (M.FloatToInt, M.TyFloat _, M.TyUint bsz)
+        | MirExp (C.FloatRepr fi) e0 <- e ->
+          baseSizeToNatCont bsz $ \w -> do
+            let eIsNaN = E.FloatIsNaN e0
+            let eIsNeg = E.FloatIsNegative e0
+            let eIsNaNOrNeg = E.Or (R.App eIsNaN) (R.App eIsNeg)
+            let bvZero = E.BVLit w (BV.zero w)
+            let eBv = E.FloatToBV w E.RTZ e0
+            let eRoundtrip = E.FloatFromBV fi E.RTZ (R.App eBv)
+            let eRounded = E.FloatRound fi E.RTZ e0
+            let noOverflow =
+                  E.Or (R.App (E.FloatIsZero (R.App eRounded)))
+                       (R.App (E.FloatEq (R.App eRoundtrip) (R.App eRounded)))
+            let res =
+                  -- If the float is larger than the maximum integer value
+                  -- (including positive infinity), then saturate to the
+                  -- maximum integer value.
+                  E.BVIte (R.App noOverflow) w
+                          (R.App eBv)
+                          (R.App (E.BVLit w (BV.maxUnsigned w)))
+            pure $ MirExp (C.BVRepr w)
+                 $ R.App
+                   -- If the float is NaN, return 0. Also return 0 if the input
+                   -- is negative (including negative infinity), as it will be
+                   -- smaller than the minimum integer value (0), which results
+                   -- in saturation.
+                 $ E.BVIte (R.App eIsNaNOrNeg) w (R.App bvZero) (R.App res)
+      (M.FloatToInt, M.TyFloat _, M.TyInt bsz)
+        | MirExp (C.FloatRepr fi) e0 <- e ->
+          baseSizeToNatCont bsz $ \w -> do
+            let eIsNaN = E.FloatIsNaN e0
+            let eIsNeg = E.FloatIsNegative e0
+            let bvZero = E.BVLit w (BV.zero w)
+            let eSbv = E.FloatToSBV w E.RTZ e0
+            let eRoundtrip = E.FloatFromSBV fi E.RTZ (R.App eSbv)
+            let eRounded = E.FloatRound fi E.RTZ e0
+            let noOverflow =
+                  E.Or (R.App (E.FloatIsZero (R.App eRounded)))
+                       (R.App (E.FloatEq (R.App eRoundtrip) (R.App eRounded)))
+            let satRes =
+                  E.BVIte (R.App eIsNeg) w
+                          (R.App (E.BVLit w (BV.minSigned w)))
+                          (R.App (E.BVLit w (BV.maxSigned w)))
+            let res =
+                  -- If the float is smaller than the minimum integer value, or
+                  -- if it is larger than the maximum integer value, then
+                  -- saturate to either the minimum or maximum integer value,
+                  -- depending on the sign. Note that this also handles the
+                  -- case when the float is infinite.
+                  E.BVIte (R.App noOverflow) w (R.App eSbv) (R.App satRes)
+            pure $ MirExp (C.BVRepr w)
+                 $ R.App
+                   -- If the float is NaN, return 0.
+                 $ E.BVIte (R.App eIsNaN) w (R.App bvZero) (R.App res)
+
+      -- integer to float
+      (M.IntToFloat, M.TyUint _, M.TyFloat fk)
+        | MirExp (C.BVRepr _) e0 <- e ->
+          floatKindToInfoCont fk $ \fi ->
+          pure $ MirExp (C.FloatRepr fi) $ R.App $ E.FloatFromBV fi E.RNE e0
+
+      (M.IntToFloat, M.TyInt _, M.TyFloat fk)
+        | MirExp (C.BVRepr _) e0 <- e ->
+          floatKindToInfoCont fk $ \fi ->
+          pure $ MirExp (C.FloatRepr fi) $ R.App $ E.FloatFromSBV fi E.RNE e0
+
+      -- float to float
+      (M.FloatToFloat, M.TyFloat _, M.TyFloat fk2)
+        | MirExp (C.FloatRepr _) e0 <- e ->
+          floatKindToInfoCont fk2 $ \fi2 ->
+          pure $ MirExp (C.FloatRepr fi2) $ R.App $ E.FloatCast fi2 E.RNE e0
+
 
 
       -- Not sure why this appears in generated MIR, but libcore has some no-op
@@ -1451,6 +1533,22 @@ transmuteExp e@(MirExp argTy argExpr) srcMirTy destMirTy = do
             M.TyUint _ -> return $ bvToUsize w R.App argExpr
             _ -> mirFail $ "unexpected srcMirTy " ++ show srcMirTy ++ " for tpr " ++ show argTy
         MirExp MirReferenceRepr <$> integerToMirRef int
+
+    -- Transmuting an integer to a float, which reinterprets the bits of the
+    -- integer as-is. (See also the IntToFloat cases in evalCast', which can
+    -- change the underlying bits.)
+    (C.BVRepr w, C.FloatRepr fi)
+      | C.BaseBVRepr fiW <- C.floatInfoToBVTypeRepr fi
+      , Just Refl <- testEquality fiW w ->
+        pure $ MirExp retTy $ R.App $ E.FloatFromBinary fi argExpr
+
+    -- Transmuting a float to an integer, which reinterprets the bits of the
+    -- float as-is. (See also the FloatToInt cases in evalCast', which can
+    -- change the underlying bits.)
+    (C.FloatRepr fi, C.BVRepr w)
+      | C.BaseBVRepr fiW <- C.floatInfoToBVTypeRepr fi
+      , Just Refl <- testEquality fiW w ->
+        pure $ MirExp retTy $ R.App $ E.FloatToBinary fi argExpr
 
     -- Transmuting between values of the same Crucible repr
     _ | Just Refl <- testEquality argTy retTy -> return e
