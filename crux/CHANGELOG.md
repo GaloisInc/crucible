@@ -4,6 +4,12 @@
   constructor in `SolverOnline` has been removed, and `crux`'s `--solver`
   command-line option no longer accepts `cvc4` as a valid option.
 
+* The CVC5 and STP solver backends now default to the `ieee` floating-point
+  interpretation instead of `real`. This is usually a more reasonable default,
+  as it is less likely to give surprising results involving special values like
+  NaN, infinity, or negative zero. To restore Crux's previous behavior, pass
+  `--floating-point=real`.
+
 # 0.10 -- 2026-09-11
 
 - Add support for GHC 9.12 (at 9.12.2) and bump from 9.10.1 to 9.10.3.

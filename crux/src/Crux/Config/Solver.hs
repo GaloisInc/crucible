@@ -38,9 +38,11 @@ class HasDefaultFloatRepr solver where
 instance HasDefaultFloatRepr SolverOnline where
   withDefaultFloatRepr _ s k =
     case s of
-      CVC5 -> k WEB.FloatRealRepr
-      STP -> k WEB.FloatRealRepr
+      -- Yices does not support IEEE-754 floating point (FloatIEEERepr), so
+      -- fall back to FloatRealRepr instead.
       Yices -> k WEB.FloatRealRepr
+      CVC5 -> k WEB.FloatIEEERepr
+      STP -> k WEB.FloatIEEERepr
       Z3 -> k WEB.FloatIEEERepr
       Bitwuzla -> k WEB.FloatIEEERepr
 
