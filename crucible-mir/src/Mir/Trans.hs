@@ -133,6 +133,10 @@ setPosition = G.setPosition . parsePosition
 
 transConstVal :: HasCallStack => M.Ty -> Some C.TypeRepr -> M.ConstVal -> MirGenerator h s ret (MirExp s)
 
+-- Pattern types.  These are somewhat similar to `#[repr(transparent)]`, but
+-- don't have a distinct `ConstVal` constructor.
+transConstVal (M.TyPat ty) tpr cv = transConstVal ty tpr cv
+
 -- Custom types
 transConstVal (CTyBv _) (Some (C.BVRepr w)) (M.ConstStruct [M.ConstInt i, M.ConstStruct []]) = do
     val <- case M.fromIntegerLit i of
