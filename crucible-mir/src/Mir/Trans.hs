@@ -3134,6 +3134,7 @@ dispatchFromDyn dynTraitName recvTy recvExp die = do
                   lift $ die
                     ["`DispatchFromDyn` invalid for DST with " <> show (length fs) <> " non-ZST fields"]
         _ -> return mirExp
+    go (M.TyPat ty') mirExp = go ty' mirExp
     -- rustc only recurses into struct types to find the coerced field.  All
     -- other types are ignored.
     go _ mirExp = return mirExp
