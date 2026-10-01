@@ -1,3 +1,4 @@
+#![feature(crucible_intrinsics)]
 extern crate crucible;
 use crucible::{dump_rv, Symbolic};
 use crucible::alloc::reallocate;
