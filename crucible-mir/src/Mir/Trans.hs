@@ -1453,10 +1453,11 @@ transmuteExp e@(MirExp argTy argExpr) srcMirTy destMirTy = do
 
     -- Cast integer to pointer, like `0 as *mut T`
     (C.BVRepr w, MirReferenceRepr) -> do
-        int <- case srcMirTy of
+        int <- case transparentLeafTy col srcMirTy of
             M.TyInt _ -> return $ sbvToUsize w R.App argExpr
             M.TyUint _ -> return $ bvToUsize w R.App argExpr
-            _ -> mirFail $ "unexpected srcMirTy " ++ show srcMirTy ++ " for tpr " ++ show argTy
+            leafTy -> mirFail $ "unexpected srcMirTy " ++ show srcMirTy
+              ++ ", leaf ty " ++ show leafTy ++ " for tpr " ++ show argTy
         MirExp MirReferenceRepr <$> integerToMirRef int
 
     -- Transmuting between values of the same Crucible repr

@@ -696,6 +696,20 @@ reprTransparentFieldTy col adt = do
   idx <- findReprTransparentField col adt
   adt ^? M.adtvariants . ix 0 . M.vfields . ix idx . M.fty
 
+-- | Traverse transparent wrappers until we reach a non-transparent leaf, then
+-- return that type.
+--
+-- The input and output types always have the same `TypeRepr`.
+transparentLeafTy :: M.Collection -> M.Ty -> M.Ty
+transparentLeafTy col ty =
+  case ty of
+    _ | Just adt <- tyAdtDef col ty ->
+      case reprTransparentFieldTy col adt of
+        Just ty' -> transparentLeafTy col ty'
+        Nothing -> ty
+    M.TyPat ty' -> transparentLeafTy col ty'
+    _ -> ty
+
 -- | If the given name refers to a struct in the given collection, and that
 -- struct has a nonzero number of fields, return the struct's last field.
 findLastField :: M.Collection -> M.AdtName -> Maybe M.Field
