@@ -681,7 +681,7 @@ ptr_swap = ( ["core", "ptr", "swap"], \substs -> case substs of
 -- will not apply, and we will defer to the rustc-provided implementation.
 drop_in_place_dyn :: (ExplodedDefId, CustomRHS)
 drop_in_place_dyn =
-    ( ["core", "ptr", "drop_in_place"],
+    ( ["core", "ptr", "drop_glue"],
       \case
         Substs [TyDynamic traitName'] ->
             Just $ CustomOp $ \argTys args -> case (argTys, args) of
@@ -1928,7 +1928,7 @@ bv_leading_zeros =
 
 -- fn allocate<T>(len: usize) -> *mut T
 allocate :: (ExplodedDefId, CustomRHS)
-allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
+allocate = (["alloc", "crucible", "alloc", "allocate"], \substs -> case substs of
     Substs [elemTy] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp UsizeRepr sz] -> do
             -- Create an uninitialized `MirAggregate` of length `len`, and
@@ -1943,7 +1943,7 @@ allocate = (["crucible", "alloc", "allocate"], \substs -> case substs of
     _ -> Nothing)
 
 allocate_zeroed :: (ExplodedDefId, CustomRHS)
-allocate_zeroed = (["crucible", "alloc", "allocate_zeroed"], \substs -> case substs of
+allocate_zeroed = (["alloc", "crucible", "alloc", "allocate_zeroed"], \substs -> case substs of
     Substs [elemTy] -> Just $ CustomOp $ \_ ops -> case ops of
         [MirExp UsizeRepr len] -> do
             Some elemTpr <- tyToReprM elemTy
@@ -1963,7 +1963,7 @@ mkZero tpr = mirFail $ "don't know how to zero-initialize " ++ show tpr
 
 -- fn reallocate<T>(ptr: *mut T, new_len: usize) -> *mut T
 reallocate :: (ExplodedDefId, CustomRHS)
-reallocate = (["crucible", "alloc", "reallocate"], \substs -> case substs of
+reallocate = (["alloc", "crucible", "alloc", "reallocate"], \substs -> case substs of
     Substs [elemTy] -> Just $ CustomOp $ \_ ops -> case ops of
         [ MirExp MirReferenceRepr ptr, MirExp UsizeRepr newLen ] -> do
             elemSize <- tySizeM elemTy

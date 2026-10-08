@@ -14,20 +14,20 @@ failures:
 [Crux]   Context:
 [Crux]     test/symb_eval/crux/multi.rs:8:22: 8:27: multi/<DISAMB>::fail1[0]
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/crucible/lib.rs:50:9: 50:79 !test/symb_eval/crux/multi.rs:8:5: 8:32: error: in multi/<DISAMB>::fail1[0]
+[Crux]   ./libs/crucible/lib.rs:49:9: 49:79 !test/symb_eval/crux/multi.rs:8:5: 8:32: error: in multi/<DISAMB>::fail1[0]
 [Crux]   MIR assertion at test/symb_eval/crux/multi.rs:8:5:
 [Crux]   	x + 1 > x
 
 ---- multi/<DISAMB>::fail2[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/core/src/panic.rs:62:9: 62:73 !test/symb_eval/crux/multi.rs:15:9: 15:22: error: in multi/<DISAMB>::fail2[0]
+[Crux]   ./libs/core/src/panic.rs:61:9: 61:73 !test/symb_eval/crux/multi.rs:15:9: 15:22: error: in multi/<DISAMB>::fail2[0]
 [Crux]   panicking::panic_fmt, called from multi/<DISAMB>::fail2[0]
 [Crux]   Context:
-[Crux]     ./libs/core/src/panic.rs:62:9: 62:73 !test/symb_eval/crux/multi.rs:15:9: 15:22: multi/<DISAMB>::fail2[0]
+[Crux]     ./libs/core/src/panic.rs:61:9: 61:73 !test/symb_eval/crux/multi.rs:15:9: 15:22: multi/<DISAMB>::fail2[0]
 
 ---- multi/<DISAMB>::fail3[0] counterexamples ----
 [Crux] Found counterexample for verification goal
-[Crux]   ./libs/crucible/lib.rs:50:9: 50:79 !test/symb_eval/crux/multi.rs:20:5: 20:29: error: in multi/<DISAMB>::assert_zero[0]
+[Crux]   ./libs/crucible/lib.rs:49:9: 49:79 !test/symb_eval/crux/multi.rs:20:5: 20:29: error: in multi/<DISAMB>::assert_zero[0]
 [Crux]   MIR assertion at test/symb_eval/crux/multi.rs:20:5:
 [Crux]   	x == 0
 

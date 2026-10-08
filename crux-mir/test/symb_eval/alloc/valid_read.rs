@@ -1,3 +1,4 @@
+#![feature(crucible_intrinsics)]
 extern crate crucible;
 use crucible::*;
 use crucible::alloc::allocate;
