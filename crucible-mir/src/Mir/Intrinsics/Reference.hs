@@ -1909,7 +1909,8 @@ mirRef_indexAndLenLeaf ::
     Word ->
     MirReference sym ->
     MuxLeafT sym IO (RegValue sym UsizeType, RegValue sym UsizeType)
-mirRef_indexAndLenLeaf bak gs iTypes _elemSize (MirReference tpr root (VectorIndex_RefPath _tpr' path idx)) = do
+mirRef_indexAndLenLeaf bak gs iTypes elemSize ref = case ref of
+  MirReference tpr root (VectorIndex_RefPath _tpr' path idx) -> do
     let sym = backendGetSym bak
     let parentTpr = VectorRepr tpr
     let parent = MirReference parentTpr root path
@@ -1917,10 +1918,10 @@ mirRef_indexAndLenLeaf bak gs iTypes _elemSize (MirReference tpr root (VectorInd
     let lenInteger = toInteger $ V.length parentVec
     len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat lenInteger
     return (idx, len)
-mirRef_indexAndLenLeaf _bak _gs _iTypes _elemSize (MirReference _tpr _root (ArrayIndex_RefPath {})) =
+  MirReference _tpr _root (ArrayIndex_RefPath {}) ->
     leafAbort $ Unsupported callStack
         "can't compute allocation length for Array, which is unbounded"
-mirRef_indexAndLenLeaf bak gs iTypes elemSize (MirReference _tpr root (AgElem_RefPath elemOff _tpr' path)) = do
+  MirReference _tpr root (AgElem_RefPath elemOff _tpr' path) -> do
     let sym = backendGetSym bak
     let parentTpr = MirAggregateRepr
     let parent = MirReference parentTpr root path
@@ -1954,7 +1955,7 @@ mirRef_indexAndLenLeaf bak gs iTypes elemSize (MirReference _tpr root (AgElem_Re
 
         offDivSz <- liftIO $ bvUdiv sym elemOff elemSizeBV
         return (offDivSz, len)
-mirRef_indexAndLenLeaf bak gs iTypes elemSize (MirReference _tpr root (AgOffset_RefPath elemOff path)) = do
+  MirReference _tpr root (AgOffset_RefPath elemOff path) -> do
     let sym = backendGetSym bak
     let parentTpr = MirAggregateRepr
     let parent = MirReference parentTpr root path
@@ -1988,7 +1989,7 @@ mirRef_indexAndLenLeaf bak gs iTypes elemSize (MirReference _tpr root (AgOffset_
 
         offDivSz <- liftIO $ bvUdiv sym elemOff elemSizeBV
         return (offDivSz, len)
-mirRef_indexAndLenLeaf bak gs iTypes elemSize (MirReference MirAggregateRepr root path) = do
+  MirReference MirAggregateRepr root path -> do
     -- This case follows the `AgOffset_RefPath` case to accommodate aggregate
     -- references with no/zero offsets. See Note [Aggregate zero-offsets].
     let sym = backendGetSym bak
@@ -2007,12 +2008,12 @@ mirRef_indexAndLenLeaf bak gs iTypes elemSize (MirReference MirAggregateRepr roo
         let lenWord = totalSize `div` elemSize
         len <- liftIO $ wordLit sym lenWord
         return (zero, len)
-mirRef_indexAndLenLeaf bak _ _ _elemSize (MirReference _ _ _) = do
+  MirReference _ _ _ -> do
     let sym = backendGetSym bak
     idx <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat 0
     len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat 1
     return (idx, len)
-mirRef_indexAndLenLeaf bak _ _ _elemSize (MirReference_Integer _) = do
+  MirReference_Integer _ -> do
     let sym = backendGetSym bak
     -- No offset of `MirReference_Integer` is dereferenceable, so `len` is
     -- zero.
