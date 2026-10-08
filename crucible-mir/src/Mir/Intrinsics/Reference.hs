@@ -1926,42 +1926,68 @@ mirRef_indexAndLenLeaf bak gs iTypes elemSize (MirReference _tpr root (AgElem_Re
     let parent = MirReference parentTpr root path
     parentAg <- readMirRefLeaf bak gs iTypes parentTpr All parent
     let MirAggregate totalSize _ = parentAg
-    when (totalSize `mod` elemSize /= 0) $
-       leafAbort $ Unsupported callStack $
-           "expected aggregate size (" ++ show totalSize ++ ") to be a multiple of "
-               ++ "element size (" ++ show elemSize ++ ")"
-    let lenWord = totalSize `div` elemSize
-    len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral lenWord
+    case (elemSize, totalSize) of
+      (0, 0) -> do
+        -- A zero-sized element at offset 0 in a zero-sized allocation can
+        -- reasonably be said to be at index 0.
+        zero <- liftIO $ wordLit sym 0
+        elemOffIsZero <- liftIO $ bvEq sym elemOff zero
+        leafAssert bak elemOffIsZero $ Unsupported callStack $
+          "expected zero-sized element in zero-sized allocation to be at offset zero"
+        pure (zero, zero)
+      (0, _) ->
+        leafAbort $ Unsupported callStack $
+          "undefined: indexAndLen of zero-sized element in aggregate of size " <> show totalSize
+      _ -> do
+        when (totalSize `mod` elemSize /= 0) $
+          leafAbort $ Unsupported callStack $
+            "expected aggregate size (" ++ show totalSize ++ ") to be a multiple of "
+              ++ "element size (" ++ show elemSize ++ ")"
+        let lenWord = totalSize `div` elemSize
+        len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral lenWord
 
-    elemSizeBV <- liftIO $ wordLit sym elemSize
-    offModSz <- liftIO $ bvUrem sym elemOff elemSizeBV
-    offModSzIsZero <- liftIO $ bvEq sym offModSz =<< wordLit sym 0
-    leafAssert bak offModSzIsZero $ Unsupported callStack $
-        "expected element offset to be a multiple of element size (" ++ show elemSize ++ ")"
+        elemSizeBV <- liftIO $ wordLit sym elemSize
+        offModSz <- liftIO $ bvUrem sym elemOff elemSizeBV
+        offModSzIsZero <- liftIO $ bvEq sym offModSz =<< wordLit sym 0
+        leafAssert bak offModSzIsZero $ Unsupported callStack $
+          "expected element offset to be a multiple of element size (" ++ show elemSize ++ ")"
 
-    offDivSz <- liftIO $ bvUdiv sym elemOff elemSizeBV
-    return (offDivSz, len)
+        offDivSz <- liftIO $ bvUdiv sym elemOff elemSizeBV
+        return (offDivSz, len)
 mirRef_indexAndLenLeaf bak gs iTypes elemSize (MirReference _tpr root (AgOffset_RefPath elemOff path)) = do
     let sym = backendGetSym bak
     let parentTpr = MirAggregateRepr
     let parent = MirReference parentTpr root path
     parentAg <- readMirRefLeaf bak gs iTypes parentTpr All parent
     let MirAggregate totalSize _ = parentAg
-    when (totalSize `mod` elemSize /= 0) $
-       leafAbort $ Unsupported callStack $
-           "expected aggregate size (" ++ show totalSize ++ ") to be a multiple of "
-               ++ "element size (" ++ show elemSize ++ ")"
-    let lenWord = totalSize `div` elemSize
-    len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral lenWord
+    case (elemSize, totalSize) of
+      (0, 0) -> do
+        -- A zero-sized element at offset 0 in a zero-sized allocation can
+        -- reasonably be said to be at index 0.
+        zero <- liftIO $ wordLit sym 0
+        elemOffIsZero <- liftIO $ bvEq sym elemOff zero
+        leafAssert bak elemOffIsZero $ Unsupported callStack $
+          "expected zero-sized element in zero-sized allocation to be at offset zero"
+        pure (zero, zero)
+      (0, _) ->
+        leafAbort $ Unsupported callStack $
+          "undefined: indexAndLen of zero-sized element in aggregate of size " <> show totalSize
+      _ -> do
+        when (totalSize `mod` elemSize /= 0) $
+          leafAbort $ Unsupported callStack $
+            "expected aggregate size (" ++ show totalSize ++ ") to be a multiple of "
+              ++ "element size (" ++ show elemSize ++ ")"
+        let lenWord = totalSize `div` elemSize
+        len <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat $ fromIntegral lenWord
 
-    elemSizeBV <- liftIO $ wordLit sym elemSize
-    offModSz <- liftIO $ bvUrem sym elemOff elemSizeBV
-    offModSzIsZero <- liftIO $ bvEq sym offModSz =<< wordLit sym 0
-    leafAssert bak offModSzIsZero $ Unsupported callStack $
-        "expected element offset to be a multiple of element size (" ++ show elemSize ++ ")"
+        elemSizeBV <- liftIO $ wordLit sym elemSize
+        offModSz <- liftIO $ bvUrem sym elemOff elemSizeBV
+        offModSzIsZero <- liftIO $ bvEq sym offModSz =<< wordLit sym 0
+        leafAssert bak offModSzIsZero $ Unsupported callStack $
+          "expected element offset to be a multiple of element size (" ++ show elemSize ++ ")"
 
-    offDivSz <- liftIO $ bvUdiv sym elemOff elemSizeBV
-    return (offDivSz, len)
+        offDivSz <- liftIO $ bvUdiv sym elemOff elemSizeBV
+        return (offDivSz, len)
 mirRef_indexAndLenLeaf bak gs iTypes elemSize (MirReference MirAggregateRepr root path) = do
     -- This case follows the `AgOffset_RefPath` case to accommodate aggregate
     -- references with no/zero offsets. See Note [Aggregate zero-offsets].
@@ -1971,9 +1997,16 @@ mirRef_indexAndLenLeaf bak gs iTypes elemSize (MirReference MirAggregateRepr roo
     let parent = MirReference parentTpr root path
     parentAg <- readMirRefLeaf bak gs iTypes parentTpr All parent
     let MirAggregate totalSize _ = parentAg
-    let lenWord = totalSize `div` elemSize
-    len <- liftIO $ wordLit sym lenWord
-    return (zero, len)
+    case (elemSize, totalSize) of
+      (0, 0) ->
+        pure (zero, zero)
+      (0, _) ->
+        leafAbort $ Unsupported callStack $
+          "undefined: indexAndLen of zero-sized element in aggregate of size " <> show totalSize
+      _ -> do
+        let lenWord = totalSize `div` elemSize
+        len <- liftIO $ wordLit sym lenWord
+        return (zero, len)
 mirRef_indexAndLenLeaf bak _ _ _elemSize (MirReference _ _ _) = do
     let sym = backendGetSym bak
     idx <- liftIO $ bvLit sym knownNat $ BV.mkBV knownNat 0
