@@ -140,7 +140,6 @@ customOpDefs = Map.fromList $ [
                          , mem_transmute
                          , mem_bswap
                          , mem_crucible_identity_transmute
-                         , array_from_slice
                          , array_from_ref
                          , slice_from_ref
                          , slice_from_mut
@@ -1439,46 +1438,6 @@ intrinsics_assume = (["core", "intrinsics", "assume"], \_substs ->
 assert_inhabited :: (ExplodedDefId, CustomRHS)
 assert_inhabited = (["core", "intrinsics", "assert_inhabited"], \_substs ->
     Just $ CustomOp $ \_ _ -> MirExp MirAggregateRepr <$> mirAggregate_zst)
-
-array_from_slice ::  (ExplodedDefId, CustomRHS)
-array_from_slice = (["core","slice", "{impl}", "as_array", "crucible_array_from_slice_hook"],
-    \_substs -> Just $ CustomOpNamed $ \fnName ops -> do
-        fn <- findFn fnName
-        case (fn ^. fsig . fsreturn_ty, ops) of
-            ( TyAdt optionMonoName _ (Substs [TyRef (TyArray elemTy tyLen) Immut]),
-              [MirExp MirSliceRepr e] ) -> do
-                -- TODO: This should be implemented as a type cast, so the
-                -- input and output are aliases.  However, the input slice's
-                -- data pointer may point into a `Vector`/`Array` rather than a
-                -- `MirAggregate`, whereas the output must always point to a
-                -- `MirAggregate`.  So for now, we use `aggregateCopy` to build
-                -- the output.  Once `MirAggregate` flattening is enabled, we
-                -- may be able to turn this into a proper cast.
-                let ptr = getSlicePtr e
-                let len = getSliceLen e
-                let lenOk = R.App $ usizeEq len (R.App $ usizeLit $ fromIntegral tyLen)
-                -- Get the Adt info for the return type, which should be
-                -- Option<&[T; N]>.
-                adt <- findAdt optionMonoName
-                SomeRustEnumRepr discrTpr variantsCtx <- enumVariantsM adt
-                let expectedEnumTpr = RustEnumRepr discrTpr variantsCtx
-
-                Some elemTpr <- tyToReprM elemTy
-                elemSize <- tySizeM elemTy
-                MirExp expectedEnumTpr <$> G.ifte' expectedEnumTpr lenOk
-                    (do ag <- aggregateCopy_constLen elemTpr ptr tyLen elemSize
-                        ref <- constMirRef MirAggregateRepr ag
-                        let refMir = MirExp MirReferenceRepr ref
-                        MirExp enumTpr enum <- buildEnum adt optionDiscrSome [refMir]
-                        Refl <- expectEnumOrFail discrTpr variantsCtx enumTpr
-                        pure enum)
-                    (do MirExp enumTpr enum <- buildEnum adt optionDiscrNone []
-                        Refl <- expectEnumOrFail discrTpr variantsCtx enumTpr
-                        pure enum)
-
-            _ -> mirFail $ "bad monomorphization of crucible_array_from_slice_hook: " ++
-                show (fnName, fn ^. fsig, ops)
-    )
 
 array_from_ref ::  (ExplodedDefId, CustomRHS)
 array_from_ref = (["core", "array", "from_ref", "crucible_array_from_ref_hook"],
