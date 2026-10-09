@@ -140,7 +140,6 @@ customOpDefs = Map.fromList $ [
                          , mem_transmute
                          , mem_bswap
                          , mem_crucible_identity_transmute
-                         , array_from_ref
                          , slice_from_ref
                          , slice_from_mut
 
@@ -1438,26 +1437,6 @@ intrinsics_assume = (["core", "intrinsics", "assume"], \_substs ->
 assert_inhabited :: (ExplodedDefId, CustomRHS)
 assert_inhabited = (["core", "intrinsics", "assert_inhabited"], \_substs ->
     Just $ CustomOp $ \_ _ -> MirExp MirAggregateRepr <$> mirAggregate_zst)
-
-array_from_ref ::  (ExplodedDefId, CustomRHS)
-array_from_ref = (["core", "array", "from_ref", "crucible_array_from_ref_hook"],
-    \_substs -> Just $ CustomOpNamed $ \fnName ops -> do
-        fn <- findFn fnName
-        case (fn ^. fsig . fsreturn_ty, ops) of
-            (TyRef (TyArray elemTy 1) Immut, [MirExp MirReferenceRepr elemRef]) -> do
-                -- TODO: Like `array_from_slice`, above, this would be more
-                -- correctly implemented as a type cast, so that the input and
-                -- output are aliases.
-                Some elemRepr <- tyToReprM elemTy
-                elemSize <- tySizeM elemTy
-                elemVal <- readMirRef elemRepr (Width elemSize) elemRef
-                ag <- mirAggregate_uninit_constSize elemSize
-                ag' <- mirAggregate_set 0 elemSize elemRepr elemVal ag
-                agRef <- constMirRef MirAggregateRepr ag'
-                pure (MirExp MirReferenceRepr agRef)
-            _ -> mirFail $ "bad monomorphization of crucible_array_from_ref_hook: " ++
-                show (fnName, fn ^. fsig, ops)
-    )
 
 slice_from :: Mutability -> (ExplodedDefId, CustomRHS)
 slice_from mut = (["core", "slice", "raw", Text.pack hookLoc, Text.pack hookName],
