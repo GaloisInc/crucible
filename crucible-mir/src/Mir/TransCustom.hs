@@ -140,8 +140,6 @@ customOpDefs = Map.fromList $ [
                          , mem_transmute
                          , mem_bswap
                          , mem_crucible_identity_transmute
-                         , slice_from_ref
-                         , slice_from_mut
 
                          , vector_new
                          , vector_replicate
@@ -1437,34 +1435,6 @@ intrinsics_assume = (["core", "intrinsics", "assume"], \_substs ->
 assert_inhabited :: (ExplodedDefId, CustomRHS)
 assert_inhabited = (["core", "intrinsics", "assert_inhabited"], \_substs ->
     Just $ CustomOp $ \_ _ -> MirExp MirAggregateRepr <$> mirAggregate_zst)
-
-slice_from :: Mutability -> (ExplodedDefId, CustomRHS)
-slice_from mut = (["core", "slice", "raw", Text.pack hookLoc, Text.pack hookName],
-    \_substs -> Just $ CustomOpNamed $ \fnName ops -> do
-        fn <- findFn fnName
-        case (fn ^. fsig . fsreturn_ty, ops) of
-            (TyRef (TySlice _elemTy) m, [MirExp MirReferenceRepr elemRef])
-                | m == mut -> do
-                -- Unlike `array_from_ref` and `array_from_slice`, this _does_
-                -- alias the input and output. This is possible because while a
-                -- `&[T; N]` must point to a `MirAggregateRepr`, which we must
-                -- create, a `&[T]` can point to any `T` - so we can reuse the
-                -- function's `&T` parameter.
-                let sliceRef = mkSlice elemRef (R.App $ usizeLit 1)
-                pure (MirExp MirSliceRepr sliceRef)
-            _ -> mirFail $ "bad monomorphization of " ++ hookName ++ ": " ++
-                show (fnName, fn ^. fsig, ops)
-    )
-    where
-        (hookLoc, hookName) = case mut of
-            Immut -> ("from_ref", "crucible_slice_from_ref_hook")
-            Mut   -> ("from_mut", "crucible_slice_from_mut_hook")
-
-slice_from_ref ::  (ExplodedDefId, CustomRHS)
-slice_from_ref = slice_from Immut
-
-slice_from_mut ::  (ExplodedDefId, CustomRHS)
-slice_from_mut = slice_from Mut
 
 intrinsics_offset :: (ExplodedDefId, CustomRHS)
 intrinsics_offset = (["core", "intrinsics", "offset"], ptr_offset_impl)
