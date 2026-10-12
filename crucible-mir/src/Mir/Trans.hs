@@ -133,6 +133,10 @@ setPosition = G.setPosition . parsePosition
 
 transConstVal :: HasCallStack => M.Ty -> Some C.TypeRepr -> M.ConstVal -> MirGenerator h s ret (MirExp s)
 
+-- Pattern types.  These are somewhat similar to `#[repr(transparent)]`, but
+-- don't have a distinct `ConstVal` constructor.
+transConstVal (M.TyPat ty) tpr cv = transConstVal ty tpr cv
+
 -- Custom types
 transConstVal (CTyBv _) (Some (C.BVRepr w)) (M.ConstStruct [M.ConstInt i, M.ConstStruct []]) = do
     val <- case M.fromIntegerLit i of
@@ -1200,6 +1204,7 @@ evalCast' ck ty1 e ty2  = do
                         show shimDefId
 
       (M.Transmute, _, _) -> transmuteExp e ty1 ty2
+      (M.BoxDerefTransmute, _, _) -> transmuteExp e ty1 ty2
 
       -- This casts from a safe pointer to an unsafe one.
       -- Since we don't track safeness this is just a no-op for now, but if
@@ -1209,6 +1214,12 @@ evalCast' ck ty1 e ty2  = do
       -- Subtype is a no-op, as it is only present in the MIR to making subtyping
       -- explicit during optimizations and codegen.
       (M.Subtype, _, _) -> pure e
+
+      -- Allow certain casts on pattern types.  @TyPat t@ has the same Crucible
+      -- representation as @t@ itself, so simply unwrapping the type is okay.
+      (M.Unsize, M.TyPat ty1', M.TyPat ty2') -> evalCast' ck ty1' e ty2'
+      (M.UnsizeVtable _, M.TyPat ty1', M.TyPat ty2') -> evalCast' ck ty1' e ty2'
+      -- `M.Transmute` also implicitly works due to the reprs being identical.
 
       _ -> mirFail $ "unimplemented cast: " ++ (show ck) ++
         "\n  ty: " ++ (show ty1) ++ "\n  as: " ++ (show ty2)
@@ -1446,10 +1457,11 @@ transmuteExp e@(MirExp argTy argExpr) srcMirTy destMirTy = do
 
     -- Cast integer to pointer, like `0 as *mut T`
     (C.BVRepr w, MirReferenceRepr) -> do
-        int <- case srcMirTy of
+        int <- case transparentLeafTy col srcMirTy of
             M.TyInt _ -> return $ sbvToUsize w R.App argExpr
             M.TyUint _ -> return $ bvToUsize w R.App argExpr
-            _ -> mirFail $ "unexpected srcMirTy " ++ show srcMirTy ++ " for tpr " ++ show argTy
+            leafTy -> mirFail $ "unexpected srcMirTy " ++ show srcMirTy
+              ++ ", leaf ty " ++ show leafTy ++ " for tpr " ++ show argTy
         MirExp MirReferenceRepr <$> integerToMirRef int
 
     -- Transmuting between values of the same Crucible repr
@@ -1527,6 +1539,8 @@ mkTraitObject traitName' vtableName e = do
 
 evalRval :: HasCallStack => M.Rvalue -> MirGenerator h s ret (MirExp s)
 evalRval (M.Use op) = evalOperand op
+evalRval (M.Reborrow {}) =
+    mirFail "evalRval: Reborrow not supported"
 evalRval (M.Repeat op size) = buildRepeat op size
 evalRval (M.Ref _bk lv _) = evalPlace lv >>= addrOfPlace
 evalRval (M.AddressOf _mutbl lv) = evalPlace lv >>= addrOfPlace
@@ -3120,6 +3134,7 @@ dispatchFromDyn dynTraitName recvTy recvExp die = do
                   lift $ die
                     ["`DispatchFromDyn` invalid for DST with " <> show (length fs) <> " non-ZST fields"]
         _ -> return mirExp
+    go (M.TyPat ty') mirExp = go ty' mirExp
     -- rustc only recurses into struct types to find the coerced field.  All
     -- other types are ignored.
     go _ mirExp = return mirExp
