@@ -2466,10 +2466,10 @@ initLocals localVars = forM_ localVars $ \v -> do
     -- with `RefPath` operations that explicitly say otherwise.)
     ref <- newMirRef MirAggregateRepr
     ag <- mirAggregate_uninit_constSize tySize
-    writeMirRef MirAggregateRepr ref All ag
-    case optVal of
-        Nothing -> return ()
-        Just val -> writeMirRef tpr ref (Width tySize) val
+    ag' <- case optVal of
+      Nothing -> pure ag
+      Just val -> mirAggregate_set 0 tySize tpr val ag
+    writeMirRef MirAggregateRepr ref All ag'
     reg <- G.newReg ref
     let varinfo = Some $ VarInfo tpr reg
     varMap %= Map.insert name varinfo
