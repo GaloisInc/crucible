@@ -140,10 +140,6 @@ customOpDefs = Map.fromList $ [
                          , mem_transmute
                          , mem_bswap
                          , mem_crucible_identity_transmute
-                         , array_from_slice
-                         , array_from_ref
-                         , slice_from_ref
-                         , slice_from_mut
 
                          , vector_new
                          , vector_replicate
@@ -1439,94 +1435,6 @@ intrinsics_assume = (["core", "intrinsics", "assume"], \_substs ->
 assert_inhabited :: (ExplodedDefId, CustomRHS)
 assert_inhabited = (["core", "intrinsics", "assert_inhabited"], \_substs ->
     Just $ CustomOp $ \_ _ -> MirExp MirAggregateRepr <$> mirAggregate_zst)
-
-array_from_slice ::  (ExplodedDefId, CustomRHS)
-array_from_slice = (["core","slice", "{impl}", "as_array", "crucible_array_from_slice_hook"],
-    \_substs -> Just $ CustomOpNamed $ \fnName ops -> do
-        fn <- findFn fnName
-        case (fn ^. fsig . fsreturn_ty, ops) of
-            ( TyAdt optionMonoName _ (Substs [TyRef (TyArray elemTy tyLen) Immut]),
-              [MirExp MirSliceRepr e] ) -> do
-                -- TODO: This should be implemented as a type cast, so the
-                -- input and output are aliases.  However, the input slice's
-                -- data pointer may point into a `Vector`/`Array` rather than a
-                -- `MirAggregate`, whereas the output must always point to a
-                -- `MirAggregate`.  So for now, we use `aggregateCopy` to build
-                -- the output.  Once `MirAggregate` flattening is enabled, we
-                -- may be able to turn this into a proper cast.
-                let ptr = getSlicePtr e
-                let len = getSliceLen e
-                let lenOk = R.App $ usizeEq len (R.App $ usizeLit $ fromIntegral tyLen)
-                -- Get the Adt info for the return type, which should be
-                -- Option<&[T; N]>.
-                adt <- findAdt optionMonoName
-                SomeRustEnumRepr discrTpr variantsCtx <- enumVariantsM adt
-                let expectedEnumTpr = RustEnumRepr discrTpr variantsCtx
-
-                Some elemTpr <- tyToReprM elemTy
-                elemSize <- tySizeM elemTy
-                MirExp expectedEnumTpr <$> G.ifte' expectedEnumTpr lenOk
-                    (do ag <- aggregateCopy_constLen elemTpr ptr tyLen elemSize
-                        ref <- constMirRef MirAggregateRepr ag
-                        let refMir = MirExp MirReferenceRepr ref
-                        MirExp enumTpr enum <- buildEnum adt optionDiscrSome [refMir]
-                        Refl <- expectEnumOrFail discrTpr variantsCtx enumTpr
-                        pure enum)
-                    (do MirExp enumTpr enum <- buildEnum adt optionDiscrNone []
-                        Refl <- expectEnumOrFail discrTpr variantsCtx enumTpr
-                        pure enum)
-
-            _ -> mirFail $ "bad monomorphization of crucible_array_from_slice_hook: " ++
-                show (fnName, fn ^. fsig, ops)
-    )
-
-array_from_ref ::  (ExplodedDefId, CustomRHS)
-array_from_ref = (["core", "array", "from_ref", "crucible_array_from_ref_hook"],
-    \_substs -> Just $ CustomOpNamed $ \fnName ops -> do
-        fn <- findFn fnName
-        case (fn ^. fsig . fsreturn_ty, ops) of
-            (TyRef (TyArray elemTy 1) Immut, [MirExp MirReferenceRepr elemRef]) -> do
-                -- TODO: Like `array_from_slice`, above, this would be more
-                -- correctly implemented as a type cast, so that the input and
-                -- output are aliases.
-                Some elemRepr <- tyToReprM elemTy
-                elemSize <- tySizeM elemTy
-                elemVal <- readMirRef elemRepr (Width elemSize) elemRef
-                ag <- mirAggregate_uninit_constSize elemSize
-                ag' <- mirAggregate_set 0 elemSize elemRepr elemVal ag
-                agRef <- constMirRef MirAggregateRepr ag'
-                pure (MirExp MirReferenceRepr agRef)
-            _ -> mirFail $ "bad monomorphization of crucible_array_from_ref_hook: " ++
-                show (fnName, fn ^. fsig, ops)
-    )
-
-slice_from :: Mutability -> (ExplodedDefId, CustomRHS)
-slice_from mut = (["core", "slice", "raw", Text.pack hookLoc, Text.pack hookName],
-    \_substs -> Just $ CustomOpNamed $ \fnName ops -> do
-        fn <- findFn fnName
-        case (fn ^. fsig . fsreturn_ty, ops) of
-            (TyRef (TySlice _elemTy) m, [MirExp MirReferenceRepr elemRef])
-                | m == mut -> do
-                -- Unlike `array_from_ref` and `array_from_slice`, this _does_
-                -- alias the input and output. This is possible because while a
-                -- `&[T; N]` must point to a `MirAggregateRepr`, which we must
-                -- create, a `&[T]` can point to any `T` - so we can reuse the
-                -- function's `&T` parameter.
-                let sliceRef = mkSlice elemRef (R.App $ usizeLit 1)
-                pure (MirExp MirSliceRepr sliceRef)
-            _ -> mirFail $ "bad monomorphization of " ++ hookName ++ ": " ++
-                show (fnName, fn ^. fsig, ops)
-    )
-    where
-        (hookLoc, hookName) = case mut of
-            Immut -> ("from_ref", "crucible_slice_from_ref_hook")
-            Mut   -> ("from_mut", "crucible_slice_from_mut_hook")
-
-slice_from_ref ::  (ExplodedDefId, CustomRHS)
-slice_from_ref = slice_from Immut
-
-slice_from_mut ::  (ExplodedDefId, CustomRHS)
-slice_from_mut = slice_from Mut
 
 intrinsics_offset :: (ExplodedDefId, CustomRHS)
 intrinsics_offset = (["core", "intrinsics", "offset"], ptr_offset_impl)
