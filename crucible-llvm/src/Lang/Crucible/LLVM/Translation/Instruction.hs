@@ -445,7 +445,7 @@ insertValue _ _ _ = fail "invalid insertValue instruction"
 
 
 evalGEP :: forall s arch ret wptr.
-  wptr ~ ArchWidth arch =>
+  (?transOpts :: TranslationOptions, wptr ~ ArchWidth arch) =>
   L.Instr ->
   GEPResult (LLVMExpr s arch) ->
   LLVMGenerator s arch ret (LLVMExpr s arch)
@@ -497,7 +497,7 @@ evalGEP instr (GEPResult _lanes finalMemType gep0) = finish =<< go gep0
 
 
 calcGEP_array :: forall wptr s arch ret.
-  wptr ~ ArchWidth arch =>
+  (?transOpts :: TranslationOptions, wptr ~ ArchWidth arch) =>
   MemType {- ^ Type of the array elements -} ->
   Expr LLVM s (LLVMPointerType wptr) {- ^ Base pointer -} ->
   LLVMExpr s arch {- ^ index value -} ->
@@ -528,8 +528,9 @@ calcGEP_array typ base idx =
      -- Perform the multiply
      mvar <- getMemVar
      off0 <- AtomExpr <$> (mkAtom $ app $ BVMul PtrWidth (app $ BVLit PtrWidth (BV.mkBV PtrWidth isz)) idx')
-     let off  =
-           if isz == 0
+     let noLaxArith = not (laxArith ?transOpts)
+         off  =
+           if isz == 0 || not noLaxArith
            then off0
            else
              let
@@ -551,7 +552,8 @@ calcGEP_array typ base idx =
                -- Multiplication overflow will result in a pointer which is not "in
                -- bounds" for the given allocation. We translate all GEP
                -- instructions as if they had the `inbounds` attribute set, so
-               -- the result would be a poison value.
+               -- the result would be a poison value. When laxArith is enabled
+               -- (via enable_lax_loads_and_stores), this check is skipped.
                poisonSideCondition mvar (BVRepr PtrWidth) poison off0 cond
 
      -- Perform the pointer offset arithmetic
