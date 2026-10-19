@@ -1676,15 +1676,16 @@ mirRef_peelIndexLeaf ::
     MirReference sym ->
     MuxLeafT sym m
         (RegValue sym (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType)))
-mirRef_peelIndexLeaf bak _elemSize (MirReference tpr root (VectorIndex_RefPath _tpr' path idx)) = do
+mirRef_peelIndexLeaf bak elemSize mr = case mr of
+  MirReference tpr root (VectorIndex_RefPath _tpr' path idx) -> do
     let sym = backendGetSym bak
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference (VectorRepr tpr) root path
     return $ Empty :> RV ref :> RV idx
-mirRef_peelIndexLeaf bak _elemSize (MirReference _tpr root (ArrayIndex_RefPath btpr path idx)) = do
+  MirReference _tpr root (ArrayIndex_RefPath btpr path idx) -> do
     let sym = backendGetSym bak
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference (UsizeArrayRepr btpr) root path
     return $ Empty :> RV ref :> RV idx
-mirRef_peelIndexLeaf bak elemSize (MirReference _tpr root (AgElem_RefPath off _tpr' path)) = do
+  MirReference _tpr root (AgElem_RefPath off _tpr' path) -> do
     let sym = backendGetSym bak
     elemSizeBV <- liftIO $ wordLit sym elemSize
 
@@ -1696,7 +1697,7 @@ mirRef_peelIndexLeaf bak elemSize (MirReference _tpr root (AgElem_RefPath off _t
     idx <- liftIO $ bvUdiv sym off elemSizeBV
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
     return $ Empty :> RV ref :> RV idx
-mirRef_peelIndexLeaf bak elemSize (MirReference _tpr root (AgOffset_RefPath off path)) = do
+  MirReference _tpr root (AgOffset_RefPath off path) -> do
     let sym = backendGetSym bak
     elemSizeBV <- liftIO $ wordLit sym elemSize
 
@@ -1708,16 +1709,16 @@ mirRef_peelIndexLeaf bak elemSize (MirReference _tpr root (AgOffset_RefPath off 
     idx <- liftIO $ bvUdiv sym off elemSizeBV
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
     return $ Empty :> RV ref :> RV idx
-mirRef_peelIndexLeaf bak _elemSize (MirReference MirAggregateRepr root path) = do
+  MirReference MirAggregateRepr root path -> do
     -- See Note [Aggregate zero-offsets]
     let sym = backendGetSym bak
     idx <- liftIO $ wordLit sym 0
     let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
     return $ Empty :> RV ref :> RV idx
-mirRef_peelIndexLeaf _bak _elemSize (MirReference _ _ _) =
+  MirReference _ _ _ ->
     leafAbort $ Unsupported callStack $
         "peelIndex is not yet implemented for this RefPath kind"
-mirRef_peelIndexLeaf _bak _elemSize _ = do
+  MirReference_Integer {} -> do
     leafAbort $ Unsupported callStack $
         "cannot perform peelIndex on invalid pointer"
 
