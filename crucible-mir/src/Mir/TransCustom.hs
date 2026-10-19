@@ -1876,19 +1876,18 @@ reallocate = (["alloc", "crucible", "alloc", "reallocate"], \substs -> case subs
         [ MirExp MirReferenceRepr ptr, MirExp UsizeRepr newLen ] -> do
             elemSize <- tySizeM elemTy
 
-            (agPtr, idx) <- mirRef_peelIndex ptr elemSize
+            startPtr <- mirRef_peelIndex ptr elemSize
 
-            let isZero = R.App $ usizeEq idx $ R.App $ usizeLit 0
-            G.assertExpr isZero $
+            ptrAtStart <- mirRef_eq ptr startPtr
+            G.assertExpr ptrAtStart $
                 S.litExpr "bad pointer in reallocate: not the start of an allocation"
 
-            oldAg <- readMirRef MirAggregateRepr All agPtr
+            oldAg <- readMirRef MirAggregateRepr All startPtr
             let newSize = R.App (usizeMul newLen (R.App (usizeLit (fromIntegral elemSize))))
             newAg <- mirAggregate_resize oldAg newSize
             newAgPtr <- newMirRef MirAggregateRepr
             writeMirRef MirAggregateRepr newAgPtr All newAg
-            newAgElem <- mirRef_agOffset idx newAgPtr
-            return $ MirExp MirReferenceRepr newAgElem
+            return $ MirExp MirReferenceRepr newAgPtr
         _ -> mirFail $ "BUG: invalid arguments to reallocate: " ++ show ops
     _ -> Nothing)
 

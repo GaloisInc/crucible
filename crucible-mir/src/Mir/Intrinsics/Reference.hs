@@ -121,7 +121,6 @@ import Data.Parameterized.Context
     adjustM,
     field,
     (!),
-    (::>),
     pattern Empty,
     pattern (:>),
   )
@@ -1674,47 +1673,24 @@ mirRef_peelIndexLeaf ::
     -- | The size of the element, in bytes
     Word ->
     MirReference sym ->
-    MuxLeafT sym m
-        (RegValue sym (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType)))
-mirRef_peelIndexLeaf bak elemSize mr = case mr of
-  MirReference tpr root (VectorIndex_RefPath _tpr' path idx) -> do
+    MuxLeafT sym m (RegValue sym MirReferenceType)
+mirRef_peelIndexLeaf bak _elemSize mr = case mr of
+  MirReference tpr root (VectorIndex_RefPath _tpr' path _idx) -> do
     let sym = backendGetSym bak
-    let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference (VectorRepr tpr) root path
-    return $ Empty :> RV ref :> RV idx
-  MirReference _tpr root (ArrayIndex_RefPath btpr path idx) -> do
+    pure $ MirReferenceMux $ toFancyMuxTree sym $ MirReference (VectorRepr tpr) root path
+  MirReference _tpr root (ArrayIndex_RefPath btpr path _idx) -> do
     let sym = backendGetSym bak
-    let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference (UsizeArrayRepr btpr) root path
-    return $ Empty :> RV ref :> RV idx
-  MirReference _tpr root (AgElem_RefPath off _tpr' path) -> do
+    pure $ MirReferenceMux $ toFancyMuxTree sym $ MirReference (UsizeArrayRepr btpr) root path
+  MirReference _tpr root (AgElem_RefPath _off _tpr' path) -> do
     let sym = backendGetSym bak
-    elemSizeBV <- liftIO $ wordLit sym elemSize
-
-    offModSz <- liftIO $ bvUrem sym off elemSizeBV
-    offModSzIsZero <- liftIO $ bvEq sym offModSz =<< wordLit sym 0
-    leafAssert bak offModSzIsZero $ Unsupported callStack $
-        "expected element offset to be a multiple of element size (" ++ show elemSize ++ ")"
-
-    idx <- liftIO $ bvUdiv sym off elemSizeBV
-    let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
-    return $ Empty :> RV ref :> RV idx
-  MirReference _tpr root (AgOffset_RefPath off path) -> do
+    pure $ MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
+  MirReference _tpr root (AgOffset_RefPath _off path) -> do
     let sym = backendGetSym bak
-    elemSizeBV <- liftIO $ wordLit sym elemSize
-
-    offModSz <- liftIO $ bvUrem sym off elemSizeBV
-    offModSzIsZero <- liftIO $ bvEq sym offModSz =<< wordLit sym 0
-    leafAssert bak offModSzIsZero $ Unsupported callStack $
-        "expected element offset to be a multiple of element size (" ++ show elemSize ++ ")"
-
-    idx <- liftIO $ bvUdiv sym off elemSizeBV
-    let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
-    return $ Empty :> RV ref :> RV idx
+    pure $ MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
   MirReference MirAggregateRepr root path -> do
     -- See Note [Aggregate zero-offsets]
     let sym = backendGetSym bak
-    idx <- liftIO $ wordLit sym 0
-    let ref = MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
-    return $ Empty :> RV ref :> RV idx
+    pure $ MirReferenceMux $ toFancyMuxTree sym $ MirReference MirAggregateRepr root path
   MirReference _ _ _ ->
     leafAbort $ Unsupported callStack $
         "peelIndex is not yet implemented for this RefPath kind"
@@ -1729,12 +1705,11 @@ mirRef_peelIndexMA ::
     MirReferenceMux sym ->
     -- | The size of the element, in bytes
     Word ->
-    m (RegValue sym (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType)))
-mirRef_peelIndexMA bak iTypes (MirReferenceMux ref) elemSize =
+    m (RegValue sym MirReferenceType)
+mirRef_peelIndexMA bak iTypes (MirReferenceMux ref) elemSize = do
     let sym = backendGetSym bak
-        tpr' = StructRepr (Empty :> MirReferenceRepr :> IsizeRepr) in
     readFancyMuxTree' bak (mirRef_peelIndexLeaf bak elemSize)
-        (muxRegForType sym iTypes tpr') ref
+        (muxRegForType sym iTypes MirReferenceRepr) ref
 
 
 -- | Peel off an outermost 'Field_RefPath'. Given a pointer to a field of a
