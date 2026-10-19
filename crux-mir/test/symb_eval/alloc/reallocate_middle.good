@@ -1,0 +1,20 @@
+test reallocate_middle/<DISAMB>::crux_test[0]: [Crux] Attempting to prove verification conditions.
+FAILED
+
+failures:
+
+---- reallocate_middle/<DISAMB>::crux_test[0] counterexamples ----
+[Crux] Found counterexample for verification goal
+[Crux]   test/symb_eval/alloc/reallocate_middle.rs:15:28: 15:46: error: in reallocate_middle/<DISAMB>::crux_test[0]
+[Crux]   bad pointer in reallocate: not the start of an allocation
+[Crux]   Context:
+[Crux]     test/symb_eval/alloc/reallocate_middle.rs:15:28: 15:46: reallocate_middle/<DISAMB>::crux_test[0]
+
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 1
+[Crux]   Proved: 0
+[Crux]   Disproved: 1
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Invalid.
