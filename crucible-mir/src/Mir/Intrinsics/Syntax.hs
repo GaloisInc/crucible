@@ -30,11 +30,8 @@ import Data.Kind (Type)
 import Data.Parameterized.Classes (OrdF (..), TestEquality (..))
 import Data.Parameterized.Context
   ( Assignment,
-    EmptyCtx,
     Index,
     (::>),
-    pattern Empty,
-    pattern (:>),
   )
 import Data.Parameterized.NatRepr (NatRepr)
 import Data.Parameterized.TH.GADT qualified as U
@@ -90,7 +87,6 @@ import Lang.Crucible.Types
     MaybeType,
     NatType,
     StringType,
-    StructType,
     SymbolicArrayType,
     TypeRepr (..),
     Unicode,
@@ -137,7 +133,6 @@ import Mir.Intrinsics.Size
   ( IsizeType,
     UsizeType,
     pattern IsizeRepr,
-    pattern UsizeRepr,
   )
 import Mir.Intrinsics.Vector (vectorDropIO, vectorTakeIO)
 import Mir.Mir (OpSize)
@@ -243,15 +238,15 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
      -- | The size of the pointee, i.e. @size_of::<T>@
      !Word ->
      MirStmt f (MaybeType IsizeType)
-  -- | Peel off an outermost `Index_RefPath`.  Given a pointer to an element of
-  -- a vector, this produces a pointer to the parent vector and the index of
-  -- the element.  If the outermost path segment isn't `Index_RefPath`, this
-  -- operation raises an error.
+  -- | Given a reference to an element of an allocation (`MirAggregate`,
+  -- @crucible::array::Array<T>@, or @crucible::vector::Vector@), produce a
+  -- reference to the beginning of that allocation. If the reference provided
+  -- points to something other than an allocation, this will fail.
   MirRef_PeelIndex ::
      !(f MirReferenceType) ->
      -- | The size of the element, in bytes
      !Word ->
-     MirStmt f (StructType (EmptyCtx ::> MirReferenceType ::> UsizeType))
+     MirStmt f MirReferenceType
   -- | Print the internal representation of a `MirReference` for debugging.
   -- This is similar to the behavior of @crucible::dump_rv@, but it's easier to
   -- call an intrinsic from inside `Mir.Trans` / `Mir.TransCustom` cases than
@@ -399,7 +394,7 @@ instance TypeApp MirStmt where
     MirRef_Offset _ _ _ -> MirReferenceRepr
     MirRef_OffsetWrap _ _ _ -> MirReferenceRepr
     MirRef_TryOffsetFrom _ _ _ -> MaybeRepr IsizeRepr
-    MirRef_PeelIndex _ _ -> StructRepr (Empty :> MirReferenceRepr :> UsizeRepr)
+    MirRef_PeelIndex _ _ -> MirReferenceRepr
     DebugPrintMirRef _ _ -> UnitRepr
     VectorSnoc tp _ _ -> VectorRepr tp
     VectorHead tp _ -> MaybeRepr tp
