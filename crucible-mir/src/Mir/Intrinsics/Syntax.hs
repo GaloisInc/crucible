@@ -244,8 +244,6 @@ data MirStmt :: (CrucibleType -> Type) -> CrucibleType -> Type where
   -- points to something other than an allocation, this will fail.
   MirRef_PeelIndex ::
      !(f MirReferenceType) ->
-     -- | The size of the element, in bytes
-     !Word ->
      MirStmt f MirReferenceType
   -- | Print the internal representation of a `MirReference` for debugging.
   -- This is similar to the behavior of @crucible::dump_rv@, but it's easier to
@@ -394,7 +392,7 @@ instance TypeApp MirStmt where
     MirRef_Offset _ _ _ -> MirReferenceRepr
     MirRef_OffsetWrap _ _ _ -> MirReferenceRepr
     MirRef_TryOffsetFrom _ _ _ -> MaybeRepr IsizeRepr
-    MirRef_PeelIndex _ _ -> MirReferenceRepr
+    MirRef_PeelIndex _ -> MirReferenceRepr
     DebugPrintMirRef _ _ -> UnitRepr
     VectorSnoc tp _ _ -> VectorRepr tp
     VectorHead tp _ -> MaybeRepr tp
@@ -430,7 +428,7 @@ instance PrettyApp MirStmt where
     MirRef_Offset p o s -> "mirRef_offset" <+> pp p <+> pp o <+> viaShow s
     MirRef_OffsetWrap p o s -> "mirRef_offsetWrap" <+> pp p <+> pp o <+> viaShow s
     MirRef_TryOffsetFrom p o s -> "mirRef_tryOffsetFrom" <+> pp p <+> pp o <+> viaShow s
-    MirRef_PeelIndex p s -> "mirRef_peelIndex" <+> pp p <+> viaShow s
+    MirRef_PeelIndex p -> "mirRef_peelIndex" <+> pp p
     DebugPrintMirRef s p -> "debugPrintMirRef" <+> pp s <+> pp p
     VectorSnoc _ v e -> "vectorSnoc" <+> pp v <+> pp e
     VectorHead _ v -> "vectorHead" <+> pp v
@@ -503,8 +501,8 @@ execMirStmt stmt s = withStateBackend s $ \bak ->
          readOnly s $ mirRef_offsetWrapIO bak iTypes ref off elemSize
        MirRef_TryOffsetFrom (regValue -> r1) (regValue -> r2) elemSize ->
          readOnly s $ mirRef_tryOffsetFromIO bak iTypes elemSize r1 r2
-       MirRef_PeelIndex (regValue -> ref) elemSize -> do
-         readOnly s $ mirRef_peelIndexMA bak iTypes ref elemSize
+       MirRef_PeelIndex (regValue -> ref) -> do
+         readOnly s $ mirRef_peelIndexMA bak iTypes ref
        DebugPrintMirRef (regValue -> desc) (regValue -> ref) -> do
          readOnly s $ putStrLn $ "debugPrintMirRef (" ++ show (printSymExpr desc)
            ++ "): " ++ show ref

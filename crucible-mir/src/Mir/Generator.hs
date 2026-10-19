@@ -724,10 +724,8 @@ mirRef_tryOffsetFrom r1 r2 elemSize = G.extensionStmt $ MirRef_TryOffsetFrom r1 
 
 mirRef_peelIndex ::
   R.Expr MIR s MirReferenceType ->
-  -- | The size of the element, in bytes
-  Word ->
   MirGenerator h s ret (R.Expr MIR s MirReferenceType)
-mirRef_peelIndex ref elemSize = G.extensionStmt $ MirRef_PeelIndex ref elemSize
+mirRef_peelIndex ref = G.extensionStmt $ MirRef_PeelIndex ref
 
 debugPrintMirRef ::
   String ->

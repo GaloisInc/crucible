@@ -1876,7 +1876,7 @@ reallocate = (["alloc", "crucible", "alloc", "reallocate"], \substs -> case subs
         [ MirExp MirReferenceRepr ptr, MirExp UsizeRepr newLen ] -> do
             elemSize <- tySizeM elemTy
 
-            startPtr <- mirRef_peelIndex ptr elemSize
+            startPtr <- mirRef_peelIndex ptr
 
             ptrAtStart <- mirRef_eq ptr startPtr
             G.assertExpr ptrAtStart $
