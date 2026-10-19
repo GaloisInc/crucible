@@ -1670,11 +1670,9 @@ mirRef_tryOffsetFromIO bak iTypes elemSize (MirReferenceMux r1) (MirReferenceMux
 mirRef_peelIndexLeaf ::
     MonadAssert sym bak m =>
     bak ->
-    -- | The size of the element, in bytes
-    Word ->
     MirReference sym ->
     MuxLeafT sym m (RegValue sym MirReferenceType)
-mirRef_peelIndexLeaf bak _elemSize mr = case mr of
+mirRef_peelIndexLeaf bak mr = case mr of
   MirReference tpr root (VectorIndex_RefPath _tpr' path _idx) -> do
     let sym = backendGetSym bak
     pure $ MirReferenceMux $ toFancyMuxTree sym $ MirReference (VectorRepr tpr) root path
@@ -1703,12 +1701,10 @@ mirRef_peelIndexMA ::
     bak ->
     IntrinsicTypes sym ->
     MirReferenceMux sym ->
-    -- | The size of the element, in bytes
-    Word ->
     m (RegValue sym MirReferenceType)
-mirRef_peelIndexMA bak iTypes (MirReferenceMux ref) elemSize = do
+mirRef_peelIndexMA bak iTypes (MirReferenceMux ref) = do
     let sym = backendGetSym bak
-    readFancyMuxTree' bak (mirRef_peelIndexLeaf bak elemSize)
+    readFancyMuxTree' bak (mirRef_peelIndexLeaf bak)
         (muxRegForType sym iTypes MirReferenceRepr) ref
 
 
