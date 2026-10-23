@@ -1,0 +1,5 @@
+test box/<DISAMB>::crux_test[0]: returned Symbolic BV, ok
+
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] All goals discharged through internal simplification.
+[Crux] Overall status: Valid.
