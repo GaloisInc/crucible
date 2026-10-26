@@ -1,7 +1,12 @@
 # next
 
+This release supports [version
+14](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#14) of
+`mir-json`'s schema.
+
 * The CVC4 SMT solver is no longer supported. As such, the `--solver`
   command-line option no longer accepts `cvc4` as a valid option.
+* Support simulating Rust code up to version 1.91 (`nightly-2026-08-24`).
 
 # 0.13 -- 2026-09-11
 
