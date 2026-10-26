@@ -44,7 +44,7 @@ module Mir.Trans(transCollection,transStatics,RustModule(..)
 import Control.Monad
 import Control.Monad.ST
 import Control.Monad.Trans.Class
-import Control.Monad.Writer
+import Control.Monad.Writer (WriterT, runWriterT, tell)
 import Lens.Micro ((^.), (^?), (%~), ix, to)
 import Lens.Micro.GHC (at)
 import Lens.Micro.Mtl (use, (.=), (%=))
