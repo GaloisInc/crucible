@@ -1204,6 +1204,11 @@ evalCast' ck ty1 e ty2  = do
                         show shimDefId
 
       (M.Transmute, _, _) -> transmuteExp e ty1 ty2
+      -- Rustc docs say: "This is almost equivalent to a regular transmute
+      -- except that if the input would not be valid as Box<T>, the cast is UB.
+      -- Backends that do not care about UB detection can treat this like a
+      -- regular transmute."  For now we don't check for this kind of UB, so we
+      -- treat this like a regular transmute.
       (M.BoxDerefTransmute, _, _) -> transmuteExp e ty1 ty2
 
       -- This casts from a safe pointer to an unsafe one.
