@@ -1,13 +1,14 @@
 # next
 
 This release supports [version
-13](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#13) of
+14](https://github.com/GaloisInc/mir-json/blob/master/SCHEMA_CHANGELOG.md#14) of
 `mir-json`'s schema.
 
 * `crucible-mir` no longer fails immediately when it cannot translate a static
   item's initializer. If this happens, `crucible-mir` will instead proceed to
   simulate the `crux::test` entrypoints, and it will only fail if an
   untranslated static item is accessed during simulation.
+* Support simulating Rust code up to version 1.91 (`nightly-2026-08-24`).
 
 # 0.7 -- 2026-09-25
 

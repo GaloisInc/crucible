@@ -151,6 +151,8 @@ instance FromJSON Instance where
             <$> v .: "def_id" <*> v .: "args"
         Just (String "Intrinsic") -> Instance IkIntrinsic
             <$> v .: "def_id" <*> v .: "args"
+        Just (String "LlvmIntrinsic") -> Instance IkLlvmIntrinsic
+            <$> v .: "def_id" <*> v .: "args"
         Just (String "VTableShim") -> Instance IkVtableShim
             <$> v .: "def_id" <*> v .: "args"
         Just (String "ReifyShim") -> Instance IkReifyShim
@@ -358,6 +360,7 @@ instance FromJSON Lvalue where
 instance FromJSON Rvalue where
     parseJSON = withObject "Rvalue" $ \v -> case lookupKM "kind" v of
                                               Just (String "Use") -> Use <$> v .: "usevar"
+                                              Just (String "Reborrow") -> Reborrow <$> v .: "place" <*> v .: "target_ty"
                                               Just (String "Repeat") -> Repeat <$> v .: "op" <*> v .: "len"
                                               Just (String "Ref") ->  Ref <$> v .: "borrowkind" <*> v .: "refvar" <*> v .: "region"
                                               Just (String "AddressOf") ->  AddressOf <$> v .: "mutbl" <*> v .: "place"
@@ -511,6 +514,7 @@ instance FromJSON CastKind where
             Just (String "PtrToPtr") -> pure PtrToPtr
             Just (String "FnPtrToPtr") -> pure FnPtrToPtr
             Just (String "Transmute") -> pure Transmute
+            Just (String "BoxDerefTransmute") -> pure BoxDerefTransmute
             Just (String "Subtype") -> pure Subtype
             x -> fail ("bad CastKind: " ++ show x)
 
