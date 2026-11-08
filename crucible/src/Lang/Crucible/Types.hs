@@ -39,46 +39,29 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE StandaloneDeriving #-}
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeData #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE ViewPatterns #-}
 module Lang.Crucible.Types
   ( -- * CrucibleType data kind
-    type CrucibleType
+    type CrucibleType(..)
     -- ** Constructors for kind CrucibleType
-  , AnyType
-  , UnitType
   , BoolType
-  , NatType
   , IntegerType
   , RealValType
   , SymbolicStructType
   , ComplexRealType
   , BVType
-  , FloatType
   , IEEEFloatType
-  , CharType
   , StringType
-  , FunctionHandleType
-  , MaybeType
-  , RecursiveType
-  , IntrinsicType
-  , VectorType
-  , SequenceType
-  , StructType
-  , VariantType
-  , ReferenceType
-  , WordMapType
-
-  , StringMapType
   , SymbolicArrayType
 
     -- * IsRecursiveType
   , IsRecursiveType(..)
 
     -- * Base type injection
-  , BaseToType
   , baseToType
 
   , AsBaseType(..)
@@ -139,7 +122,7 @@ type CtxRepr = Ctx.Assignment TypeRepr
 
 -- | This data kind describes the types of values and expressions that
 --   can occur in Crucible CFGs.
-data CrucibleType where
+type data CrucibleType where
    -- | An injection of solver interface types into Crucible types
    BaseToType :: BaseType -> CrucibleType
 
@@ -160,58 +143,59 @@ data CrucibleType where
    -- | A function handle taking a context of formal arguments and a return type
    FunctionHandleType :: Ctx CrucibleType -> CrucibleType -> CrucibleType
 
-   -- The Maybe type lifted into crucible expressions
+   -- | The 'Maybe' type lifted into crucible expressions
    MaybeType :: CrucibleType -> CrucibleType
 
-   -- A finite (one-dimensional) sequence of values.  Vectors are
-   -- optimized for random-access indexing and updating.  Vectors
-   -- of different lengths may not be combined at join points.
+   -- | A finite (one-dimensional) sequence of values.  Vectors are optimized
+   -- for random-access indexing and updating.  Vectors of different lengths may
+   -- not be combined at join points.
    VectorType :: CrucibleType -> CrucibleType
 
-   -- Sequences of values, represented as linked lists of cons cells.  Sequences
-   -- only allow access to the front. Unlike Vectors, sequences of
+   -- | Sequences of values, represented as linked lists of cons cells.
+   -- Sequences only allow access to the front. Unlike Vectors, sequences of
    -- different lengths may be combined at join points.
    SequenceType :: CrucibleType -> CrucibleType
 
-   -- A structure is an aggregate type consisting of a sequence of values.
-   -- The type of each value is known statically.
+   -- | A structure is an aggregate type consisting of a sequence of values. The
+   -- type of each value is known statically.
    StructType :: Ctx CrucibleType -> CrucibleType
 
-   -- The type of mutable reference cells.
+   -- | The type of mutable reference cells.
    ReferenceType :: CrucibleType -> CrucibleType
 
-   -- A variant is a disjoint union of the types listed in the context.
+   -- | A variant is a disjoint union of the types listed in the context.
    VariantType :: Ctx CrucibleType -> CrucibleType
 
-   -- A finite map from bitvector values to the given crucible type.
-   -- The nat index gives the width of the bitvector values used to index
+   -- | A finite map from bitvector values to the given crucible type.
+   -- The 'Nat' index gives the width of the bitvector values used to index
    -- the map.
    WordMapType :: Nat -> BaseType -> CrucibleType
 
-   -- Named recursive types, named by the given symbol.  To use recursive types
-   -- you must provide an instance of the IsRecursiveType class that gives
-   -- the unfolding of this recursive type.  The RollRecursive and UnrollRecursive
-   -- operations witness the isomorphism between a recursive type and its one-step
-   -- unrolling.  Similar to Haskell's newtype, recursive types do not necessarily
-   -- have to mention the recursive type being defined; in which case, the type
-   -- is simply a new named type which is isomorphic to its definition.
+   -- | Named recursive types, named by the given symbol. To
+   -- use recursive types you must provide an instance of the
+   -- 'IsRecursiveType' class that gives the unfolding of this
+   -- recursive type. The 'Lang.Crucible.CFG.Expr.RollRecursive' and
+   -- 'Lang.Crucible.CFG.Expr.UnrollRecursive' operations witness the
+   -- isomorphism between a recursive type and its one-step unrolling. Similar
+   -- to Haskell's @newtype@, recursive types do not necessarily have to mention
+   -- the recursive type being defined; in which case, the type is simply a new
+   -- named type which is isomorphic to its definition.
    RecursiveType :: Symbol -> Ctx CrucibleType -> CrucibleType
 
-   -- Named intrinsic types.  Intrinsic types are a way to extend the
-   -- crucible type system after-the-fact and add new type
-   -- implementations.  Core crucible provides no operations on
-   -- intrinsic types; they must be provided as built-in override
-   -- functions, or via the language extension mechanism.  See the
-   -- `IntrinsicClass` typeclass and the `Intrinsic` type family
-   -- defined in "Lang.Crucible.Simulator.Intrinsics".
+   -- | Named intrinsic types. Intrinsic types are a way to extend the
+   -- Crucible type system after-the-fact and add new type implementations.
+   -- Core Crucible provides no operations on intrinsic types;
+   -- they must be provided as built-in override functions. See the
+   -- 'Lang.Crucible.Simulator.Intrinsics.IntrinsicClass' typeclass and the
+   -- 'Lang.Crucible.Simulator.Intrinsics.Intrinsic' type family defined in
+   -- "Lang.Crucible.Simulator.Intrinsics".
    --
    -- The context of crucible types are type arguments to the intrinsic type.
    IntrinsicType :: Symbol -> Ctx CrucibleType -> CrucibleType
 
-   -- A partial map from strings to values.
+   -- | A partial map from strings to values.
    StringMapType :: CrucibleType -> CrucibleType
 
-type BaseToType      = 'BaseToType                -- ^ @:: 'BaseType' -> 'CrucibleType'@.
 type BoolType        = BaseToType BaseBoolType    -- ^ @:: 'CrucibleType'@.
 type BVType w        = BaseToType (BaseBVType w)  -- ^ @:: 'Nat' -> 'CrucibleType'@.
 type ComplexRealType = BaseToType BaseComplexType -- ^ @:: 'CrucibleType'@.
@@ -222,79 +206,6 @@ type IEEEFloatType p = BaseToType (BaseFloatType p) -- ^ @:: FloatPrecision -> C
 
 type SymbolicArrayType idx xs = BaseToType (BaseArrayType idx xs) -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'BaseType' -> 'CrucibleType'@.
 type SymbolicStructType flds = BaseToType (BaseStructType flds) -- ^ @:: 'Ctx.Ctx' 'BaseType' -> 'CrucibleType'@.
-
-
--- | A dynamic type that can contain values of any type.
-type AnyType  = 'AnyType  -- ^ @:: 'CrucibleType'@.
-
--- | A single character, as a 16-bit wide char.
-type CharType = 'CharType -- ^ @:: 'CrucibleType'@.
-
--- | A type index for floating point numbers, whose interpretation
---   depends on the symbolic backend.
-type FloatType    = 'FloatType    -- ^ @:: 'FloatInfo' -> 'CrucibleType'@.
-
-
--- | A function handle taking a context of formal arguments and a return type.
-type FunctionHandleType = 'FunctionHandleType -- ^ @:: 'Ctx' 'CrucibleType' -> 'CrucibleType' -> 'CrucibleType'@.
-
--- | Named recursive types, named by the given symbol. To use
--- recursive types you must provide an instance of the
--- 'IsRecursiveType' class that gives the unfolding of this recursive
--- type. The 'Lang.Crucible.CFG.Expr.RollRecursive' and
--- 'Lang.Crucible.CFG.Expr.UnrollRecursive' operations witness the
--- isomorphism between a recursive type and its one-step unrolling.
--- Similar to Haskell's @newtype@, recursive types do not necessarily
--- have to mention the recursive type being defined; in which case,
--- the type is simply a new named type which is isomorphic to its
--- definition.
-type RecursiveType = 'RecursiveType -- ^ @:: 'Symbol' -> 'Ctx' 'CrucibleType' -> 'CrucibleType'@.
-
--- | Named intrinsic types. Intrinsic types are a way to extend the
--- Crucible type system after-the-fact and add new type
--- implementations. Core Crucible provides no operations on intrinsic
--- types; they must be provided as built-in override functions. See
--- the 'Lang.Crucible.Simulator.Intrinsics.IntrinsicClass' typeclass
--- and the 'Lang.Crucible.Simulator.Intrinsics.Intrinsic' type family
--- defined in "Lang.Crucible.Simulator.Intrinsics".
-type IntrinsicType ctx = 'IntrinsicType ctx -- ^ @:: 'Symbol' -> 'Ctx' 'CrucibleType' -> 'CrucibleType'@.
-
--- | The type of mutable reference cells.
-type ReferenceType = 'ReferenceType -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
-
--- | The 'Maybe' type lifted into Crucible expressions.
-type MaybeType = 'MaybeType -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
-
--- | A partial map from strings to values.
-type StringMapType = 'StringMapType -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
-
--- | A structure is an aggregate type consisting of a sequence of
--- values. The type of each value is known statically.
-type StructType = 'StructType -- ^ @:: 'Ctx' 'CrucibleType' -> 'CrucibleType'@.
-
--- | A type containing a single value "Unit".
-type UnitType      = 'UnitType      -- ^ @:: 'CrucibleType'@.
-
--- | A type for natural numbers.
-type NatType       = 'NatType       -- ^ @:: 'CrucibleType'@.
-
--- | A variant is a disjoint union of the types listed in the context.
-type VariantType   = 'VariantType   -- ^ @:: 'Ctx' 'CrucibleType' -> 'CrucibleType'@.
-
--- | A finite (one-dimensional) sequence of values.  Vectors are
--- optimized for random-access indexing and updating.  Vectors
--- of different lengths may not be combined at join points.
-type VectorType    = 'VectorType    -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
-
--- | Sequences of values, represented as linked lists of cons cells.  Sequences
--- only allow access to the front. Unlike Vectors, sequences of
--- different lengths may be combined at join points.
-type SequenceType  = 'SequenceType  -- ^ @:: 'CrucibleType' -> 'CrucibleType'@.
-
--- | A finite map from bitvector values to the given Crucible type.
--- The 'Nat' index gives the width of the bitvector values used to
--- index the map.
-type WordMapType   = 'WordMapType   -- ^ @:: 'Nat' -> 'BaseType' -> 'CrucibleType'@.
 
 ----------------------------------------------------------------
 -- Base Type Injection
