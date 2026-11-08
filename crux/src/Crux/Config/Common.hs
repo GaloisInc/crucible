@@ -241,8 +241,8 @@ cruxOptions = Config
             "Directory in which to create files generated from the inputFiles."
 
           checkPathSat <-
-            section "path-sat" yesOrNoSpec False
-            "Enable path satisfiability checking (default: no)."
+            section "path-sat" yesOrNoSpec True
+            "Enable path satisfiability checking (default: yes)."
 
           profileCrucibleFunctions <-
             section "profile-crucible" yesOrNoSpec False
