@@ -1055,6 +1055,13 @@ evalCast' ck ty1 e ty2  = do
       -- char to other uint
       (M.IntToInt, M.TyChar, M.TyUint s) -> baseSizeToNatCont s $ extendUnsignedBV e
 
+      -- char to isize
+      (M.IntToInt, M.TyChar, M.TyInt M.USize)
+       | MirExp (C.BVRepr sz) e0 <- e
+       -> return $ MirExp UsizeRepr (bvToIsize sz R.App e0)
+      -- char to other int
+      (M.IntToInt, M.TyChar, M.TyInt s) -> baseSizeToNatCont s $ extendSignedBV e
+
       -- byte to char
       (M.IntToInt, M.TyUint B8, M.TyChar) -> baseSizeToNatCont M.B32 $ extendUnsignedBV e
 

@@ -14,6 +14,7 @@ This release supports [version
 * Support calling the
   [`carrying_mul_add`](https://doc.rust-lang.org/std/intrinsics/fn.carrying_mul_add.html)
   intrinsic on signed integer types.
+* Support `as` casts from `char` to signed integer types.
 
 # 0.7 -- 2026-09-25
 
