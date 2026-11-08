@@ -174,6 +174,7 @@ customOpDefs = Map.fromList $ [
                          , sub_ptr_mut
                          , ptr_compare_usize
                          , is_aligned_and_not_null
+                         , compare_bytes
                          , ptr_slice_from_raw_parts
                          , ptr_slice_from_raw_parts_mut
 
@@ -593,6 +594,78 @@ is_aligned_and_not_null = (["core", "intrinsics", "is_aligned_and_not_null"],
     -- `MirReference_Integer i`.  However, `align_of` is not implementable
     -- until we start gathering layout information from mir-json.
     \_substs -> Just $ CustomOp $ \_ _ -> return $ MirExp C.BoolRepr $ R.App $ E.BoolLit True)
+
+compare_bytes :: (ExplodedDefId, CustomRHS)
+compare_bytes = (["core", "intrinsics", "compare_bytes"], \_substs -> Just $ CustomOp $ \_ ops -> case ops of
+  [MirExp MirReferenceRepr leftPtr, MirExp MirReferenceRepr rightPtr, MirExp UsizeRepr bytes] -> do
+    -- This is a simple reference implementation of `compare_bytes` that
+    -- corresponds to the following Rust code:
+    --
+    -- @
+    -- pub const unsafe fn compare_bytes(left: *const u8, right: *const u8, bytes: usize) -> i32 {
+    --     let mut i = 0;
+    --     while i < bytes {
+    --         let a = unsafe { *left.add(i) };
+    --         let b = unsafe { *right.add(i) };
+    --         if a != b {
+    --             return (a as i32) - (b as i32);
+    --         } else {
+    --             i += 1;
+    --         }
+    --     }
+    --     0
+    -- }
+    -- @
+    let w8 = knownNat @8
+    let w32 = knownNat @32
+    iRef <- G.newRef $ R.App $ usizeLit 0
+    returnValRef <- G.newRef $ R.App $ eBVLit w32 0
+
+    condLbl <- G.newLabel
+    loopLbl <- G.newLabel
+    exitLbl <- G.newLabel
+
+    -- The loop condition (i < bytes)
+    G.defineBlock condLbl $ do
+      i <- G.readRef iRef
+      G.branch (R.App (usizeLt i bytes)) loopLbl exitLbl
+
+    -- The loop body
+    G.defineBlock loopLbl $ do
+      -- let a = unsafe { *left.add(i) };
+      -- let b = unsafe { *right.add(i) };
+      i <- G.readRef iRef
+      let elemSize = 1 -- `leftPtr` and `rightPtr` are of type `*const u8`,
+                       -- where `u8` has a size of 1 byte.
+      leftPtrOff <- mirRef_offset leftPtr i elemSize
+      rightPtrOff <- mirRef_offset rightPtr i elemSize
+      let byteTpr = C.BVRepr w8
+      a <- readMirRef byteTpr (Width elemSize) leftPtrOff
+      b <- readMirRef byteTpr (Width elemSize) rightPtrOff
+
+      -- return (a as i32) - (b as i32);
+      exitEarlyLbl <- G.newLabel
+      G.defineBlock exitEarlyLbl $ do
+        let castByteToI32 = R.App . E.BVSext w32 w8
+        let diff = R.App $ E.BVSub w32 (castByteToI32 a) (castByteToI32 b)
+        G.writeRef returnValRef diff
+        G.jump exitLbl
+
+      -- i += 1;
+      continueLbl <- G.newLabel
+      G.defineBlock continueLbl $ do
+        let i' = R.App $ usizeAdd i $ R.App $ usizeLit 1
+        G.writeRef iRef i'
+        G.jump condLbl
+
+      -- if a != b { ... } else { ... }
+      let cond = R.App $ E.Not $ R.App $ E.BVEq w8 a b
+      G.branch cond exitEarlyLbl continueLbl
+
+    G.continue exitLbl $ G.jump condLbl
+    returnVal <- G.readRef returnValRef
+    pure $ MirExp (C.BVRepr w32) returnVal
+  _ -> mirFail $ "bad arguments for intrinsics::compare_bytes: " ++ show ops)
 
 ptr_slice_from_raw_parts_impl :: CustomRHS
 ptr_slice_from_raw_parts_impl = \substs -> case substs of
