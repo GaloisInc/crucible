@@ -1325,7 +1325,7 @@ atomicRWOp op x y =
           let c1 = app $ BVEq w xbv zero
               c2 = app $ Not $ app $ BVUle w xbv ybv -- ~(*ptr u<= val)
               c  = app $ Or c1 c2
-              t  = xbv
+              t  = ybv
               f  = app $ BVSub w xbv one in
           pure $ app $ BVIte c w t f
 

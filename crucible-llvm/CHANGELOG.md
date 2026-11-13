@@ -1,6 +1,8 @@
 # next
 
 * Support LLVM 23.
+* Fix a bug in which `atomicrmw udec_wrap ptr, val` would incorrectly evaluate
+  to `*ptr` instead of `val` when `*ptr > val`.
 
 # 0.10 -- 2026-09-11
 
