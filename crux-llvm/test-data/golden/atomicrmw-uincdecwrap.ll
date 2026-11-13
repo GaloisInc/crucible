@@ -23,7 +23,7 @@ define void @test_atomic_i32_op(i32 (i32*, i32)* %atomic_op, i32 %expected_old, 
   %cmp_new_zext = zext i1 %cmp_new to i8
   %str_cast = bitcast [8 x i8]* @.str to i8*
   call void @crucible_assert(i8 noundef zeroext %cmp_old_zext, i8* noundef %str_cast, i32 noundef 0)
-  call void @crucible_assert(i8 noundef zeroext %cmp_old_zext, i8* noundef %str_cast, i32 noundef 0)
+  call void @crucible_assert(i8 noundef zeroext %cmp_new_zext, i8* noundef %str_cast, i32 noundef 0)
   ret void
 }
 
