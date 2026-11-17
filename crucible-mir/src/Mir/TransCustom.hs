@@ -1020,6 +1020,7 @@ carrying_mul_add = (["core", "intrinsics", "carrying_mul_add"],
         -- Prove `1 <= w + w`
         , LeqProof <- leqAdd (leqProof (knownNat @1) w) w
         -> do
+          unsignedTyT <- unsignedType tyT
           let w2 = addNat w w
           let bvExt = case tyT of
                 TyInt _ -> \bv -> R.App $ E.BVSext w2 w bv
@@ -1030,11 +1031,20 @@ carrying_mul_add = (["core", "intrinsics", "carrying_mul_add"],
           let result = R.App $ E.BVAdd w2 prodBv sumBv
           let resultLo = R.App $ E.BVTrunc w w2 result
           let resultHi = R.App $ E.BVSelect w w w2 result
-          buildTupleMaybeM (TyTuple [tyT, tyT]) $
+          buildTupleMaybeM (TyTuple [unsignedTyT, tyT]) $
               [Just $ MirExp (C.BVRepr w) resultLo, Just $ MirExp (C.BVRepr w) resultHi]
       _ -> mirFail $ "carrying_mul_add: bad arguments: " ++ show ops
     _ -> Nothing)
-
+  where
+    -- Given a type @T@, compute the @Unsigned@ associated type in @T@'s
+    -- @CarryingMulAdd@ impl
+    -- (https://doc.rust-lang.org/std/intrinsics/fallback/trait.CarryingMulAdd.html).
+    -- @CarryingMulAdd@ is only implemented for primitive integer types, so
+    -- this function will fail when given any other type.
+    unsignedType :: Ty -> MirGenerator h s ret Ty
+    unsignedType (TyUint sz) = pure $ TyUint sz
+    unsignedType (TyInt sz) = pure $ TyUint sz
+    unsignedType ty = mirFail $ "BUG: invalid type for carrying_mul_add: " ++ show ty
 
 
 -- Implement the [`core::intrinsics::exact_div`] intrinsic.

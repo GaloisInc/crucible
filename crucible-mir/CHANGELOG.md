@@ -11,6 +11,9 @@ This release supports [version
 * Support simulating Rust code up to version 1.91 (`nightly-2026-08-24`).
 * Support `as` casts involving floating-point types.
 * Support `transmute`s between floating-point types and integer types.
+* Support calling the
+  [`carrying_mul_add`](https://doc.rust-lang.org/std/intrinsics/fn.carrying_mul_add.html)
+  intrinsic on signed integer types.
 
 # 0.7 -- 2026-09-25
 
