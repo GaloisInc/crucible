@@ -1,0 +1,13 @@
+test strided/<DISAMB>::struct_array_sym_index[0]: [Crux] Attempting to prove verification conditions.
+ok
+test strided/<DISAMB>::tuple_array_sym_index[0]: [Crux] Attempting to prove verification conditions.
+ok
+
+[Crux-MIR] ---- FINAL RESULTS ----
+[Crux] Goal status:
+[Crux]   Total: 14
+[Crux]   Proved: 14
+[Crux]   Disproved: 0
+[Crux]   Incomplete: 0
+[Crux]   Unknown: 0
+[Crux] Overall status: Valid.

@@ -358,14 +358,27 @@ readSubaggregateWithSymOffset bak iteFn readSize off ag@(MirAggregate agSize _)
     readConcrete off'
   | otherwise = do
       -- Do some static winnowing of the offsets we need to check. Don't try to
-      -- read at an offset if:
+      -- read at an offset `o` if:
       -- - There isn't a large enough sub-aggregate starting at that offset
       -- - Extracting a sub-aggregate starting at that offset would split an
       --   aggregate entry
+      -- - We see that `o` represents a "strided" offset that looks like
+      --   `stride*idx + base`, `stride` and `base` are concrete, and:
+      --   - `o < base`, or
+      --   - `(o - base) % stride != 0`
       let sizedAgOffsets = case readSize of
             All -> [0 .. agSize]
             Width w -> [0 .. agSize - w]
       let nonSplittingAgOffsets = filter (not . offsetSplitsEntry ag) sizedAgOffsets
+      let stridedOffsets =
+            case asAffineVar off of
+              Just (fromConcreteBV -> stride, _r, fromConcreteBV -> base) ->
+                let keep (BV.mkBV knownRepr . toInteger -> o)
+                      | o < base = False
+                      | BV.BV 0 <- (BV.sub knownRepr o base) `BV.urem` stride = True
+                      | otherwise = False
+                 in filter keep nonSplittingAgOffsets
+              _ -> nonSplittingAgOffsets
 
       -- We're muxing together reads of sub-aggregates starting at each possible
       -- offset in `ag`. If a read operation (via `readConcrete`) at a given
@@ -380,7 +393,7 @@ readSubaggregateWithSymOffset bak iteFn readSize off ag@(MirAggregate agSize _)
             Just subAg -> liftIO $ iteFn' isTheOffset (justPartExpr sym subAg) origAgP
             Nothing -> pure origAgP)
         Unassigned
-        nonSplittingAgOffsets
+        stridedOffsets
 
       -- We've used `Unassigned` as the base case for the above mux so we'll be
       -- left with `Unassigned` in failure cases, and can propagate that error
@@ -502,14 +515,27 @@ adjustSubaggregateWithSymOffset bak iteFn off f adjSize ag@(MirAggregate agSize 
       adjustConcrete off'
   | otherwise = do
       -- Do some static winnowing of the offsets we need to check. Don't try to
-      -- read at an offset if:
+      -- adjust at an offset `o` if:
       -- - There isn't a large enough sub-aggregate starting at that offset
       -- - Extracting a sub-aggregate starting at that offset would split an
       --   aggregate entry
+      -- - We see that `o` represents a "strided" offset that looks like
+      --   `stride*idx + base`, `stride` and `base` are concrete, and:
+      --   - `o < base`, or
+      --   - `(o - base) % stride != 0`
       let sizedAgOffsets = case adjSize of
             All -> [0 .. agSize]
             Width w -> [0 .. agSize - w]
       let nonSplittingAgOffsets = filter (not . offsetSplitsEntry ag) sizedAgOffsets
+      let stridedOffsets =
+            case asAffineVar off of
+              Just (fromConcreteBV -> stride, _r, fromConcreteBV -> base) ->
+                let keep (BV.mkBV knownRepr . toInteger -> o)
+                      | o < base = False
+                      | BV.BV 0 <- (BV.sub knownRepr o base) `BV.urem` stride = True
+                      | otherwise = False
+                in filter keep nonSplittingAgOffsets
+              _ -> nonSplittingAgOffsets
 
       foldM
         (\origAg candidateOff -> do
@@ -519,7 +545,7 @@ adjustSubaggregateWithSymOffset bak iteFn off f adjSize ag@(MirAggregate agSize 
             Just adjustedAg -> liftIO $ iteFn isTheOffset adjustedAg origAg
             Nothing -> pure origAg)
         ag
-        nonSplittingAgOffsets
+        stridedOffsets
   where
     adjustConcrete off' = do
       let sz = case adjSize of
