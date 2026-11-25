@@ -18,6 +18,7 @@ import qualified Data.BitVector.Sized as BV
 
 import Lang.Crucible.CFG.Expr
 import Lang.Crucible.CFG.Reg (Expr(..))
+import Lang.Crucible.Syntax (floatRemTruncating)
 import Lang.Crucible.Types
 
 import Lang.Crucible.JVM.Types
@@ -178,7 +179,10 @@ fAdd e1 e2 = App (FloatAdd SingleFloatRepr RNE e1 e2)
 fSub e1 e2 = App (FloatSub SingleFloatRepr RNE e1 e2)
 fMul e1 e2 = App (FloatMul SingleFloatRepr RNE e1 e2)
 fDiv e1 e2 = App (FloatDiv SingleFloatRepr RNE e1 e2)
-fRem e1 e2 = App (FloatRem SingleFloatRepr e1 e2)
+-- The % operator uses truncating floating-point remainder.
+-- See Note [Floating-point remainder] in crucible's Lang.Crucible.Syntax
+-- module.
+fRem e1 e2 = floatRemTruncating SingleFloatRepr e1 e2
 
 -- | A floating-point comparison is performed: If @value1@ is greater
 -- than @value2@, the @int@ value 1 is pushed onto the operand stack.
@@ -219,7 +223,10 @@ dAdd e1 e2 = App (FloatAdd DoubleFloatRepr RNE e1 e2)
 dSub e1 e2 = App (FloatSub DoubleFloatRepr RNE e1 e2)
 dMul e1 e2 = App (FloatMul DoubleFloatRepr RNE e1 e2)
 dDiv e1 e2 = App (FloatDiv DoubleFloatRepr RNE e1 e2)
-dRem e1 e2 = App (FloatRem DoubleFloatRepr e1 e2)
+-- The % operator uses truncating floating-point remainder.
+-- See Note [Floating-point remainder] in crucible's Lang.Crucible.Syntax
+-- module.
+dRem e1 e2 = floatRemTruncating DoubleFloatRepr e1 e2
 
 dNeg :: JVMDouble s -> JVMDouble s
 dNeg e = App (FloatNeg DoubleFloatRepr e)

@@ -131,7 +131,7 @@ library
     bv-sized >= 1.0.0,
     bytestring,
     containers >= 0.5.8.0,
-    crucible >= 0.5,
+    crucible >= 0.10.0.0.100,
     crucible-symio,
     what4 >= 0.5,
     extra,

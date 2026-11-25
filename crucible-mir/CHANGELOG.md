@@ -18,6 +18,10 @@ This release supports [version
 * Support the
   [`compare_bytes`](https://doc.rust-lang.org/std/intrinsics/fn.compare_bytes.html)
   intrinsic.
+* Fix a bug in which Rust's floating-point `%` operator would incorrectly round
+  an intermediate result to the nearest even number instead of rounding towards
+  zero. (For instance, `5.0 % 3.0` would incorrectly evaluate to `-1.0` instead
+  of `2.0`.)
 
 # 0.7 -- 2026-09-25
 

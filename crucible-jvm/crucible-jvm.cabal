@@ -61,7 +61,7 @@ library
     bv-sized >= 1.0.0,
     bytestring,
     containers,
-    crucible,
+    crucible >= 0.10.0.0.100,
     cryptohash-sha1 >= 0.11 && < 0.12,
     directory >= 1.2.5,
     extra >= 1.6.4,

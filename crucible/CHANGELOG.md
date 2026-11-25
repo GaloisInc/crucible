@@ -3,6 +3,7 @@
 * The CVC4 SMT solver is no longer supported. As such,
   `Lang.Crucible.Backend.Online` no longer defines `CVC4OnlineBackend` or
   `withCVC4OnlineBackend`.
+* Add `floatRemTruncating` and `floatCopySign` to `Lang.Crucible.Syntax`.
 
 # 0.10 -- 2026-09-11
 

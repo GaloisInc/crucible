@@ -3,6 +3,11 @@
 * Support LLVM 23.
 * Fix a bug in which `atomicrmw udec_wrap ptr, val` would incorrectly evaluate
   to `*ptr` instead of `val` when `*ptr > val`.
+* Fix a bug in which LLVM's `frem` instruction (used to implement the `fmod`
+  function in C) would incorrectly round an
+  intermediate result to the nearest even number instead of rounding towards
+  zero. (For instance, `frem double 5.0, double 3.0` would incorrectly evaluate
+  to `-1.0` instead of `2.0`.)
 
 # 0.10 -- 2026-09-11
 

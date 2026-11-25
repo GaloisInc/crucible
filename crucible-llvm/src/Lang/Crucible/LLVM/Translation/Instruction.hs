@@ -2118,7 +2118,10 @@ arithOp op _ x y =
        L.FDiv ->
          return $ App $ FloatDiv fi RNE a b
        L.FRem -> do
-         return $ App $ FloatRem fi a b
+         -- The 'frem' instruction uses truncating floating-point remainder.
+         -- See Note [Floating-point remainder] in crucible's
+         -- Lang.Crucible.Syntax module.
+         return $ floatRemTruncating fi a b
        _ -> reportError
               $ fromString
               $ unwords [ "unsupported floating-point arith operation"

@@ -784,7 +784,10 @@ evalBinOp bop mat me1 me2 =
             M.Sub -> return (MirExp (C.FloatRepr fi1) (S.app $ E.FloatSub fi1 E.RNE e1 e2), noOverflow)
             M.Mul -> return (MirExp (C.FloatRepr fi1) (S.app $ E.FloatMul fi1 E.RNE e1 e2), noOverflow)
             M.Div -> return (MirExp (C.FloatRepr fi1) (S.app $ E.FloatDiv fi1 E.RNE e1 e2), noOverflow)
-            M.Rem -> return (MirExp (C.FloatRepr fi1) (S.app $ E.FloatRem fi1 e1 e2), noOverflow)
+            -- The % operator uses truncating floating-point remainder.
+            -- See Note [Floating-point remainder] in crucible's
+            -- Lang.Crucible.Syntax module.
+            M.Rem -> return (MirExp (C.FloatRepr fi1) (S.floatRemTruncating fi1 e1 e2), noOverflow)
 
             _ -> mirFail $ "No translation for real number binop: " ++ fmt bop
 

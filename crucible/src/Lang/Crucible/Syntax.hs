@@ -46,6 +46,9 @@ module Lang.Crucible.Syntax
   , rationalLit
   , natToReal
   , integerToReal
+    -- * Floating-point numbers
+  , floatRemTruncating
+  , floatCopySign
     -- * Complex real numbers
   , realToCplx
   , imagToCplx
@@ -252,6 +255,104 @@ natToReal = integerToReal . natToInteger
 
 instance ConvertableToNat e RealValType where
   toNat v = app (RealToNat v)
+
+------------------------------------------------------------------------
+-- FloatType
+
+-- | @'floatRemTruncating fi x y@ returns an expression whose value is
+-- equivalent to the expression @x - n * y@ (computed with infinite-precision
+-- arithmetic) rounded to the floating-point type given by @fi@, where @n@ is
+-- @x / y@ with its fractional part truncated. Note that this is different from
+-- computing 'FloatRem': see Note [Floating-point remainder].
+floatRemTruncating ::
+  forall e fi.
+  IsExpr e =>
+  FloatInfoRepr fi ->
+  e (FloatType fi) ->
+  e (FloatType fi) ->
+  e (FloatType fi)
+floatRemTruncating fi x y = floatCopySign fi res x
+  where
+    absX, absY :: e (FloatType fi)
+    absX = app $ FloatAbs fi x
+    absY = app $ FloatAbs fi y
+
+    remXY :: e (FloatType fi)
+    remXY = app $ FloatRem fi absX absY
+
+    res :: e (FloatType fi)
+    res = app $ FloatIte
+                  fi
+                  (app (FloatIsNegative remXY))
+                  (app (FloatAdd fi RNE remXY absY))
+                  remXY
+
+-- | @'floatCopySign' fi x y@ returns an expression with the same magnitude as
+-- @x@ and the same sign as @y@.
+floatCopySign ::
+  forall e fi.
+  IsExpr e =>
+  FloatInfoRepr fi ->
+  e (FloatType fi) ->
+  e (FloatType fi) ->
+  e (FloatType fi)
+floatCopySign fi x y = app $ FloatIte fi signsSame x (app (FloatNeg fi x))
+  where
+    signsSame :: e BoolType
+    signsSame = app $ BoolEq (app (FloatIsNegative x)) (app (FloatIsNegative y))
+
+{-
+Note [Floating-point remainder]
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+There are at least two different definitions of the floating-point remainder
+operation:
+
+* _Rounding_ remainder. Essentially, this is defined as the result of `x -
+  roundToEven (x / y) * y` in infinite-precision arithmetic, then rounding to
+  the given floating-point type.
+* _Truncating_ remainder. Essentially, this is defined as the result of `x -
+  trunc (x / y) * y` in infinite-precision arithmetic, then rounding to the
+  given floating-point type.
+
+(We say "Essentially" in the definitions above because there are some tricky
+corner cases involving the sign of the overall result, as well as
+special-valued arguments like NaN or infinity. These corner cases aren't
+important to the overall point of this Note.)
+
+We must be careful when defining the semantics of floating-point remainder
+operations, as different operations use different semantics. Notably:
+
+* Rounding remainder is the semantics of C's `remainder` function and SMT-LIB's
+  `fp.rem` operation.
+* Truncating remainder is the semantics of C's `fmod` function, as well as the
+  `%` operator in Java and Rust (when applied to floating-point types).
+
+Somewhat annoyingly, SMT-LIB's `fp.rem` alone doesn't suffice as the semantics
+for truncating-remainder operations. We _could_ define the semantics of
+truncating remainder using infinite-precision arithmetic (i.e., using rational
+numbers), but not all SMT solvers support this out of the box (e.g., Bitwuzla).
+
+Luckily, cppreference.com has the following alternative definition of
+truncating remainder (i.e., `fmod`) in terms of rounding remainder (i.e.,
+`remainder`): https://en.cppreference.com/c/numeric/math/fmod#Notes
+
+```
+double fmod(double x, double y)
+{
+#pragma STDC FENV_ACCESS ON
+    double result = remainder(fabs(x), (y = fabs(y)));
+    if (signbit(result))
+        result += y;
+    return copysign(result, x);
+}
+```
+
+In terms of SMT-LIB, this definition can be implemented using solely the
+FloatingPoint theory, which makes it feasible to use in many more SMT solvers.
+This is the semantics for truncating remainder that we implement in in the
+`floatRemTruncating` function, which we use in various Crucible backends
+(currently LLVM, JVM, and MIR).
+-}
 
 ------------------------------------------------------------------------
 -- ComplexRealType

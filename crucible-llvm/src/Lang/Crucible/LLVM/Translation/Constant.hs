@@ -61,7 +61,6 @@ import           Data.Bits
 import           Data.Kind
 import           Data.List (intercalate, isPrefixOf)
 import           Data.Traversable
-import           Data.Fixed (mod')
 import qualified Data.Vector as V
 import           Lens.Micro ((^.), to)
 import           Numeric.Natural
@@ -610,7 +609,7 @@ evalUnaryArith _ _ _ = throwError "unary arithmetic argument mismatch"
 
 -- | Evaluate a binary floating-point operation.
 evalFarith ::
-  (RealFrac a, MonadError String m) =>
+  (RealFloat a, MonadError String m) =>
   L.ArithOp ->
   a -> a -> m a
 evalFarith op x y =
@@ -619,7 +618,7 @@ evalFarith op x y =
     L.FSub -> return (x - y)
     L.FMul -> return (x * y)
     L.FDiv -> return (x / y)
-    L.FRem -> return (mod' x y)
+    L.FRem -> return (frem x y)
     _ -> throwError "Encountered integer arithmetic operation applied to floating point arguments"
 
 -- | Evaluate a unary floating-point operation.
@@ -1202,3 +1201,33 @@ transConstantExpr expr = case expr of
 
 testCutpointFunction :: String -> Bool
 testCutpointFunction = isPrefixOf "__cutpoint__"
+
+-- | A reference implementation of LLVM's @frem@ instruction, i.e., truncating
+-- floating-point remainder. The @base@ library doesn't implement this; the
+-- closest thing is @Data.Fixed.mod'@, but that rounds towards negative
+-- infinity instead of truncating.
+
+-- See also @Note [Floating-point remainder]@ in @crucible@'s
+-- "Lang.Crucible.Syntax" module for a more general discussion about
+-- floating-point remainder operations.
+frem :: forall a. RealFloat a => a -> a -> a
+frem x y
+  | isNaN x || isNaN y || isInfinite x || (y == 0) = 0/0 -- NaN
+  | isInfinite y || (x == 0) = x
+  | otherwise = copySign res x
+  where
+    rx, ry :: Rational
+    rx = toRational rx
+    ry = toRational ry
+
+    res :: a
+    res = fromRational (rx - (ry * fromInteger (truncate (rx / ry))))
+
+-- | @'copySign' x y@ returns a value with the magnitude of @x@ and the sign of
+-- @y@. Note that this is a simplified implementation that does not distinguish
+-- between different NaN values. This is OK for Crucible's purposes, as SMT-LIB
+-- also treats all NaN values identically.
+copySign :: RealFloat a => a -> a -> a
+copySign x y
+  | (y < 0) || isNegativeZero y = - (abs x)
+  | otherwise = x

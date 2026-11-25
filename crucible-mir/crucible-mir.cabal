@@ -123,7 +123,7 @@ library
                  bytestring,
                  prettyprinter >= 1.7.0,
                  text,
-                 crucible,
+                 crucible >= 0.10.0.0.100,
                  parameterized-utils >= 2.3,
                  containers,
                  indexed-traversable,
